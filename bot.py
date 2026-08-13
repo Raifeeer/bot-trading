@@ -46,6 +46,18 @@ except ImportError:
 
     def notify_risk_halt(*a, **k):
         return False
+try:
+    from state.telegram_bot import (update_state as _tg_update_state,
+                                    start_tg_bot)
+except ImportError:
+    def _tg_update_state(_s):
+        pass
+
+    def start_tg_bot():
+        import threading
+        t = threading.Thread(target=lambda: None, daemon=True)
+        t.start()
+        return t
 from strategies.swing_trading import SwingTrend
 from options.chains import OptionFeed, SpreadBuilder
 from options.strategy import OptionsStrategy, OptionsPosition, evaluate_exit
@@ -176,6 +188,7 @@ def main():
     feed = MarketDataFeed(cfg["data"]["provider"])
     rm = RiskManager(cfg["risk"])
     executor = AlpacaExecutor(dry_run=args.dry_run)
+    start_tg_bot()
     try:
         executor.connect()
         equity0 = float(executor.account_snapshot()["equity"])
@@ -324,10 +337,11 @@ def main():
                                      p["symbol"], e)
 
             save_state(state)
+            acct = executor.account_snapshot() if not executor.dry_run else {
+                "equity": equity, "cash": equity, "portfolio_value": equity,
+                "buying_power": equity * 4}
             if FIRESTORE_ENABLED:
                 try:
-                    acct = executor.account_snapshot() if not executor.dry_run else {
-                        "equity": equity, "cash": equity, "portfolio_value": equity}
                     write_state_snapshot({
                         "equity": equity,
                         "cash": acct.get("cash", equity),
@@ -350,6 +364,19 @@ def main():
                     append_equity_point(equity)
                 except Exception:  # noqa: BLE001
                     logger.exception("Error publicando estado a Firestore")
+            try:
+                from state.telegram_bot import update_state as _up
+                _up({"equity": equity, "cash": acct.get("cash", equity),
+                     "buying_power": acct.get("buying_power"),
+                     "positions": state["positions"],
+                     "alpaca_positions": executor.positions() if not executor.dry_run else [],
+                     "risk": {"halted": rm.is_halted()},
+                     "trading_mode": trading_mode(),
+                     "decisions_today": [d for d in state["decisions"]
+                                         if d.get("ts", "").startswith(
+                                             datetime.utcnow().strftime("%Y-%m-%d"))]})
+            except Exception:  # noqa: BLE001
+                logger.exception("Fallo actualizando estado Telegram")
             logger.info("Tick OK — equity=%.2f posiciones=%d", equity, len(state["positions"]))
 
         except Exception as e:  # noqa: BLE001
