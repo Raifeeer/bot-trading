@@ -187,19 +187,34 @@ def main():
                 time.sleep(600)
                 continue
 
-            # 1. datos (días proporcionales al timeframe de las estrategias:
-            #    day_momentum usa EMA21 → 26+; swing usa SMA200 → 205+; día de
-            #    margen para ATR/vol → 210 días de barras 1d)
-            data = feed.history(tickers, "1d", days=210)
-            if not data:
-                logger.warning("Sin datos; reintentando en 5 min")
-                time.sleep(300)
-                continue
-
-            # 2-4. señales → estructuras
+            # 1. datos con el timeframe propio de cada estrategia:
+            #    swing usa 1d (210 días para SMA200+ATR); day usa 5m/15m
+            tf_by_strat = {}
             for sname, strat in strats.items():
+                tf = strat.base.cfg.get("timeframe", "1d")
+                days = 210 if tf == "1d" else (10 if tf == "15min" else 5)
+                tf_by_strat[sname] = (tf, days)
+            cached = {}
+            skip_tick = False
+            for sname, strat in strats.items():
+                tf, days = tf_by_strat[sname]
+                if tf not in cached:
+                    d = feed.history(tickers, tf, days=days)
+                    cached[tf] = d
+                    if d:
+                        logger.info("Datos %s: %d tickers (%d barras)", tf,
+                                    len(d), len(next(iter(d.values()))))
+                    else:
+                        logger.warning("Sin datos %s; reintentando en 5 min", tf)
+                        skip_tick = True
+                if skip_tick:
+                    break
+                data = cached[tf]
+                if not data:
+                    continue
+                # 2-4. señales → estructuras
                 for sym, df in data.items():
-                    if len(df) < 60:
+                    if len(df) < (60 if tf == "1d" else 20):
                         continue
                     sig = strat.scan(df, symbol=sym)
                     if sig.tradable and strat.last_structure:
@@ -224,6 +239,8 @@ def main():
                             })
                             state["decisions"].append(dict(
                                 ts=datetime.utcnow().isoformat(), **vars(dec)))
+                            logger.info("POSICIÓN ABIERTA %s %s %s prima=%.2f",
+                                        sym, sname, st.name, st.net_premium)
                             strat.reset()
                             save_state(state)
 
@@ -289,7 +306,10 @@ def main():
         except Exception as e:  # noqa: BLE001
             logger.exception("Error en el loop: %s", e)
 
-        time.sleep(args.poll_minutes * 60)
+        if not skip_tick:
+            time.sleep(args.poll_minutes * 60)
+        else:
+            time.sleep(300)
 
 
 if __name__ == "__main__":
