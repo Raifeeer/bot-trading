@@ -33,6 +33,19 @@ try:
 except ImportError:
     FIRESTORE_ENABLED = False
 from strategies.day_trading import DayMomentum, DayBreakout
+try:
+    from state.telegram_notify import (notify_position_open,
+                                       notify_position_close,
+                                       notify_risk_halt)
+except ImportError:
+    def notify_position_open(*a, **k):
+        return False
+
+    def notify_position_close(*a, **k):
+        return False
+
+    def notify_risk_halt(*a, **k):
+        return False
 from strategies.swing_trading import SwingTrend
 from options.chains import OptionFeed, SpreadBuilder
 from options.strategy import OptionsStrategy, OptionsPosition, evaluate_exit
@@ -81,6 +94,14 @@ def strat_by_name(name):
     return _STRATS.get(name)
 
 _STRATS = {}
+
+
+def trading_mode() -> str:
+    """Devuelve el modo operativo en texto para las alertas."""
+    if args.dry_run:
+        return "DRY-RUN"
+    base = os.environ.get("APCA_API_BASE_URL", "")
+    return "PAPER" if "paper" in base else "REAL"
 
 
 def _manage_open_position(feed, builder, strat, pos):
@@ -184,6 +205,10 @@ def main():
             rm.check_circuit_breakers(equity)
             if rm.is_halted():
                 logger.critical("BOT DETENIDO por circuit breaker. Equity=%.2f", equity)
+                try:
+                    notify_risk_halt(f"Equity actual: ${equity:,.2f}")
+                except Exception:  # noqa: BLE001
+                    logger.exception("Fallo notificando halt de riesgo")
                 time.sleep(600)
                 continue
 
@@ -241,6 +266,12 @@ def main():
                                 ts=datetime.utcnow().isoformat(), **vars(dec)))
                             logger.info("POSICIÓN ABIERTA %s %s %s prima=%.2f",
                                         sym, sname, st.name, st.net_premium)
+                            try:
+                                notify_position_open(sym, sname, st.name,
+                                                     st.net_premium,
+                                                     st.max_risk, trading_mode())
+                            except Exception:  # noqa: BLE001
+                                logger.exception("Fallo notificando apertura")
                             strat.reset()
                             save_state(state)
 
@@ -259,15 +290,33 @@ def main():
                                 "sell" if leg.quantity > 0 else "buy",
                                 abs(leg.quantity))
                             closed_legs.append(r)
+                        entry_px = abs(p.get("net_premium") or 0.0)
+                        current_net = 0.0
+                        try:
+                            st_close = strat_structure_for(p, strats.get(p["strategy"]))
+                            for leg in st_close.legs:
+                                c = leg.contract
+                                px = c.last or ((c.bid + c.ask) / 2.0 if c.bid and c.ask else None) or 0.0
+                                sign = 1 if leg.quantity > 0 else -1
+                                current_net += sign * px
+                        except Exception:  # noqa: BLE001
+                            logger.exception("No se pudo recalcular prima al cerrar")
+                        pnl = (entry_px - abs(current_net)) * 100
                         state["positions"].pop(i)
                         state["decisions"].append({
                             "ts": datetime.utcnow().isoformat(),
                             "position": p, "exit_reason": reason,
                             "signal_type": sig_type, "close_legs": closed_legs,
-                            "action": "POSITION_CLOSED",
+                            "action": "POSITION_CLOSED", "pnl": pnl,
                         })
-                        logger.info("Posición cerrada %s (%s): %s",
-                                    p["symbol"], p["strategy"], reason)
+                        logger.info("Posición cerrada %s (%s): %s pnl=%.2f",
+                                    p["symbol"], p["strategy"], reason, pnl)
+                        try:
+                            notify_position_close(p["symbol"], p["strategy"],
+                                                  p.get("structure", ""), reason,
+                                                  pnl, trading_mode())
+                        except Exception:  # noqa: BLE001
+                            logger.exception("Fallo notificando cierre")
                         strat_by_name(p["strategy"]).reset()
                         save_state(state)
                 except Exception as e:  # noqa: BLE001
