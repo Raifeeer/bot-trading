@@ -1,0 +1,128 @@
+# =============================================================================
+# Configuración principal del Trading Bot (Alpaca)
+# =============================================================================
+
+broker:
+  name: alpaca
+  paper: true                # true = paper trading, false = cuenta real
+  api_key: ""                # Definir en alpaca_env.sh o variables de entorno
+  secret_key: ""
+  base_url: "https://paper-api.alpaca.markets"   # paper; real: https://api.alpaca.markets
+
+universo:
+  # Acciones Nasdaq y S&P 500 de alta liquidez (subset inicial)
+  # El pipeline puede ampliar la lista automáticamente
+  tickers:
+    - AAPL
+    - MSFT
+    - GOOGL
+    - AMZN
+    - NVDA
+    - META
+    - TSLA
+    - AMD
+    - NFLX
+    - AVGO
+    - COST
+    - AMAT
+    - CRWD
+    - PLTR
+    - SPY
+    - QQQ
+    - IWM
+  max_tickers: 20
+  min_price: 5.0             # Evitar penny stocks
+  min_avg_volume: 1_000_000  # Liquidez mínima diaria
+
+data:
+  provider: alpaca           # alpaca (real) o yfinance (respaldo sin API key)
+  bars:
+    - 1min
+    - 5min
+    - 15min
+    - 1d
+  history_days: 365          # Días de historia para backtest
+  refresh_interval_min: 5    # Frecuencia de actualización en vivo
+  db: sqlite:///data/market.db
+
+strategies:
+  # ---------------------------------------------------------------------------
+  # DAY TRADING: momentum intradía con filtro de volatilidad (velas 5 min)
+  # ---------------------------------------------------------------------------
+  day_momentum:
+    enabled: true
+    type: day_trading
+    timeframe: 5min
+    params:
+      fast_ema: 9
+      slow_ema: 21
+      atr_period: 14
+      atr_multiplier_stop: 2.0
+      volume_min_multiple: 1.5   # volumen vs promedio 20 períodos
+      rsi_period: 14
+      rsi_max: 70                # no comprar sobrecomprado
+      rsi_min: 30                # no vender sobrevendido
+      hold_max_bars: 48          # máximo ~4 horas de posición
+      cooldown_minutes: 30       # tras salida, esperar antes de re-entrar
+
+  # ---------------------------------------------------------------------------
+  # DAY TRADING: breakout de apertura con canal Donchian (velas 15 min)
+  # ---------------------------------------------------------------------------
+  day_breakout:
+    enabled: true
+    type: day_trading
+    timeframe: 15min
+    params:
+      donchian_period: 10        # canal de últimas 10 velas (2.5 h)
+      atr_period: 14
+      atr_multiplier_stop: 2.5
+      breakout_conf_bars: 1      # velas de confirmación
+      hold_max_bars: 20          # máximo ~5 horas
+      session_start: "10:00"     # no operar la primera hora volátil
+      session_end: "15:30"
+
+  # ---------------------------------------------------------------------------
+  # SWING TRADING: tendencia con cruce de medias + filtro de régimen (diario)
+  # ---------------------------------------------------------------------------
+  swing_trend:
+    enabled: true
+    type: swing
+    timeframe: 1d
+    params:
+      fast_sma: 20
+      slow_sma: 50
+      trend_filter_sma: 200      # solo largas si precio > SMA200
+      atr_period: 14
+      atr_multiplier_stop: 3.0
+      atr_multiplier_target: 6.0 # take profit dinámico
+      min_hold_days: 2
+      max_hold_days: 20
+
+risk:
+  mode: moderate               # conservative | moderate | aggressive
+  max_risk_per_trade_pct: 1.0  # % del capital en riesgo por operación
+  max_open_positions: 5
+  max_sector_weight_pct: 40.0  # (aproximación: máx % en 1 sola posición)
+  max_drawdown_daily_pct: 3.0  # detiene trading del día
+  max_drawdown_total_pct: 10.0 # detiene el bot
+  allow_pyramiding: false
+  allow_averaging_down: false
+  # Horario de operación (hora Nueva York)
+  market_open: "09:30"
+  market_close: "16:00"
+
+execution:
+  order_type: limit              # limit | market
+  limit_offset_pct: 0.1          # limite al precio +/- 0.1% para day trading
+  default_time_in_force: day     # day | gtc
+  slippage_bps: 5                # estimado para backtests
+  commission_usd: 0.0            # Alpaca: sin comisiones en acciones
+  min_order_usd: 100
+
+monitor:
+  log_level: INFO
+  alerts:
+    telegram_enabled: false
+    telegram_token: ""
+    telegram_chat_id: ""
+    email_enabled: false
