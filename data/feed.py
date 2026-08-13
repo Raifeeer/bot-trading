@@ -96,27 +96,33 @@ def fetch_yfinance(symbol: str, timeframe: str, start: str, end: str = None) -> 
         logger.warning("yfinance limita intradía a ~60 días; se usa el máximo disponible")
     # Reintentos: el cache sqlite de yfinance a veces lanza
     # "database is locked" en llamadas concurrentes.
+    import socket as _socket
+    _prev_timeout = _socket.getdefaulttimeout()
+    _socket.setdefaulttimeout(45)  # evita colgarse indefinidamente con Yahoo
     err = None
-    for attempt in range(3):
-        try:
-            tkr = yf.Ticker(symbol)
-            df = tkr.history(start=start_dt.strftime("%Y-%m-%d"),
-                             end=(end_dt + timedelta(days=1)).strftime("%Y-%m-%d"),
-                             interval=tf, auto_adjust=False)
-            if df.empty:
-                raise DataFeedError(
-                    f"yfinance no devolvió datos para {symbol} ({timeframe})")
-            df.index.name = "timestamp"
-            df.index = pd.to_datetime(df.index, utc=True)
-            return _clean(df)
-        except DataFeedError:
-            raise
-        except Exception as e:  # noqa: BLE001
-            err = e
-            logger.warning("%s yfinance intento %d falló: %s (%s)",
-                           symbol, attempt + 1, type(e).__name__, e)
-            time.sleep(1.0 * (attempt + 1))
-    raise DataFeedError(f"yfinance agotó reintentos para {symbol}: {err}")
+    try:
+        for attempt in range(3):
+            try:
+                tkr = yf.Ticker(symbol)
+                df = tkr.history(start=start_dt.strftime("%Y-%m-%d"),
+                                 end=(end_dt + timedelta(days=1)).strftime("%Y-%m-%d"),
+                                 interval=tf, auto_adjust=False)
+                if df.empty:
+                    raise DataFeedError(
+                        f"yfinance no devolvió datos para {symbol} ({timeframe})")
+                df.index.name = "timestamp"
+                df.index = pd.to_datetime(df.index, utc=True)
+                return _clean(df)
+            except DataFeedError:
+                raise
+            except Exception as e:  # noqa: BLE001
+                err = e
+                logger.warning("%s yfinance intento %d falló: %s (%s)",
+                               symbol, attempt + 1, type(e).__name__, e)
+                time.sleep(1.0 * (attempt + 1))
+        raise DataFeedError(f"yfinance agotó reintentos para {symbol}: {err}")
+    finally:
+        _socket.setdefaulttimeout(_prev_timeout)
 
 
 class MarketDataFeed:

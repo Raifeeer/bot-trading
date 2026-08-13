@@ -211,6 +211,19 @@ def main():
     logger.info("Bot iniciado: %d estrategias, %d tickers, poll=%.0fmin, dry_run=%s",
                 len(strats), len(tickers), args.poll_minutes, args.dry_run)
 
+    # Watchdog: si ningún tick completo en MAX_TICK_SECONDS, el proceso se
+    # reinicia y Cloud Run recrea la instancia automáticamente.
+    import sys as _sys
+    _hb = {"ts": [time.time()]}
+    def _watchdog():
+        while True:
+            time.sleep(60)
+            if time.time() - _hb["ts"][-1] > 720:
+                logger.critical("Watchdog: sin ticks completos en 12 min; "
+                                "reiniciando el proceso")
+                _sys.exit(1)
+    threading.Thread(target=_watchdog, daemon=True, name="watchdog").start()
+
     while True:
         try:
             snap = executor.account_snapshot()
@@ -379,6 +392,7 @@ def main():
                                              datetime.utcnow().strftime("%Y-%m-%d"))]})
             except Exception:  # noqa: BLE001
                 logger.exception("Fallo actualizando estado Telegram")
+            _hb["ts"].append(time.time())
             logger.info("Tick OK — equity=%.2f posiciones=%d", equity, len(state["positions"]))
 
         except Exception as e:  # noqa: BLE001
