@@ -53,10 +53,13 @@ class OptionsStrategy(Strategy):
         self.name = f"opt_{base.name}"
         self.timeframe = base.timeframe
         self.cfg = {
-            "strong_threshold": 0.7,
+            "strong_threshold": 0.5,      # más permisivo: reto $100→$200
             "direction": "bull",          # bull→call spread, bear→put spread
-            "delta_long": 0.40,
-            "delta_short": 0.20,
+            "delta_long": 0.30,           # prima más barata (long menos ITM)
+            "delta_short": 0.15,          # short más OTM: spread más estrecho
+            "max_premium_net": 0.50,      # prima neta máx $0.50 por spread
+            "dte_min": 7,                 # vencimientos cortos para el reto
+            "dte_max": 45,
             "spot_source": "last_close",
         }
         self.cfg.update(map_cfg or {})
@@ -80,11 +83,24 @@ class OptionsStrategy(Strategy):
                 if self.cfg["direction"] == "bull":
                     self.last_structure = self.builder.vertical_spread(
                         state.get("symbol", ""), spot, "bull",
-                        self.cfg["delta_long"], self.cfg["delta_short"])
+                        self.cfg["delta_long"], self.cfg["delta_short"],
+                        dte_min=self.cfg.get("dte_min", 14),
+                        dte_max=self.cfg.get("dte_max", 60))
                 else:
                     self.last_structure = self.builder.vertical_spread(
                         state.get("symbol", ""), spot, "bear",
-                        self.cfg["delta_long"], self.cfg["delta_short"])
+                        self.cfg["delta_long"], self.cfg["delta_short"],
+                        dte_min=self.cfg.get("dte_min", 14),
+                        dte_max=self.cfg.get("dte_max", 60))
+                # Filtro de prima neta máxima (reto de capital pequeño):
+                # si el spread cuesta más que max_premium_net, no opera.
+                max_px = self.cfg.get("max_premium_net")
+                if max_px is not None and self.last_structure.net_premium > max_px:
+                    logger.info("Prima neta %.2f > %.2f, se descarta %s",
+                                self.last_structure.net_premium, max_px,
+                                self.last_structure.name)
+                    return Signal("opt_bridge", SignalType.NONE,
+                                  strategy=f"opt_{self.base.name}")
                 sig = Signal("opt_bridge", base_sig.signal_type,
                              score=base_sig.score,
                              strategy=f"opt_{self.base.name}",

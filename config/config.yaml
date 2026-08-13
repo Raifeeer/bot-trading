@@ -10,29 +10,29 @@ broker:
   base_url: "https://paper-api.alpaca.markets"   # paper; real: https://api.alpaca.markets
 
 universo:
-  # Acciones Nasdaq y S&P 500 de alta liquidez (subset inicial)
-  # El pipeline puede ampliar la lista automáticamente
+  # Objetivo: llevar $100 a $200 en corto plazo.
+  # Prioriza tickers con opciones líquidas y primas accesibles:
+  # ETFs apalancados (TQQQ/SQQQ) para el reto de doblar capital rápido,
+  # megacap tech y mid-cap populares donde las primas 0.30-1.00 son comunes.
   tickers:
-    - AAPL
-    - MSFT
-    - GOOGL
-    - AMZN
-    - NVDA
-    - META
-    - TSLA
-    - AMD
-    - NFLX
-    - AVGO
-    - COST
-    - AMAT
-    - CRWD
-    - PLTR
     - SPY
     - QQQ
     - IWM
+    - TQQQ
+    - SQQQ
+    - NVDA
+    - TSLA
+    - AMD
+    - PLTR
+    - SOFI
+    - AAPL
+    - AMZN
+    - META
+    - MSFT
+    - GOOGL
   max_tickers: 20
   min_price: 5.0             # Evitar penny stocks
-  min_avg_volume: 1_000_000  # Liquidez mínima diaria
+  min_avg_volume: 500_000    # Liquidez mínima diaria (más laxa para el reto)
 
 data:
   provider: alpaca           # alpaca (real) o yfinance (respaldo sin API key)
@@ -99,12 +99,13 @@ strategies:
       max_hold_days: 20
 
 risk:
-  mode: moderate               # conservative | moderate | aggressive
-  max_risk_per_trade_pct: 1.0  # % del capital en riesgo por operación
-  max_open_positions: 5
-  max_sector_weight_pct: 40.0  # (aproximación: máx % en 1 sola posición)
-  max_drawdown_daily_pct: 3.0  # detiene trading del día
-  max_drawdown_total_pct: 10.0 # detiene el bot
+  # RETO $100 -> $200: perfil agresivo pero con válvulas de seguridad
+  mode: aggressive             # conservative | moderate | aggressive
+  max_risk_per_trade_pct: 20.0 # % del capital en riesgo por operación (~$20/trade)
+  max_open_positions: 2        # pocas posiciones simultáneas por capital reducido
+  max_sector_weight_pct: 60.0  # concentración permitida para el reto
+  max_drawdown_daily_pct: 15.0 # detiene trading del día si pierde 15% ($15)
+  max_drawdown_total_pct: 30.0 # detiene el bot si el capital cae a $70
   allow_pyramiding: false
   allow_averaging_down: false
   # Horario de operación (hora Nueva York)
@@ -122,7 +123,7 @@ execution:
 monitor:
   log_level: INFO
   alerts:
-    telegram_enabled: false
+    telegram_enabled: true
     telegram_token: ""
     telegram_chat_id: ""
     email_enabled: false

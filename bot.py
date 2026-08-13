@@ -108,9 +108,9 @@ def strat_by_name(name):
 _STRATS = {}
 
 
-def trading_mode() -> str:
+def trading_mode(dry_run: bool = False) -> str:
     """Devuelve el modo operativo en texto para las alertas."""
-    if args.dry_run:
+    if dry_run:
         return "DRY-RUN"
     base = os.environ.get("APCA_API_BASE_URL", "")
     return "PAPER" if "paper" in base else "REAL"
@@ -229,7 +229,8 @@ def main():
             #    swing usa 1d (210 días para SMA200+ATR); day usa 5m/15m
             tf_by_strat = {}
             for sname, strat in strats.items():
-                tf = strat.base.cfg.get("timeframe", "1d")
+                tf = getattr(strat.base, "timeframe",
+                             None) or getattr(strat, "timeframe", "1d")
                 days = 210 if tf == "1d" else (10 if tf == "15min" else 5)
                 tf_by_strat[sname] = (tf, days)
             cached = {}
@@ -367,6 +368,7 @@ def main():
             try:
                 from state.telegram_bot import update_state as _up
                 _up({"equity": equity, "cash": acct.get("cash", equity),
+                     "dry_run": args.dry_run,
                      "buying_power": acct.get("buying_power"),
                      "positions": state["positions"],
                      "alpaca_positions": executor.positions() if not executor.dry_run else [],

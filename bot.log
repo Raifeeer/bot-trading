@@ -1,0 +1,311 @@
+2026-08-13 21:25:01,815 polaris.tgbt INFO Telegram commands iniciado (polling)
+2026-08-13 21:25:03,128 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:25:03,552 execution INFO Alpaca conectado: status=AccountStatus.ACTIVE, equity=100000.00, pattern_day_trader=None, dry_run=False
+2026-08-13 21:25:03,802 bot INFO Bot iniciado: 3 estrategias, 17 tickers, poll=1min, dry_run=False
+2026-08-13 21:25:05,925 feed WARNING AAPL: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:25:06,612 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:25:10,179 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:25:12,118 feed WARNING MSFT: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:25:13,715 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:25:14,810 feed WARNING GOOGL: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:25:16,796 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:25:17,097 feed WARNING AMZN: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:25:19,175 feed WARNING NVDA: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:25:20,396 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:25:21,378 feed WARNING META: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:25:23,819 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:25:23,854 feed WARNING TSLA: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:25:26,227 feed WARNING AMD: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:25:27,856 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:25:29,448 feed WARNING NFLX: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:25:31,543 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:25:31,598 feed WARNING AVGO: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:25:34,116 feed WARNING COST: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:25:35,073 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:25:36,940 feed WARNING AMAT: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:25:38,819 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:25:39,621 feed WARNING CRWD: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:25:41,838 feed WARNING PLTR: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:25:42,108 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:25:45,048 feed WARNING SPY: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:25:45,924 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:25:47,101 feed WARNING QQQ: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:25:48,848 feed WARNING IWM: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:25:49,004 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:25:49,271 bot INFO Datos 5min: 17 tickers (312 barras)
+2026-08-13 21:25:50,668 feed WARNING AAPL: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:25:51,850 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:25:53,104 feed WARNING MSFT: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:25:55,233 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:25:55,453 feed WARNING GOOGL: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:25:57,168 feed WARNING AMZN: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:25:58,373 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:25:59,267 feed WARNING NVDA: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:26:01,075 feed WARNING META: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:26:01,724 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:26:03,221 feed WARNING TSLA: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:26:04,082 feed WARNING AMD: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:26:04,758 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:26:05,783 feed WARNING NFLX: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:26:07,915 feed WARNING AVGO: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:26:08,169 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:26:09,702 feed WARNING COST: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:26:10,991 feed WARNING AMAT: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:26:11,252 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:26:13,379 feed WARNING CRWD: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:26:14,122 feed WARNING PLTR: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:26:14,220 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:26:14,886 feed WARNING SPY: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:26:17,214 feed WARNING QQQ: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:26:17,424 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:26:19,703 feed WARNING IWM: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:26:20,317 bot INFO Datos 15min: 17 tickers (234 barras)
+2026-08-13 21:26:20,464 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:26:22,040 feed WARNING AAPL: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:26:22,855 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:26:23,843 feed WARNING MSFT: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:26:24,455 feed WARNING GOOGL: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:26:25,218 feed WARNING AMZN: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:26:25,873 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:26:27,252 feed WARNING NVDA: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:26:29,436 feed WARNING META: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:26:29,437 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:26:31,749 feed WARNING TSLA: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:26:32,941 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:26:33,807 feed WARNING AMD: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:26:35,632 feed WARNING NFLX: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:26:36,811 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:26:37,913 feed WARNING AVGO: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:26:39,216 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:26:40,017 feed WARNING COST: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:26:41,651 feed WARNING AMAT: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:26:42,730 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:26:43,441 feed WARNING CRWD: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:26:45,549 feed WARNING PLTR: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:26:45,704 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:26:47,829 feed WARNING SPY: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:26:49,364 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:26:50,086 feed WARNING QQQ: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:26:52,427 feed WARNING IWM: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:26:52,926 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:26:53,006 bot INFO Datos 1d: 17 tickers (145 barras)
+2026-08-13 21:26:55,228 state.firestore WARNING Fallo al escribir estado en Firestore: Your default credentials were not found. To set up Application Default Credentials, see https://cloud.google.com/docs/authentication/external/set-up-adc for more information.
+2026-08-13 21:26:55,229 state.firestore WARNING Fallo al guardar punto de equity: Your default credentials were not found. To set up Application Default Credentials, see https://cloud.google.com/docs/authentication/external/set-up-adc for more information.
+2026-08-13 21:26:55,567 bot ERROR Fallo actualizando estado Telegram
+Traceback (most recent call last):
+  File "/home/ubuntu/bot-trading-sync/bot.py", line 375, in main
+    "trading_mode": trading_mode(),
+                    ^^^^^^^^^^^^^^
+  File "/home/ubuntu/bot-trading-sync/bot.py", line 113, in trading_mode
+    if args.dry_run:
+       ^^^^
+NameError: name 'args' is not defined
+2026-08-13 21:26:55,568 bot INFO Tick OK — equity=100000.00 posiciones=0
+2026-08-13 21:26:56,527 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:27:00,143 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:34:41,866 polaris.tgbt INFO Telegram commands iniciado (polling)
+2026-08-13 21:34:43,451 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:34:43,879 execution INFO Alpaca conectado: status=AccountStatus.ACTIVE, equity=100000.00, pattern_day_trader=None, dry_run=False
+2026-08-13 21:34:44,438 bot INFO Bot iniciado: 3 estrategias, 17 tickers, poll=1min, dry_run=False
+2026-08-13 21:34:46,466 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:34:46,531 feed WARNING AAPL: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:34:50,079 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:34:52,076 feed WARNING MSFT: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:34:53,490 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:34:54,192 feed WARNING GOOGL: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:34:56,315 feed WARNING AMZN: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:34:56,658 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:34:58,430 feed WARNING NVDA: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:34:59,660 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:35:00,629 feed WARNING META: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:35:02,618 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:35:02,953 feed WARNING TSLA: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:35:04,634 feed WARNING AMD: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:35:06,175 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:35:06,345 feed WARNING NFLX: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:35:08,661 feed WARNING AVGO: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:35:09,723 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:35:10,768 feed WARNING COST: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:35:12,329 feed WARNING AMAT: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:35:13,031 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:35:14,151 feed WARNING CRWD: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:35:15,646 feed WARNING PLTR: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:35:16,349 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:35:17,374 feed WARNING SPY: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:35:19,367 feed WARNING QQQ: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:35:19,723 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:35:21,634 feed WARNING IWM: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:35:22,101 bot INFO Datos 5min: 17 tickers (312 barras)
+2026-08-13 21:35:22,634 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:35:23,423 feed WARNING AAPL: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:35:25,462 feed WARNING MSFT: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:35:26,026 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:35:27,547 feed WARNING GOOGL: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:35:29,512 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:35:29,657 feed WARNING AMZN: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:35:31,172 feed WARNING NVDA: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:35:33,118 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:35:33,359 feed WARNING META: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:35:35,101 feed WARNING TSLA: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:35:36,677 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:35:36,981 feed WARNING AMD: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:35:39,030 feed WARNING NFLX: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:35:40,174 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:35:41,110 feed WARNING AVGO: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:35:43,002 feed WARNING COST: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:35:43,263 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:35:45,325 feed WARNING AMAT: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:35:46,802 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:35:47,480 feed WARNING CRWD: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:35:49,866 feed WARNING PLTR: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:35:50,363 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:35:51,946 feed WARNING SPY: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:35:53,780 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:35:54,184 feed WARNING QQQ: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:35:56,313 feed WARNING IWM: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:35:56,605 bot INFO Datos 15min: 17 tickers (234 barras)
+2026-08-13 21:35:56,787 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:35:58,549 feed WARNING AAPL: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:36:00,209 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:36:00,597 feed WARNING MSFT: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:36:02,767 feed WARNING GOOGL: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:36:03,819 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:36:04,890 feed WARNING AMZN: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:36:06,952 feed WARNING NVDA: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:36:07,253 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:36:09,347 feed WARNING META: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:36:10,111 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:36:11,406 feed WARNING TSLA: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:36:13,635 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:36:13,798 feed WARNING AMD: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:36:16,030 feed WARNING NFLX: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:36:17,762 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:36:18,549 feed WARNING AVGO: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:36:20,668 feed WARNING COST: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:36:21,174 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:36:22,875 feed WARNING AMAT: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:36:24,601 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:36:25,112 feed WARNING CRWD: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:36:27,205 feed WARNING PLTR: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:36:27,817 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:36:29,263 feed WARNING SPY: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:36:31,179 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:36:31,524 feed WARNING QQQ: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:36:33,879 feed WARNING IWM: APIError ({"message":"subscription does not permit querying recent SIP data"}
+) — reintento con yfinance
+2026-08-13 21:36:34,290 bot INFO Datos 1d: 17 tickers (145 barras)
+2026-08-13 21:36:34,711 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-13 21:36:36,622 state.firestore WARNING Fallo al escribir estado en Firestore: Your default credentials were not found. To set up Application Default Credentials, see https://cloud.google.com/docs/authentication/external/set-up-adc for more information.
+2026-08-13 21:36:36,623 state.firestore WARNING Fallo al guardar punto de equity: Your default credentials were not found. To set up Application Default Credentials, see https://cloud.google.com/docs/authentication/external/set-up-adc for more information.
+2026-08-13 21:36:36,968 bot ERROR Fallo actualizando estado Telegram
+Traceback (most recent call last):
+  File "/home/ubuntu/bot-trading-sync/bot.py", line 375, in main
+    "trading_mode": trading_mode(),
+                    ^^^^^^^^^^^^^^
+  File "/home/ubuntu/bot-trading-sync/bot.py", line 113, in trading_mode
+    if args.dry_run:
+       ^^^^
+NameError: name 'args' is not defined
+2026-08-13 21:36:36,969 bot INFO Tick OK — equity=100000.00 posiciones=0
+2026-08-13 21:36:38,090 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found

@@ -437,7 +437,7 @@ class SpreadBuilder:
     def __init__(self, feed: OptionFeed):
         self.feed = feed
 
-    def _chain(self, underlying, otype, spot=None, dte_min=14, dte_max=60):
+    def _chain(self, underlying, otype, spot=None, dte_min=14, dte_max=60,):  # DTE parametrizable para el reto $100→$200
         today = date.today()
         chain = self.feed.contracts(
             underlying, otype,
@@ -471,10 +471,12 @@ class SpreadBuilder:
         )
 
     def vertical_spread(self, underlying, spot=None, direction: str = "bull",
-                        delta_long=0.40, delta_short=0.20) -> OptionStructure:
+                        delta_long=0.40, delta_short=0.20,
+                        dte_min=14, dte_max=60) -> OptionStructure:
         """Call spread alcista o put spread bajista."""
         otype = OptionType.CALL if direction == "bull" else OptionType.PUT
-        chain, _ = self._chain(underlying, otype, spot)
+        chain, _ = self._chain(underlying, otype, spot, dte_min=dte_min,
+                               dte_max=dte_max)
         long_leg = select_strikes(chain, spot, delta_target=delta_long)
         if not long_leg:
             raise RuntimeError(f"No hay strikes suficientes para spread en {underlying}")
