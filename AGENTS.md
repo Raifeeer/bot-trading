@@ -1,6 +1,6 @@
 # PolarIS Trading Bot — Guía de Operación para Agentes
 
-> Documento de referencia para cualquier agente de IA que opere, diagnostique o extienda el sistema Polaris (bot de trading de opciones sobre Alpaca, desplegado en Google Cloud Run). Última actualización: 13 de agosto de 2026.
+> Documento de referencia para cualquier agente de IA que opere, diagnostique o extienda el sistema Polaris (bot de trading de opciones sobre Alpaca, desplegado en Google Cloud Run). Última actualización: 14 de agosto de 2026.
 
 ## 1. Qué es el sistema
 
@@ -56,7 +56,7 @@ Cada ciclo de `main()` en `bot.py` ejecuta, en orden:
 3. **Escaneo de señales**: cada estrategia evalúa su timeframe; `OptionsStrategy` traduce las señales a estructuras de opciones (call/put spreads) con deltas y DTE configurados en `config.yaml`.
 4. **Aprobación de riesgo**: el risk manager valida tamaño, drawdown y número de posiciones.
 5. **Ejecución**: `AlpacaExecutor` envía las órdenes (o las simula en dry-run).
-6. **Gestión de posiciones**: evalúa TP (+50% prima), SL (-100% prima), DTE (cierre a 21 días) y stops.
+6. **Gestión de posiciones**: evalúa TP/SL de prima y DTE. Los umbrales son configurables en `config.yaml` (`universo.options_reto` + `risk.prem_tp_mult`/`prem_sl_mult`) y se inyectan con `premium_exit_cfg` en `bot.py`; `evaluate_exit` en `options/strategy.py` admite `tp_mult`, `sl_mult`, `close_dte`, `hold_days`.
 7. **Publicación de estado**: snapshot a Firestore (`polaris/YYYY-MM-DD`, merge) + curva de equity + actualización del estado del bot de Telegram.
 8. **Heartbeat del watchdog** y sleep de 5 minutos (o 300 s en modo skip).
 
@@ -138,8 +138,24 @@ Las reglas de seguridad permiten lectura pública con la API key del dashboard (
 
 ## 7. Configuración del objetivo actual (reto $100 → $200)
 
-En `config/config.yaml` está activo el perfil del reto: riesgo por trade **20% del capital** (agresivo, pensado para capital pequeño), máximo **2 posiciones** simultáneas, prima neta máxima por spread **$0.50**, deltas de spread **0.30/0.15**, DTE **7–45 días**, drawdown diario **15%** y total **30%** (a $70 el bot hace HALT). Gestión de cada posición: TP +50% de prima, SL -100%, cierre a 21 DTE. Universos: los 15 tickers de `config.yaml` (QQQ, SPY, IWM, TQQQ, SQQQ, NVDA, TSLA, AMD, PLTR, SOFI, AAPL, AMZN, META, MSFT, GOOGL).
+### 7.1 Calibración definitiva (backtest ago 2026, commit `d15cb47`)
 
+En `config/config.yaml` está activo el **perfil reto** (`universo.universo_reto.active: true`), aplicado por `config/__init__.py` y `bot.py` (`options_map_cfg`, `premium_exit_cfg`). El ajuste se hizo tras un backtest con datos del último mes (15 jul – 13 ago 2026) sobre tres escenarios: (A) calibración original con megacaps → **0 trades** (primas fuera de presupuesto para $100); (B) ajuste laxo con tickers baratos y DTE de 7 días → **1 trade, -5.7%** (posición LCID devorada por theta); (C) perfil reto final → **0 señales** (el mercado lateral/bajista del mes no produjo setups válidos, el perfil protege el capital sin forzar entradas).
+
+| Parámetro | Valor | Racional |
+|---|---|---|
+| Universo reto | SOFI, PLTR, F, TSLA, AMD, NOK, BB, TQQQ | Tickers baratos y líquidos; **se excluyen LCID y MARA** (vol. histórica ~150%: primas impagables, spreads simulados degenerados) |
+| `max_vol_pct` | 100% | Excluir automáticamente tickers con vol. anualizada > 100% |
+| Estructura | Call spread debit (bull) | Riesgo definido; la pata corta reduce coste neto y theta |
+| Deltas | long **0.25** / short **0.10** | Prima asequible con exposición razonable |
+| DTE | **10–45** (`close_dte` 7) | Ni theta extremo (0-7 DTE) ni vega de más; cierre a 7 DTE |
+| Prima neta máx | **$12** por spread (~12% del capital) | Presupuesto por contrato para $100 |
+| Gestión TP/SL | TP **+40%** de prima / SL al **25%** de prima (-75%) | Evita decaer posiciones hasta -90%; el backtest B perdió 93% de la prima sin stop activo |
+| Riesgo | 20% capital/trade, máx. 2 posiciones, drawdown diario 15%, total 30% (HALT a $70) | Válvulas de seguridad del capital pequeño |
+
+El script de backtest es `backtest_retos.py` en la raíz (señales reales del motor + precios simulados Black-Scholes con vol. histórica de yfinance). Sirve para comparar calibraciones, no para estimar P&L real (las primas simuladas asumen BS con IV=vol. histórica y un margen del 20%).
+
+### 7.2 Paso a real
 Cuando el usuario fondee la cuenta real de Alpaca y quiera operar con dinero real, el cambio mínimo es `APCA_API_BASE_URL` → `https://api.alpaca.markets` (y re-evaluar el perfil de riesgo, que hoy es demasiado agresivo para capital real grande).
 
 ## 8. Telegram
@@ -161,6 +177,9 @@ Proyecto `polaris-options-dashboard` desplegado en `polaris-options-dashboard.ve
 | Los envs `APCA_API_BASE_URL`/`DATA_PROVIDER` desaparecían tras updates | `gcloud run services update --set-env-vars` reemplaza todo el bloque | Editar el spec completo y aplicar con `services replace` |
 | Dashboard muestra datos demo | El doc del día no existía aún en Firestore | Normal: aparece el estado real en el primer tick completo (~10-12 min tras arranque) |
 | Alpaca data API: "subscription does not permit querying recent SIP data" | Plan free de datos de Alpaca | Fallback automático a yfinance por ticker |
+| El bot no abría trades para el reto $100 con la calibración original | Las primas de megacaps superaban el presupuesto ($0.50/$50 de prima neta) | Perfil reto en config: universo barato, delta 0.25/0.10, prima máx $12, DTE 10-45 |
+| LCID devoró -93% de la prima en el backtest sin gestión | Sin stop de prima: posiciones DTE cortos dejadas a decaer | SL de prima al 25% + cierre a 7 DTE + cierre a mitad de vida sin ganancia |
+| LCID/MARA producían spreads degenerados en el simulador | Vol. histórica ~150% empuja strikes muy OTM (46%) y el spread net cae a ~0 | `max_vol_pct: 100` y exclusión explícita de LCID/MARA del universo reto |
 
 ## 11. Cómo operar este sistema un nuevo agente
 
