@@ -117,7 +117,8 @@ def trading_mode(dry_run: bool = False) -> str:
     return "PAPER" if "paper" in base else "REAL"
 
 
-def _regime_snapshot(feed, tickers, state, equity_now: float) -> dict:
+def _regime_snapshot(feed, tickers, state, equity_now: float,
+                     cfg_risk: dict) -> dict:
     """Clasifica el régimen global S78 (bull/bear/cash) con los contadores
     validados en los backtests (hallazgo16/hallazgo17) + defensas:
     crash_event 3% (cool-down 5 días) e intraday_cuts del 4% (hallazgo18).
@@ -129,10 +130,9 @@ def _regime_snapshot(feed, tickers, state, equity_now: float) -> dict:
     # pedir 210 aquí solo en el análisis de régimen (descarga adicional
     # barata: yfinance la cachea por ticker y timeframe).
     data_1d = feed.history(tickers, "1d", days=400) or {}
-    cfg_r = dict(cfg.get("risk", {}))
-    regime = classify_regime(data_1d, tickers, cfg=cfg_r)
+    regime = classify_regime(data_1d, tickers, cfg=cfg_risk)
     regime = apply_crash_cooldown(regime, state)
-    floor_res = check_floor(float(equity_now), state, cfg=cfg_r)
+    floor_res = check_floor(float(equity_now), state, cfg=cfg_risk)
     regime["floor"] = floor_res
     return regime
 
@@ -318,7 +318,7 @@ def main():
             #    intraday_cuts del 4% (hallazgo18) -> cierre de la posición
             #    de ese subyacente al gestionar (se evalúa abajo).
             try:
-                regime = _regime_snapshot(feed, tickers, state, equity)
+                regime = _regime_snapshot(feed, tickers, state, equity, cfg.get("risk", {}))
                 state["regime"] = regime
                 logger.info("RÉGIMEN %s", regime.get("summary", regime))
                 if regime.get("floor", {}).get("crossed"):
