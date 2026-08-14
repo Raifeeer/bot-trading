@@ -95,8 +95,10 @@ def fetch_yfinance(symbol: str, timeframe: str, start: str, end: str = None) -> 
     if timeframe != "1d" and (end_dt - start_dt).days > 60:
         logger.warning("yfinance limita intradía a ~60 días; se usa el máximo disponible")
     # Reintentos: el cache sqlite de yfinance a veces lanza
-    # "database is locked" en llamadas concurrentes.
+    # "database is locked" en llamadas concurrentes, y Yahoo throttles las
+    # descargas simultáneas (broken pipe / timeout); backoff de 3-9 s ayuda.
     import socket as _socket
+    import time as _time
     _prev_timeout = _socket.getdefaulttimeout()
     _socket.setdefaulttimeout(45)  # evita colgarse indefinidamente con Yahoo
     err = None
@@ -119,7 +121,7 @@ def fetch_yfinance(symbol: str, timeframe: str, start: str, end: str = None) -> 
                 err = e
                 logger.warning("%s yfinance intento %d falló: %s (%s)",
                                symbol, attempt + 1, type(e).__name__, e)
-                time.sleep(1.0 * (attempt + 1))
+                _time.sleep(3.0 * (attempt + 1))
         raise DataFeedError(f"yfinance agotó reintentos para {symbol}: {err}")
     finally:
         _socket.setdefaulttimeout(_prev_timeout)
@@ -173,7 +175,9 @@ class MarketDataFeed:
         # Threads limitados a 4: el cache sqlite de yfinance sufre
         # "database is locked" con más concurrencia; la serialización total
         # tardaba más de 12 min y disparaba el watchdog.
-        with ThreadPoolExecutor(max_workers=min(len(symbols), 4)) as ex:
+        # Yahoo throttles las descargas simultáneas (broken pipe/timeout);
+        # 3 workers equilibra velocidad y estabilidad (serial tardaba >12 min).
+        with ThreadPoolExecutor(max_workers=min(len(symbols), 3)) as ex:
             for s, df in ex.map(_one, symbols):
                 if df is not None:
                     out[s] = df
