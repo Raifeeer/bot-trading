@@ -406,6 +406,7 @@ def main():
                         "trading_mode": "DRY-RUN" if args.dry_run else (
                             "PAPER" if "paper" in (os.environ.get("APCA_API_BASE_URL") or "") else "REAL"),
                         "strategies": list(strats.keys()),
+                        "universe": cfg["universo"].get("tickers", []),
                         "decisions_today": [d for d in state["decisions"]
                                             if d.get("ts", "").startswith(
                                                 datetime.utcnow().strftime("%Y-%m-%d"))],
@@ -421,6 +422,7 @@ def main():
                      "positions": state["positions"],
                      "alpaca_positions": executor.positions() if not executor.dry_run else [],
                      "risk": {"halted": rm.is_halted()},
+                     "universe": cfg["universo"].get("tickers", []),
                      "trading_mode": trading_mode(),
                      "decisions_today": [d for d in state["decisions"]
                                          if d.get("ts", "").startswith(
