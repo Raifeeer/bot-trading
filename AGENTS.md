@@ -254,7 +254,71 @@ El directorio **`docs/skills/`** contiene la documentación exhaustiva de cada c
 | `docs/skills/datos_skill.md` | Feed yfinance/Alpaca, timeouts, watchdog, decisiones deliberadas (sin TradingView) |
 | `docs/skills/infra_skill.md` | Build/deploy Cloud Run, traps de envs, deploy estático de Vercel, credenciales |
 | `docs/skills/dashboard_telegram_skill.md` | Contrato Firestore ↔ dashboard, comandos Telegram, asistente IA con fallbacks |
+| `docs/skills/estado_operativo_skill.md` | **PUNTO DE ENTRADA para agentes nuevos**: mapa del sistema, incidente Firestore activo (14 ago 2026) y plan de reanudación |
 
 ## 12. Cómo operar este sistema un nuevo agente
 
-El orden recomendado para cualquier intervención: (1) leer esta guía y `bot.py` completo; (2) para cambios de lógica, editar, probar localmente con `python3 -m py_compile` + los tests en `tests/`, y ejecutar el bot en modo `--dry-run` con credenciales paper; (3) redeployar vía Docker + `services update` como en la sección 5; (4) verificar con Cloud Logging y `/diag/state` que los ticks corren al menos 2 ciclos seguidos (~25 min). El market data de Yahoo y el poll de Telegram son las fuentes de inestabilidad históricas; cualquier cambio en `data/feed.py` o `state/telegram_bot.py` merece una ventana de observación de 30 minutos.
+El orden recomendado para cualquier intervención: (1) leer primero `docs/skills/estado_operativo_skill.md` (estado operativo al momento de pausar, 14 ago 2026) y esta guía; (2) leer `bot.py` completo; (3) para cambios de lógica, editar, probar localmente con `python3 -m py_compile` + los tests en `tests/`, y ejecutar el bot en modo `--dry-run` con credenciales paper; (4) redeployar vía Docker + `services update` como en la sección 5; (5) verificar con Cloud Logging y `/diag/state` que los ticks corren al menos 2 ciclos seguidos (~25 min). El market data de Yahoo y el poll de Telegram son las fuentes de inestabilidad históricas; cualquier cambio en `data/feed.py` o `state/telegram_bot.py` merece una ventana de observación de 30 minutos.
+
+## 13. INCIDENTE ACTIVO: el bot no escribe a Firestore (diagnóstico 14 ago 2026, en curso)
+
+**Síntoma:** el dashboard en Vercel mostraba equity congelado ($99,669.50) y sin posiciones. Causa raíz identificada: **el bot en Cloud Run no publicaba ningún snapshot a Firestore** pese a completar ticks cada 10–15 minutos.
+
+### 13.1 Cronología y hallazgos del diagnóstico
+
+El incidente se rastreó el 14 de agosto de 2026 (tarde, hora AST; la revisión activa al inicio era `polaris-bot-00046`). Los hallazgos, en orden, fueron los siguientes.
+
+1. **Imagen desactualizada con NameError.** La revisión 00046 en producción tenía un `NameError: name 'cfg' is not defined` en `_regime_snapshot` (firma cambiada en local pero la imagen llevaba código viejo). Se construyó y desplegó la imagen actual vía `gcloud builds submit --config cloudbuild.yaml .` + `gcloud run deploy`.
+2. **El import de Firestore fallaba antes de configurar el logging.** El bloque `try: from state.firestore_state import ...` de `bot.py` ocurre antes de `logging.basicConfig`, por lo que cualquier fallo de import quedaba completamente silencioso: `FIRESTORE_ENABLED` permanecía en `False` y ningún log lo delataba. Corregido en commits `ffe5943` (loguear excepción del import) y `6e70bab` (mover `basicConfig` antes del try).
+3. **El watchdog mataba instancias antes de que el tick terminara.** Los ticks tardan 10–15 min por timeouts repetidos de yfinance (SOFI, PLTR, F y AMD dan "possibly delisted" en ventanas intradiarias y el plan free de Alpaca rechaza el SIP reciente: `subscription does not permit querying recent SIP data`). El watchdog de 25 min reiniciaba la instancia cuando el feed se alargaba.
+4. **Confusión entre rutas de Firestore.** El doc real y antiguo era `polaris/2026-08-13` (escrito el 13 de agosto por la versión anterior, equity 100000 fijo); **no existía ningún doc del día 14**, por lo que el dashboard mostraba el estado congelado de ayer. El dashboard lee `polaris/{fecha-local-del-navegador}`, así que la ruta coincide en horario normal pero el doc no se actualizaba.
+5. **El contenedor SÍ puede escribir a Firestore.** El endpoint `/diag/fs` del health server (mismo contenedor, misma service account `173223792589-compute@developer.gserviceaccount.com`, mismas ADC) escribe correctamente: listó `["2026-08-13", "2026-08-14", "backtest"]`. Una escritura idéntica desde la sandbox con `firebase_admin` + keyfile (`/home/ubuntu/upload/gen-lang-client-0746441136-8353da1d9f65.json`, DB `polaris`) también funciona. Las credenciales no son el problema.
+6. **Tras el fix de import, FIRESTORE_ENABLED=True pero la escritura sigue sin materializarse.** Logs del 14/08 22:21 confirman `FIRESTORE_ENABLED=True (antes de write_state_snapshot)` y el tick se completó (`Tick OK`), pero el doc `polaris/2026-08-14` no se creó/actualizó. Curiosidad clave: el warning `logger.warning("Fallo al escribir estado en Firestore: %s", e)` del módulo `state/firestore_state.py` **nunca aparece en Cloud Logging** (cero apariciones en ~5000 líneas revisadas), ni siquiera el `logger.exception("Error publicando estado a Firestore")` del except de `bot.py` (línea ~558). Esto sugiere que los mensajes del logger `state.firestore` no llegan al stdout capturado por Cloud Run, o que el bloque de escritura no se ejecuta por otra ruta.
+7. **min-instances=1 reutilizaba la instancia vieja.** Cloud Run satisfacía minScale=1 con la instancia heredada de la revisión anterior, por lo que los fixes no se aplicaban aunque la revisión nueva tuviera 100% del tráfico. Solución operativa: desplegar con `--min-instances 2 --max-instances 2` para forzar una instancia de la última revisión y verificar con `gcloud run revisions list --format="table(metadata.name,status.active)"`.
+
+### 13.2 Estado exacto al momento de pausar (14 ago 2026, ~22:48 UTC)
+
+La revisión `polaris-bot-00052-lbz` está activa con `min-instances=2 / max-instances=2`. Su primera instancia arrancó a las 22:34–22:35 UTC y completó el primer Régimen bull (22:40). Está instalado en el código un **probe de diagnóstico directo** (commit `fee6a09a`) justo antes de `write_state_snapshot`: crea un `firestore.Client(database="polaris")` e intenta `set({"updated_at":..., "probe": True}, merge=True)` sobre `polaris/{YYYY-MM-DD}`; si funciona loguea `DIAG_FS: probe escrito`, si falla imprime el traceback completo con `DIAG_FS ERROR: ...` en stdout.
+
+El doc `polaris/2026-08-14` **fue creado manualmente con un script local** (payload de prueba: `{"updated_at": "test-local", "payload": {"equity": 99689.5, "trading_mode": "PAPER", "risk": {"regime": "bull"}, "strategies": ["smc","s78","regime_aware"], "universe": ["SOFI","PLTR","F","TSLA","AMD","NOK","BB","TQQQ"]}}`). Gracias a esto, el dashboard de Vercel ya muestra datos reales: equity $99,689.50, régimen bull, 1 spread TQQQ debit_call con P&L -$310, modo PAPER, fuente "Firestore · polaris", último tick "hace 1 min". OJO: el campo `updated_at` dice "test-local" y el `probe: true` existe; son marcadores temporales del diagnóstico.
+
+Hay **dos problemas secundarios activos**: (a) el polling de Telegram con 2 instancias produce `HTTP Error 409: Conflict` masivo; (b) el doc del día creado manualmente sobrescribirá/será sobrescrito por el bot en cuanto la escritura funcione.
+
+### 13.3 Hipótesis restantes (por orden de probabilidad)
+
+1. **Payload no serializable:** `_enriched_positions()` u `orders_executed` contienen `Decimal`, `datetime`, o un objeto de alpaca-py que `set()` rechaza; el error se perdería porque los warnings del módulo no llegan a Cloud Logging. El probe usa un payload mínimo (dict plano) y si funciona confirmaría esto.
+2. **Colisión de escrituras concurrentes** entre las 2 instancias sobre el mismo documento (merge simultáneos), menos probable porque merge es atómico por campo.
+3. **Cliente con base de datos distinta** en la ruta de `write_state_snapshot` (improbable: el código usa `os.environ.get("FIRESTORE_DATABASE", "polaris")` y el env está definido).
+
+### 13.4 Plan de acción para el agente que continúa
+
+1. **Leer los logs de Cloud Run tras el siguiente Tick OK** de la 00052 (los ticks tardan ~10 min; buscar `DIAG_FS: probe escrito` o `DIAG_FS ERROR`). Comando: `gcloud logging read "resource.type=cloud_run_revision AND resource.labels.service_name=polaris-bot" --limit 100 --format="value(textPayload)"`.
+2. **Si el probe funciona** → el payload completo es el culpable: revisar `_enriched_positions` y `orders_executed` en `bot.py`, convertir todos los tipos a JSON-serializables (str/float/int/bool/list/dict), y reintentar hasta ver el doc actualizarse con payload real.
+3. **Si el probe falla** → seguir el traceback impreso en el log.
+4. **Restaurar el servicio a 1 instancia** (`gcloud run services update polaris-bot --region us-central1 --min-instances 1 --max-instances 1`) apenas la escritura funcione, para eliminar el 409 de Telegram.
+5. **Quitar el probe de diagnóstico** de `bot.py` y redesplegar una revisión limpia.
+6. **Limpiar el doc puente**: el bot sobrescribirá `polaris/2026-08-14` con payload completo al primer tick exitoso; comprobar entonces que `updated_at` deje de ser "test-local" y que el dashboard refleje el equity vivo.
+7. **Verificar el dashboard en Vercel** (https://polaris-options-dashboard.vercel.app) y recordarle al usuario que ahora sí se mueve cada tick.
+
+### 13.5 Comandos de diagnóstico rápidos (probados y funcionales)
+
+```bash
+# Logs del servicio (los errores de Telegram/reintentos de feed son ruido normal; filtrarlos)
+gcloud logging read "resource.type=cloud_run_revision AND resource.labels.service_name=polaris-bot" --limit 100 --format="value(textPayload)" | grep -viE "reintento|apierror|WARNING feed|Failed to get|TzCache|Conflict"
+
+# Instancias activas por revisión (clave para saber qué código corre)
+gcloud run revisions list --service polaris-bot --region us-central1 --format="table(metadata.name,status.active)"
+
+# Probar escritura a Firestore desde cualquier máquina con el keyfile
+# (firebase-admin, keyfile /home/ubuntu/upload/gen-lang-client-0746441136-8353da1d9f65.json,
+#  initialize_app con {'databaseURL':'https://gen-lang-client-0746441136.firebaseio.com',
+#  'firestoreOptions':{'databaseId':'polaris'}})
+
+# Endpoints de diagnóstico del contenedor
+curl https://polaris-bot-173223792589.us-central1.run.app/diag/state   # archivo local del estado
+curl https://polaris-bot-173223792589.us-central1.run.app/diag/fs      # lista docs + prueba escritura Firestore
+```
+
+### 13.6 Reglas operativas aprendidas en esta sesión
+
+No asumir que `gcloud run deploy` aplica el código nuevo de inmediato: verificar con `revisions list` que la nueva revisión está activa y que una instancia de ELLA arrancó (`Bot iniciado` con timestamp reciente). Si la instancia vieja sigue generando ticks, forzar min/max-instances=2. El pnpm build del dashboard falla en el entorno de desarrollo (problema de pnpm/wouter); el workaround validado es desplegar vía bundle pre-compilado con `vercel deploy --prebuilt`. El log del proceso del contenedor llega a Cloud Logging solo si `logging.basicConfig` corre antes; cualquier import condicional al arranque debe ir después. El logger `state.firestore` parece no llegar a Cloud Logging (sus warnings nunca aparecieron) — no confiar en ellos para diagnóstico; loguear siempre contra el logger root/bot o con print+flush.
