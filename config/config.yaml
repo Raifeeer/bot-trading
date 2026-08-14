@@ -13,7 +13,8 @@ universo:
   # Objetivo: llevar $100 a $200 en corto plazo.
   # Prioriza tickers con opciones líquidas y primas accesibles:
   # ETFs apalancados (TQQQ/SQQQ) para el reto de doblar capital rápido,
-  # megacap tech y mid-cap populares donde las primas 0.30-1.00 son comunes.
+  # tickers de precio bajo con opciones líquidas (primas ~$1-10 accesibles
+  # para $100 de capital). Ver universo_reto más abajo.
   tickers:
     - SPY
     - QQQ
@@ -33,6 +34,39 @@ universo:
   max_tickers: 20
   min_price: 5.0             # Evitar penny stocks
   min_avg_volume: 500_000    # Liquidez mínima diaria (más laxa para el reto)
+  # ===================================================================
+  # PERFIL RETO $100 -> $200 (sobreescribe universo cuando active: true)
+  # Ajuste tras backtest (jul-ago 2026): la calibración con megacaps no
+  # generaba trades; los DTE muy cortos en tickers baratos eran devorados
+  # por theta. Este perfil usa tickers baratos + spreads debit 10-45 DTE.
+  # ===================================================================
+  universo_reto:
+    active: true             # false → usa 'tickers' clásico
+    tickers:
+      - SOFI
+      - PLTR
+      - F
+      - TSLA
+      - AMD
+      - NOK
+      - BB
+      - TQQQ
+    # Se excluyen LCID y MARA: volatilidad anualizada extrema (~150%) hace que
+    # las primas sean impagables y los spreads simulados degeneren (backtest).
+    min_price: 3.0
+    min_avg_volume: 1_000_000  # más exigente: liquidez de opciones clave
+    max_vol_pct: 100.0         # excluir tickers con vol. histórica > 100%
+  # Parámetros de estructuras para el reto (usados por options_bridge):
+  options_reto:
+    direction: bull            # solo largos en fase 1 (sin pata corta expuesta)
+    delta_long: 0.25           # long call: ~25 delta, prima asequible
+    delta_short: 0.10          # short call OTM: reduce coste neto y theta
+    max_premium_net: 12.0      # prima neta máx $12 por spread (~12% capital)
+    dte_min: 10                # mínimo 10 días: no comprar theta extremo
+    dte_max: 45                # máximo 45 días: no pagar vega de más
+    tp_premium_mult: 1.4       # take profit: +40% de prima
+    sl_premium_mult: 0.25      # stop loss: -75% de prima
+    close_dte: 7               # cerrar si quedan 7 días al vencimiento (evita gamma de última semana)
 
 data:
   provider: alpaca           # alpaca (real) o yfinance (respaldo sin API key)
@@ -106,6 +140,11 @@ risk:
   max_sector_weight_pct: 60.0  # concentración permitida para el reto
   max_drawdown_daily_pct: 15.0 # detiene trading del día si pierde 15% ($15)
   max_drawdown_total_pct: 30.0 # detiene el bot si el capital cae a $70
+  # Gestión de prima por posición (reto): stop si la prima cae al 25% de la
+  # entrada y take profit al +40%. Evita el error del backtest B donde una
+  # posición de LCID perdió 93% por no tener stop de prima activo.
+  prem_sl_mult: 0.25
+  prem_tp_mult: 1.4
   allow_pyramiding: false
   allow_averaging_down: false
   # Horario de operación (hora Nueva York)

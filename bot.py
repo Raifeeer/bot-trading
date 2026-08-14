@@ -145,7 +145,11 @@ def _manage_open_position(feed, builder, strat, pos):
     exps = sorted(l.contract.expiration for l in st.legs)
     dte = (exps[-1] - datetime.utcnow().date()).days if exps else 30
     op = OptionsPosition(st, entry_premium, datetime.utcnow())
-    reason = evaluate_exit(st, op, dte, spot)
+    cfg_ = get_config()
+    pec = premium_exit_cfg(cfg_)
+    reason = evaluate_exit(st, op, dte, spot,
+                           tp_mult=pec["tp_mult"], sl_mult=pec["sl_mult"],
+                           close_dte=pec["close_dte"])
     if reason:
         return "EXIT", reason
     return None, ""
@@ -160,20 +164,50 @@ def strat_structure_for(pos, strat):
         df = strat.base.scan
         raise
 
+def options_map_cfg(cfg):
+    """Parámetros de estructura del PERFIL RETO ($100→$200). Si el perfil está
+    activo en config, sobreescribe dirección, deltas, prima máxima y rango
+    DTE que usa OptionsStrategy para construir los spreads."""
+    uni = cfg.get("universo", {}) or {}
+    reto = uni.get("options_reto") or {}
+    if not reto:
+        return {"direction": "bull"}
+    return dict(
+        direction=reto.get("direction", "bull"),
+        delta_long=reto.get("delta_long", 0.30),
+        delta_short=reto.get("delta_short", 0.15),
+        max_premium_net=reto.get("max_premium_net", 0.50),
+        dte_min=reto.get("dte_min", 14),
+        dte_max=reto.get("dte_max", 60),
+    )
+
+def premium_exit_cfg(cfg):
+    """Multiplicadores de gestión de prima por posición (reto $100→$200):
+    tp_mult en prima para el take profit y sl_mult para el stop. Los defaults
+    (+50% / -85%) se mantienen si el config no define valores de reto."""
+    uni = (cfg.get("universo", {}) or {}).get("options_reto") or {}
+    risk = cfg.get("risk", {}) or {}
+    return dict(
+        tp_mult=uni.get("tp_premium_mult", risk.get("prem_tp_mult", 1.5)),
+        sl_mult=uni.get("sl_premium_mult", risk.get("prem_sl_mult", 0.15)),
+        close_dte=uni.get("close_dte", 7),
+    )
+
 def build_strategies(cfg, spread_builder):
     strats = {}
+    map_cfg = options_map_cfg(cfg)
     if cfg["strategies"]["day_momentum"]["enabled"]:
         strats["opt_day_momentum"] = OptionsStrategy(
             DayMomentum(cfg["strategies"]["day_momentum"]["params"]),
-            spread_builder, {"direction": "bull"})
+            spread_builder, map_cfg)
     if cfg["strategies"]["day_breakout"]["enabled"]:
         strats["opt_day_breakout"] = OptionsStrategy(
             DayBreakout(cfg["strategies"]["day_breakout"]["params"]),
-            spread_builder, {"direction": "bull"})
+            spread_builder, map_cfg)
     if cfg["strategies"]["swing_trend"]["enabled"]:
         strats["opt_swing_trend"] = OptionsStrategy(
             SwingTrend(cfg["strategies"]["swing_trend"]["params"]),
-            spread_builder, {"direction": "bull"})
+            spread_builder, map_cfg)
     global _STRATS
     _STRATS = dict(strats)
     return strats

@@ -123,25 +123,43 @@ class OptionsStrategy(Strategy):
 # ---------------------------------------------------------------------------
 
 def evaluate_exit(current_structure: OptionStructure, pos: OptionsPosition,
-                  days_to_expiry: int, spot_now: float) -> str:
-    """Devuelve la razón de salida si aplica, '' si mantener."""
+                  days_to_expiry: int, spot_now: float,
+                  tp_mult: float = 1.5, sl_mult: float = 0.15,
+                  tp_credit_mult: float = 0.5, sl_credit_mult: float = 2.0,
+                  close_dte: int = 21, hold_days: int = None,
+                  min_gain_after_half_time: float = 0.1) -> str:
+    """Devuelve la razón de salida si aplica, '' si mantener.
+
+    Los multiplicadores son configurables (reto $100→$200): tp_mult=1.4
+    (TP al +40% de prima) y sl_mult=0.25 (SL al -75% de prima) reemplazan los
+    valores por defecto de +50%/-85%.
+    """
     premium_now = current_structure.net_premium
     entry, now = pos.entry_premium, premium_now
 
     if pos.is_debit:
-        # débito: TP +50%, SL -100% (riesgo definido del spread)
-        if now >= entry * 1.5:
-            return "tp_premio_50"
-        if now <= entry * 0.15:
-            return "sl_debito_total"
+        # débito: TP configurable (defecto +50%), SL configurable (defecto
+        # prima al 15% de la entrada = -85%). El reto usa 1.4 / 0.25.
+        if now >= entry * tp_mult:
+            return "tp_premio"
+        if now <= entry * sl_mult:
+            return "sl_premio"
     else:
-        # crédito: TC al 50% del cobrado, SL si la prima neta se duplica
-        if now <= entry * 0.5:
-            return "tc_credito_50"
-        if now >= abs(entry) * 2:
+        # crédito: TC configurable al % del cobrado, SL si la prima neta se
+        # multiplica por sl_credit_mult (defecto 2.0 = el doble)
+        if now <= entry * tp_credit_mult:
+            return "tc_credito"
+        if now >= abs(entry) * sl_credit_mult:
             return "sl_credito_doble"
 
-    # gestión temporal: 21 DTE o 50% del tiempo con poca ganancia
-    if days_to_expiry <= 21 and now > 0:
-        return "gestion_21dte"
+    # gestión temporal: cerrar a close_dte del vencimiento o a la mitad del
+    # tiempo transcurrido con ganancia menor a min_gain_after_half_time
+    if days_to_expiry <= close_dte and now > 0:
+        return "gestion_close_dte"
+    if hold_days is not None:
+        total_life = pos.structure.legs[0].contract.expiration - pos.entry_ts.date() if hasattr(pos.entry_ts, "date") else 30
+        if total_life.days > 0 and hold_days >= total_life.days / 2:
+            gain = (now - entry) / entry if entry else 0.0
+            if gain < min_gain_after_half_time:
+                return "gestion_medio_tiempo"
     return ""
