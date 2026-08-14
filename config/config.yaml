@@ -133,6 +133,8 @@ strategies:
       max_hold_days: 20
 
 risk:
+  # Anti-earnings: bloquear entradas N días antes de reportes de ganancias
+  earnings_horizon_days: 2
   # RETO $100 -> $200: perfil agresivo pero con válvulas de seguridad
   mode: aggressive             # conservative | moderate | aggressive
   max_risk_per_trade_pct: 20.0 # % del capital en riesgo por operación (~$20/trade)

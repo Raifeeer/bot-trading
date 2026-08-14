@@ -314,6 +314,25 @@ def main():
                         continue
                     sig = strat.scan(df, symbol=sym)
                     if sig.tradable and strat.last_structure:
+                        # Filtro anti-earnings: no entrar en posiciones N días
+                        # antes de reportes de ganancias (riesgo de gap y
+                        # IV crush). La decisión queda registrada como
+                        # EARNINGS_RISK para auditoría y Telegram.
+                        from data.earnings import blocked as _earnings_blocked
+                        eh = cfg.get("risk", {}).get("earnings_horizon_days", 2)
+                        if _earnings_blocked(sym, eh):
+                            state["decisions"].append({
+                                "ts": datetime.utcnow().isoformat(),
+                                "decision": "EARNINGS_RISK",
+                                "symbol": sym,
+                                "reason": (f"Earnings próximo (horizonte "
+                                           f"{eh}d); entrada bloqueada"),
+                                "signal_type": sig.signal_type.value if hasattr(sig.signal_type, "value") else str(sig.signal_type),
+                            })
+                            logger.info("Entrada %s bloqueada por earnings",
+                                        sym)
+                            strat.reset()
+                            continue
                         st = strat.last_structure
                         entry_px = abs(st.net_premium)
                         dec = rm.approve_position(sym, sig, entry_px, equity,

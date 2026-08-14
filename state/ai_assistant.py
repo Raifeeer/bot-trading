@@ -25,6 +25,9 @@ import urllib.request
 logger = logging.getLogger("polaris.ai")
 
 DEEPSEEK_KEY = (os.environ.get("DEEPSEEK_API_KEY") or "").strip()
+# Modelo configurable: el secret DEEPSEEK_API_KEY puede apuntar a un proxy
+# OpenAI-compatible (p. ej. el Hermes del usuario) que solo acepta ciertos
+# modelos (gpt-5-mini, claude-*, gemini-*, etc.). Ajustar aquí o vía env.
 DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL") or "deepseek-chat"
 OPENAI_BASE = (os.environ.get("OPENAI_API_BASE") or "").strip()
 OPENAI_KEY = (os.environ.get("OPENAI_API_KEY") or "").strip()
@@ -32,6 +35,7 @@ OPENAI_MODEL = os.environ.get("OPENAI_MODEL") or "gpt-4o-mini"
 ENABLED = bool(DEEPSEEK_KEY or OPENAI_KEY)
 
 _context_cache = {"snapshot": {}, "updated_at": 0.0}
+_fund_cache = {}  # texto normalizado -> (ts, str)
 
 SYSTEM_PROMPT = (
     "Eres Polaris, el asistente de trading de opciones del usuario. "
@@ -153,6 +157,69 @@ def _build_context() -> str:
     return "\n".join(lines)
 
 
+def _fundamentals(text: str) -> str:
+    """Contexto fundamental on-demand: si la pregunta menciona un ticker
+    conocido del universo (o símbolo que Yahoo reconozca con precio válido),
+    obtiene P/E, precio vs SMA200 y fecha de earnings vía yfinance. Se añade
+    al prompt del LLM para respuestas más ricas sin afectar el tick
+    principal. Solo se consulta el PRIMER ticker candidato válido: yfinance
+    es lento y el usuario típicamente pregunta por uno a la vez."""
+    import re
+    from data.earnings import get_earnings
+
+    norm = (text or "").strip().lower()
+    hit = _fund_cache.get(norm)
+    if hit and (time.time() - hit[0]) < 60:
+        return hit[1]
+    words = re.findall(r"\b([A-Za-z]{1,6})\b", text or "")
+    # Candidatos a ticker: mayúsculas de 1-5 letras, descartando palabras
+    # comunes en español/inglés que podrían colisionar.
+    SKIP = {"P", "E", "IA", "LLM", "OK", "NO", "USD", "SMA", "ETF", "API",
+            "QUE", "COMO", "HOY", "AUN", "SER", "TAN", "PAN", "DOS", "TRES",
+            "LAS", "LOS", "POR", "CON", "MAS", "EST", "ERA", "SOLO", "TIENE"}
+    for sym in words:
+        if len(sym) > 5:
+            continue
+        if sym.upper() in SKIP:
+            continue
+        # Yahoo devuelve datos aunque se pida en mayúsculas; si el símbolo
+        # devuelto por Yahoo no coincide con el candidato en longitud/tipo,
+        # es una palabra falsa (ej. "como" no existe como ticker).
+        try:
+            import yfinance as yf
+            t = yf.Ticker(sym)
+            fi = getattr(t, "fast_info", None)
+            px = getattr(fi, "last_price", None)
+            if px is None or px <= 0:
+                continue  # palabra falsa o símbolo inexistente
+            hist = None
+            sma200 = None
+            try:
+                hist = t.history(period="1y")["Close"]
+                if len(hist) >= 200:
+                    sma200 = float(hist.iloc[-200:].mean())
+            except Exception:  # noqa: BLE001
+                pass
+            pe = getattr(fi, "trailing_pe", None)
+            earnings = get_earnings(sym)
+            result = ("DATOS FUNDAMENTALES (consulta puntual):\n"
+                      f"- {sym.upper()}: precio ${px}") + (
+                          f" · SMA200 ${sma200:.2f} · precio "
+                          f"{'+' if px/sma200-1 >= 0 else ''}"
+                          f"{(px/sma200-1)*100:.1f}% vs SMA200"
+                          if sma200 else "") + (
+                          f" · P/E trailing: {round(pe, 2)}" if pe else "") + (
+                          f" · Próximo earnings: {earnings['earnings_date']}"
+                          if earnings.get("earnings_date") else "")
+            _fund_cache[norm] = (time.time(), result)
+            return result
+        except Exception:  # noqa: BLE001
+            continue
+    result = ""
+    _fund_cache[norm] = (time.time(), result)
+    return result
+
+
 def answer(user_text: str) -> str | None:
     """Responde con IA si está habilitada y el texto no es un comando.
 
@@ -164,7 +231,9 @@ def answer(user_text: str) -> str | None:
     if txt.lower() in COMMANDS:
         return None
     ctx = _build_context()
-    prompt = (f"ESTADO ACTUAL DEL BOT:\n{ctx}\n\n"
+    fund = _fundamentals(txt)
+    prompt = (f"ESTADO ACTUAL DEL BOT:\n{ctx}\n"
+              f"{fund}\n"
               f"PREGUNTA DEL USUARIO:\n{txt}")
     resp = _call_llm(prompt)
     if not resp:
