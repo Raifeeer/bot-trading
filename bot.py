@@ -407,6 +407,22 @@ def main():
                             logger.exception("No se pudo recalcular prima al cerrar")
                         pnl = (entry_px - abs(current_net)) * 100
                         state["positions"].pop(i)
+                        if FIRESTORE_ENABLED:
+                            try:
+                                from state.firestore_state import append_trade
+                                append_trade({
+                                    "ts": datetime.utcnow().isoformat(),
+                                    "symbol": p["symbol"],
+                                    "strategy": p["strategy"],
+                                    "structure": p.get("structure", ""),
+                                    "entry_premium": entry_px,
+                                    "exit_value": abs(current_net),
+                                    "pnl": pnl,
+                                    "exit_reason": reason,
+                                    "dte": p.get("dte"),
+                                })
+                            except Exception:  # noqa: BLE001
+                                logger.exception("Fallo publicando trade a Firestore")
                         state["decisions"].append({
                             "ts": datetime.utcnow().isoformat(),
                             "position": p, "exit_reason": reason,

@@ -67,6 +67,19 @@ def append_signal(signal_payload: dict) -> None:
         logger.warning("Fallo al registrar señal en Firestore: %s", e)
 
 
+def append_trade(trade: dict) -> None:
+    """Añade un trade cerrado a polaris/{day}/trade_history (array)."""
+    try:
+        db = _get_db()
+        day = date.today().isoformat()
+        from google.cloud.firestore_v1.transforms import ArrayUnion
+        db.collection("polaris").document(day).update({
+            "trade_history": ArrayUnion([trade])
+        })
+    except Exception as e:  # nunca bloquear el bot
+        logger.warning("Fallo al publicar trade a Firestore: %s", e)
+
+
 def append_equity_point(equity: float) -> None:
     """Guarda un punto de la curva de equity del día."""
     try:
