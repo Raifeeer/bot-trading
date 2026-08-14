@@ -202,6 +202,10 @@ def rsi_exit(hist, d, floor=200):
     return False
 
 
+
+# regime_hold_cash: bull => hold semanal, bear => cash (no puts caras,
+# hipótesis de la ronda 9: puts con comisiones dejan ~break-even)
+
 MOTORES = {"swing": (swing_entry, swing_exit),
            "smc_daily": (smc_entry, smc_exit),
            "rsi_bounce": (rsi_entry, rsi_exit),
@@ -618,7 +622,38 @@ def put_choch_entry(hist, d):
 
 
 MOTORES["put_choch"] = (put_choch_entry, put_exit)
+MOTORES["regime_hold_cash"] = (None, None)  # lógica propia en run_scenario
 MOTORES["regime_aware"] = (None, None)  # lógica propia abajo
+
+# --- Ronda 10: motores nuevos (definiciones ANTES de MOTORES para orden de lectura)
+def rebote_rsi_entry(hist, d):
+    """Cruce tras dip profundo: precio cae -15% del máximo 60d y RSI14<30,
+    luego RSI cruza de vuelta por encima de 25. Típico del rebote de jul-2026."""
+    sub = hist[hist.index.normalize() <= d]
+    if len(sub) < 80:
+        return None
+    win60 = sub["close"].iloc[-60:]
+    hi = win60.max()
+    r = rsi(sub["close"])
+    close_now = sub["close"].iloc[-1]
+    dip_ok = close_now <= hi * 0.85
+    rsi_now = r.iloc[-1]
+    if pd.isna(rsi_now) or not dip_ok:
+        return None
+    if rsi_now >= 25 and r.iloc[-2] < 25:  # cruce alcista desde oversold
+        return dict(type="rebote_rsi")
+    return None
+
+
+def rebote_rsi_exit(hist, d):
+    sub = hist[hist.index.normalize() <= d]
+    if len(sub) < 60:
+        return False
+    r = rsi(sub["close"])
+    return bool(pd.notna(r.iloc[-1]) and r.iloc[-1] > 70)
+
+
+MOTORES["rebote_rsi"] = (rebote_rsi_entry, rebote_rsi_exit)
 
 
 def run_scenario(key: str, sc: dict, data: dict):
@@ -630,7 +665,7 @@ def run_scenario(key: str, sc: dict, data: dict):
         end = today
         start = today - pd.Timedelta(days=sc["window_days"])
 
-    is_regime = sc["motor"] == "regime_aware"
+    is_regime = sc["motor"] in ("regime_aware", "regime_hold_cash")
     is_hold = sc["motor"] in ("hold", "hold_weekly")
     entry_fn, exit_fn = (None, None) if is_hold else MOTORES[sc["motor"]]
     if not is_hold and exit_fn is None:  # motor "both": salida por señal contraria
@@ -696,7 +731,7 @@ def run_scenario(key: str, sc: dict, data: dict):
         open_pos = still_open
 
         # entradas
-        if not is_regime and len(open_pos) < sc["max_pos"]:
+        if len(open_pos) < sc["max_pos"] and not is_regime:
             smc_helper = SMCStrategy()
             for sym, df in sorted(data.items()):
                 if any(p["symbol"] == sym for p in open_pos):
@@ -912,7 +947,83 @@ def run_scenario(key: str, sc: dict, data: dict):
                                 exit_value=val, pnl=pnl, reason="fin_backtest",
                                 motor="regime_aware"))
         equity, trades, equity_curve = equity3, trades3, ec3
-
+    if sc["motor"] == "regime_hold_cash":
+        # Variante: bull => hold semanal equally weighted; bear => cash;
+        # lateral => cash. Sin puts (las comisiones las dejan en break-even).
+        equity3b = CAPITAL_INICIAL
+        pos3b, trades3b, ec3b = [], [], []
+        next_rebalb = dates[0]
+        rebal_symsb = sorted(sc["tickers"])[:sc["max_pos"]]
+        for d in dates:
+            # cerrar rebalance del hold
+            if d >= next_rebalb:
+                for p in pos3b:
+                    rows = data[p["symbol"]][data[p["symbol"]].index.normalize() == d]
+                    if len(rows):
+                        exit_spot = float(rows["close"].iloc[-1])
+                        val = p["entry_net"] * exit_spot / p["last_spot"]
+                        pnl = val - p["entry_net"]
+                        if sc.get("comision"):
+                            pnl -= sc["comision"]
+                        equity3b += pnl
+                        trades3b.append(dict(symbol=p["symbol"], entry_date=p["entry_date"],
+                                             exit_date=d, pnl=pnl, pnl_pct=pnl / p["entry_net"],
+                                             reason="rebalance", motor="regime_hold_cash",
+                                             days_held=(d - p["entry_date"]).days))
+                pos3b = []
+                per = equity3b / max(len(rebal_symsb), 1)
+                for sym in rebal_symsb:
+                    dfsym = data.get(sym)
+                    if dfsym is None:
+                        continue
+                    rows = dfsym[dfsym.index.normalize() == d]
+                    if len(rows):
+                        pos3b.append(dict(symbol=sym, entry_net=per,
+                                          last_spot=float(rows["close"].iloc[-1]),
+                                          entry_date=d, motor="regime_hold_cash",
+                                          side="equity"))
+                next_rebalb = d + pd.Timedelta(days=7)
+            # régimen
+            regimeb = "cash"
+            bull_countb, bear_countb = 0, 0
+            n = 0
+            for sym in sc["tickers"]:
+                dfsym = data.get(sym)
+                if dfsym is None:
+                    continue
+                sub = dfsym[dfsym.index.normalize() <= d]
+                if len(sub) < 110:
+                    continue
+                n += 1
+                r = rsi(sub["close"])
+                s200 = sma(sub["close"], 200)
+                if pd.notna(r.iloc[-1]) and r.iloc[-1] > 50 and pd.notna(s200.iloc[-1]) \
+                        and sub["close"].iloc[-1] > s200.iloc[-1]:
+                    bull_countb += 1
+                if len(sub) >= 60 and put_choch_entry(sub, d) is not None:
+                    bear_countb += 1
+            if bear_countb >= n * 0.3:
+                regimeb = "bear"  # salir del hold (cash) en selloff
+            elif bull_countb >= n * 0.5:
+                regimeb = "bull"
+            if regimeb == "bear" and pos3b:
+                # cerrar el hold y quedarse en cash
+                for p in pos3b:
+                    rows = data[p["symbol"]][data[p["symbol"]].index.normalize() == d]
+                    exit_spot = float(rows["close"].iloc[-1]) if len(rows) else p["last_spot"]
+                    val = p["entry_net"] * exit_spot / p["last_spot"]
+                    pnl = val - p["entry_net"]
+                    if sc.get("comision"):
+                        pnl -= sc["comision"]
+                    equity3b += pnl
+                    trades3b.append(dict(symbol=p["symbol"], entry_date=p["entry_date"],
+                                         exit_date=d, pnl=pnl, pnl_pct=pnl / p["entry_net"],
+                                         reason="bear_cash", motor="regime_hold_cash",
+                                         days_held=(d - p["entry_date"]).days))
+                pos3b = []
+                next_rebalb = d + pd.Timedelta(days=7)
+            ec3b.append(dict(date=d, equity=round(equity3b, 2), open_positions=len(pos3b)))
+        equity, trades, equity_curve = equity3b, trades3b, ec3b
     if sc["motor"] == "hold_weekly" and is_hold:
         # benchmark justo: reequilibrio semanal, no diario (evita churn)
         equity2 = CAPITAL_INICIAL
@@ -1002,6 +1113,208 @@ def run_scenario(key: str, sc: dict, data: dict):
     return equity, tdf, ecdf, dd_pct, max_eq
 
 
+
+# --- Ronda 10: datos recientes 2026 (abr-ago) para afinar estrategia regime-aware
+# Contexto: SPX en máximos históricos (13-ago-2026), rally tech (+15% YTD), caída
+# tech de jun-jul (-15-25%) seguida de rebote fuerte. Ventanas claves:
+#  - abr-jul 2026: selloff tech (PLTR/TSLA/AMD -25% desde máx) → ideal para puts
+#  - jul-ago 2026: rebote/rally → ideal para calls y hold
+#  - abr-ago completo: ciclo completo rally→caída→rebote → prueba regime-aware real
+SCENARIOS.update({
+    "S72": dict(name="S36 rally reciente (jun-ago)", motor="smc_daily",
+                window_dates=("2026-06-01", "2026-08-14"),
+                tickers=UNI_RETO, risk_pct=0.15, max_pos=3, dte=21,
+                delta_l=0.30, delta_s=0.10, tp=1.5, sl=0.5,
+                max_rv=None, anti_earnings=True, comision=0.65),
+    "S73": dict(name="Calls rebote (dip+RSI<25, mar-jul)", motor="rebote_rsi",
+                window_dates=("2026-03-01", "2026-07-01"),
+                tickers=UNI_RETO, risk_pct=0.15, max_pos=3, dte=21,
+                delta_l=0.30, delta_s=0.10, tp=1.5, sl=0.5,
+                max_rv=None, anti_earnings=True, comision=0.65),
+    "S74": dict(name="Hold semanal reciente (abr-ago)", motor="hold_weekly",
+                window_dates=("2026-04-01", "2026-08-14"),
+                tickers=UNI_RETO, risk_pct=0.25, max_pos=8, dte=21,
+                delta_l=0.30, delta_s=0.10, tp=1.5, sl=0.5,
+                max_rv=None, anti_earnings=False),
+    "S75": dict(name="Regime-aware reciente completo", motor="regime_aware",
+                window_dates=("2026-04-01", "2026-08-14"),
+                tickers=UNI_RETO, risk_pct=0.30, max_pos=2, dte=21,
+                delta_l=0.30, delta_s=0.10, tp=1.5, sl=0.5,
+                max_rv=None, anti_earnings=True, comision=0.65,
+                cheap_min_net=28.0),
+    "S76": dict(name="Regime-aware ticks baratos selloff tech",
+                motor="regime_aware",
+                window_dates=("2026-05-01", "2026-07-01"),
+                tickers=["SOFI", "F", "NOK", "BB"], risk_pct=0.30, max_pos=2,
+                dte=21, delta_l=0.30, delta_s=0.10, tp=1.5, sl=0.5,
+                max_rv=None, anti_earnings=True, comision=0.65,
+                cheap_min_net=28.0),
+    "S77": dict(name="Hold tech pesado rebote (jun-ago)", motor="hold_weekly",
+                window_dates=("2026-06-01", "2026-08-14"),
+                tickers=UNI_TECH, risk_pct=0.25, max_pos=8, dte=21,
+                delta_l=0.30, delta_s=0.10, tp=1.5, sl=0.5,
+                max_rv=None, anti_earnings=False),
+    "S78": dict(name="Regime bull→hold, bear→cash (sin puts caras)",
+                motor="regime_hold_cash",
+                window_dates=("2026-04-01", "2026-08-14"),
+                tickers=UNI_RETO, risk_pct=0.25, max_pos=8, dte=21,
+                delta_l=0.30, delta_s=0.10, tp=1.5, sl=0.5,
+                max_rv=None, anti_earnings=False),
+    "S79": dict(name="Calls dip-SPY: rebote post-crash jun", motor="rebote_rsi",
+                window_dates=("2026-06-01", "2026-07-15"),
+                tickers=["TQQQ", "TSLA", "AMD", "PLTR", "NVDA"],
+                risk_pct=0.15, max_pos=3, dte=14,
+                delta_l=0.30, delta_s=0.10, tp=1.5, sl=0.5,
+                max_rv=None, anti_earnings=True, comision=0.65),
+    "S80": dict(name="Walk-forward reciente: 30d + 30d",
+                motor="smc_daily", window_days=60,
+                tickers=UNI_RETO, risk_pct=0.15, max_pos=3, dte=21,
+                delta_l=0.30, delta_s=0.10, tp=1.5, sl=0.5,
+                max_rv=None, anti_earnings=True, comision=0.65),
+    # --- Ronda 10b: rebote refinado (umbrales permisivos + giro SMA5)
+    "S81": dict(name="Rebote RSI30/28 mar-jul", motor="rebote_rsi_v2",
+                window_dates=("2026-03-01", "2026-07-01"),
+                tickers=UNI_RETO, risk_pct=0.15, max_pos=3, dte=21,
+                delta_l=0.30, delta_s=0.10, tp=1.5, sl=0.5,
+                max_rv=None, anti_earnings=True, comision=0.65,
+                rsi_floor=30, rsi_cross=28, dip_pct=0.85),
+    "S82": dict(name="Rebote RSI30/28 ciclo completo", motor="rebote_rsi_v2",
+                window_dates=("2026-04-01", "2026-08-14"),
+                tickers=UNI_RETO, risk_pct=0.15, max_pos=3, dte=21,
+                delta_l=0.30, delta_s=0.10, tp=1.5, sl=0.5,
+                max_rv=None, anti_earnings=True, comision=0.65,
+                rsi_floor=30, rsi_cross=28, dip_pct=0.85),
+    "S83": dict(name="Rebote giro SMA5 mar-jul", motor="rebote_sma5",
+                window_dates=("2026-03-01", "2026-07-01"),
+                tickers=UNI_RETO, risk_pct=0.15, max_pos=3, dte=21,
+                delta_l=0.30, delta_s=0.10, tp=1.5, sl=0.5,
+                max_rv=None, anti_earnings=True, comision=0.65,
+                dip_pct=0.85),
+    "S84": dict(name="Rebote giro SMA5 tech pesado jun-ago",
+                motor="rebote_sma5",
+                window_dates=("2026-06-01", "2026-08-14"),
+                tickers=["TQQQ", "TSLA", "AMD", "PLTR", "NVDA"],
+                risk_pct=0.15, max_pos=3, dte=14,
+                delta_l=0.30, delta_s=0.10, tp=1.5, sl=0.5,
+                max_rv=None, anti_earnings=True, comision=0.65,
+                dip_pct=0.85),
+})
+
+
+# --- Ronda 10b: refinamiento rebote_rsi (los mínimos RSI 2026 fueron 25-33,
+# el umbral 25 nunca cruza). Pruebas con umbrales permisivos y dip+crucSMA5.
+def rebote_rsi_entry_v2(hist, d, rsi_floor=30, rsi_cross=28, dip_pct=0.85):
+    """Dip >=15% del máx 60d y RSI cruza alcista el umbral de oversold."""
+    sub = hist[hist.index.normalize() <= d]
+    if len(sub) < 80:
+        return None
+    win60 = sub["close"].iloc[-60:]
+    hi = win60.max()
+    r = rsi(sub["close"])
+    close_now = sub["close"].iloc[-1]
+    if close_now > hi * dip_pct:
+        return None
+    rsi_now = r.iloc[-1]
+    if pd.isna(rsi_now):
+        return None
+    if rsi_now >= rsi_cross and r.iloc[-2] < rsi_cross:
+        return dict(type="rebote_rsi_v2")
+    return None
+
+
+def rebote_sma5_entry(hist, d, dip_pct=0.85):
+    """Dip >=15% del máx 60d y el cierre cruza por encima de SMA5
+    (señal de giro mecánica, no depende de RSI)."""
+    sub = hist[hist.index.normalize() <= d]
+    if len(sub) < 65:
+        return None
+    win60 = sub["close"].iloc[-60:]
+    hi = win60.max()
+    close_now = sub["close"].iloc[-1]
+    if close_now > hi * dip_pct:
+        return None
+    s5 = sma(sub["close"], 5)
+    if pd.isna(s5.iloc[-1]) or pd.isna(s5.iloc[-2]):
+        return None
+    if close_now > s5.iloc[-1] and sub["close"].iloc[-2] <= s5.iloc[-2]:
+        return dict(type="rebote_sma5")
+    return None
+
+
+def rebote_exit_rsi60(hist, d, top=60):
+    sub = hist[hist.index.normalize() <= d]
+    if len(sub) < 60:
+        return False
+    return bool(pd.notna(rsi(sub["close"]).iloc[-1])
+                and rsi(sub["close"]).iloc[-1] > top)
+
+
+MOTORES["rebote_rsi_v2"] = (rebote_rsi_entry_v2, rebote_exit_rsi60)
+MOTORES["rebote_sma5"] = (rebote_sma5_entry, rebote_exit_rsi60)
+
+
+# --- Ronda 10c: rebote calibrado al mercado 2026 (RSI 30-50 en dips, no oversold)
+def rebote_rsi40_entry(hist, d, dip_pct=0.88):
+    """Dip >=12% del máx 60d y RSI14 cruza alcista por encima de 40.
+    Calibrado a los rebotes reales de jun-jul 2026 (RSI mín 25-42)."""
+    sub = hist[hist.index.normalize() <= d]
+    if len(sub) < 80:
+        return None
+    win60 = sub["close"].iloc[-60:]
+    hi = win60.max()
+    close_now = sub["close"].iloc[-1]
+    if close_now > hi * dip_pct:
+        return None
+    r = rsi(sub["close"])
+    rsi_now = r.iloc[-1]
+    if pd.isna(rsi_now):
+        return None
+    if rsi_now >= 40 and r.iloc[-2] < 40:
+        return dict(type="rebote_rsi40")
+    return None
+
+
+MOTORES["rebote_rsi40"] = (rebote_rsi40_entry, rebote_exit_rsi60)
+
+SCENARIOS.update({
+    "S85": dict(name="Rebote RSI40 calibrado jun-jul", motor="rebote_rsi40",
+                window_dates=("2026-06-01", "2026-08-14"),
+                tickers=UNI_RETO, risk_pct=0.15, max_pos=3, dte=21,
+                delta_l=0.30, delta_s=0.10, tp=1.5, sl=0.5,
+                max_rv=None, anti_earnings=True, comision=0.65,
+                dip_pct=0.88),
+    "S86": dict(name="Rebote RSI40 tech pesado jun-ago", motor="rebote_rsi40",
+                window_dates=("2026-06-01", "2026-08-14"),
+                tickers=["TQQQ", "TSLA", "AMD", "PLTR", "NVDA"],
+                risk_pct=0.15, max_pos=3, dte=21,
+                delta_l=0.30, delta_s=0.10, tp=1.5, sl=0.5,
+                max_rv=None, anti_earnings=True, comision=0.65,
+                dip_pct=0.88),
+})
+
+
+# --- Ronda 10d: rebote en tickers baratos (spreads viables con $100)
+SCENARIOS.update({
+    "S87": dict(name="Rebote RSI40 tickers baratos jun-ago", motor="rebote_rsi40",
+                window_dates=("2026-06-01", "2026-08-14"),
+                tickers=["SOFI", "F", "NOK", "BB"], risk_pct=0.15, max_pos=3,
+                dte=21, delta_l=0.30, delta_s=0.10, tp=1.5, sl=0.5,
+                max_rv=None, anti_earnings=True, comision=0.65,
+                dip_pct=0.88),
+    "S88": dict(name="Rebote RSI40 OTM 0.25/0.08 jun-ago", motor="rebote_rsi40",
+                window_dates=("2026-06-01", "2026-08-14"),
+                tickers=UNI_RETO, risk_pct=0.15, max_pos=3,
+                dte=21, delta_l=0.25, delta_s=0.08, tp=1.5, sl=0.5,
+                max_rv=None, anti_earnings=True, comision=0.65,
+                dip_pct=0.88),
+    "S89": dict(name="Rebote RSI40 OTM baratos risk 30%", motor="rebote_rsi40",
+                window_dates=("2026-06-01", "2026-08-14"),
+                tickers=["SOFI", "F", "NOK", "BB"], risk_pct=0.30, max_pos=3,
+                dte=21, delta_l=0.25, delta_s=0.08, tp=1.5, sl=0.5,
+                max_rv=None, anti_earnings=True, comision=0.65,
+                dip_pct=0.88),
+})
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--scenario", default=None)
@@ -1056,3 +1369,8 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
+
+

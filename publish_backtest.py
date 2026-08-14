@@ -3,7 +3,7 @@ documento backtests/latest en Firestore (DB 'polaris').
 
 Así el dashboard lee métricas de backtest REALES (cero mock).
 
-Uso: FIRESTORE_DATABASE=polaris python3 publish_backtest.py
+Uso: GCLOUD_ACCESS_TOKEN=$(gcloud auth print-access-token) FIRESTORE_DATABASE=polaris python3 publish_backtest.py
 Requiere GOOGLE_APPLICATION_CREDENTIALS o gcloud auth (en Cloud Run usa la
 identidad del servicio; localmente activa la cuenta con `gcloud auth login`).
 """
@@ -69,19 +69,24 @@ def main():
     if not doc["scenarios"]:
         print("Sin filas en backtests/resumen.csv", file=sys.stderr)
         sys.exit(1)
+    doc["source"] = "loop_backtests.py (89 escenarios S1-S89)"
     try:
         from google.cloud import firestore
         from google.auth.transport.requests import Request
         import google.oauth2.credentials as _creds
         database = os.environ.get("FIRESTORE_DATABASE", "polaris")
-        # ADC: usar el token de la service account activada en gcloud
         creds = None
-        try:
-            import google.auth  # noqa: E402
-            creds, _ = google.auth.default(
-                scopes=["https://www.googleapis.com/auth/datastore"])
-        except Exception:
-            creds = None
+        token = os.environ.get("GCLOUD_ACCESS_TOKEN", "").strip()
+        if token:
+            import google.oauth2.credentials as _creds
+            creds = _creds.Credentials(token=token)
+        if creds is None:
+            try:
+                import google.auth  # noqa: E402
+                creds, _ = google.auth.default(
+                    scopes=["https://www.googleapis.com/auth/datastore"])
+            except Exception:
+                creds = None
         project = os.environ.get(
             "GOOGLE_CLOUD_PROJECT",
             "gen-lang-client-0746441136")
