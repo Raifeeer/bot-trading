@@ -290,6 +290,7 @@ def main():
                 tf_by_strat[sname] = (tf, days)
             cached = {}
             failed_tfs = []
+            skip_tick = False
             for sname, strat in strats.items():
                 tf, days = tf_by_strat[sname]
                 if tf not in cached:
