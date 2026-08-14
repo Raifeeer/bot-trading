@@ -24,6 +24,17 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# Logging primero: así las excepciones de los imports de abajo sí se registran
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(name)s %(levelname)s %(message)s",
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler("bot.log"),
+    ],
+)
+logger = logging.getLogger("bot")
+
 from config import get_config
 from data.feed import MarketDataFeed
 
@@ -96,16 +107,6 @@ def key_if_any(executor: AlpacaExecutor) -> bool:
     key = os.environ.get("APCA_API_KEY_ID") or executor.cfg["broker"].get("api_key")
     secret = os.environ.get("APCA_API_SECRET_KEY") or executor.cfg["broker"].get("secret_key")
     return bool(key and secret)
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(name)s %(levelname)s %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler("bot.log"),
-    ],
-)
-logger = logging.getLogger("bot")
 
 STATE_FILE = "data/bot_state.json"
 
