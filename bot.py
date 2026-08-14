@@ -284,10 +284,12 @@ def main():
             for sname, strat in strats.items():
                 tf = getattr(strat.base, "timeframe",
                              None) or getattr(strat, "timeframe", "1d")
-                days = 210 if tf == "1d" else (10 if tf == "15min" else 5)
+                # 1d: 100 días basta para SMA200 + ATR14 (no hace falta 210);
+                # reduce el tiempo de descarga en un ~50%.
+                days = 100 if tf == "1d" else (10 if tf == "15min" else 5)
                 tf_by_strat[sname] = (tf, days)
             cached = {}
-            skip_tick = False
+            failed_tfs = []
             for sname, strat in strats.items():
                 tf, days = tf_by_strat[sname]
                 if tf not in cached:
@@ -297,12 +299,13 @@ def main():
                         logger.info("Datos %s: %d tickers (%d barras)", tf,
                                     len(d), len(next(iter(d.values()))))
                     else:
-                        logger.warning("Sin datos %s; reintentando en 5 min", tf)
-                        skip_tick = True
-                if skip_tick:
-                    break
+                        # Sin ese timeframe: no matar el tick; el resto de
+                        # estrategias con otros timeframes sí pueden operar
+                        # y este timeframe se reintenta en el siguiente ciclo.
+                        logger.error("Sin datos %s; tick continúa sin él", tf)
+                        failed_tfs.append(tf)
                 data = cached[tf]
-                if not data:
+                if not data or tf in failed_tfs:
                     continue
                 # 2-4. señales → estructuras
                 for sym, df in data.items():
