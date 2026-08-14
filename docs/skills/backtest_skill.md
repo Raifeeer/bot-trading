@@ -1,0 +1,69 @@
+# Skill: Backtesting y calibración de estrategias
+
+**Archivos de referencia:** `loop_backtests.py` (motor S1–S89), `backtest_retos.py` (precios Black-Scholes), `stress_test.py` (crashes sintéticos, hallazgo 17), `stress_intraday.py` (stops intradiarios, hallazgo 18), y los informes `/home/ubuntu/backtests/hallazgo1.md..18.md`.
+
+## 1. Herramientas y qué mide cada una
+
+| Script | Qué hace | Para qué sirve |
+|---|---|---|
+| `loop_backtests.py` | Ejecuta la serie S1–S89 sobre datos reales de yfinance del universo reto | Comparar motores de decisión: hold, cash, put CHoCH, rebote, régimen-aware |
+| `backtest_retos.py` | Señales reales del motor + precios simulados Black-Scholes con vol. histórica de yfinance (margen 20%) | Calibrar deltas, DTE, TP/SL de primas con comisiones modeladas |
+| `stress_test.py` | Inyecta crashes sintéticos (E1–E4) reemplazando barras reales del feed | Validar defensas de crash event ante escenarios no vistos en historia |
+| `stress_intraday.py` | Mismo marco sintético con stops intradiarios 4/6/8/10% | Elegir el umbral óptimo de stop intradiario |
+
+> Advertencia permanente: las primas de `backtest_retos.py` son simuladas (BS con IV = vol. histórica + margen 20%) y las comisiones están modeladas, no reales. Sirven para comparar calibraciones, **no para estimar P&L real**.
+
+## 2. Metodología de ventanas (crítica)
+
+Los backtests usan cuatro ventanas con comportamientos de régimen distintos, y la conclusión cambia según la ventana — por eso se exige evaluar **todas**:
+
+| Ventana | Régimen dominante | Comportamiento del motor |
+|---|---|---|
+| 90 días estándar | Mixto | Comparador base |
+| Selloff ene–abr 2026 | Bajada sostenida con rebotes | Solo defensas (puts CHoCH) positivas |
+| Lateral sep–dic 2025 | Sin tendencia | Hold destruye; cash gana |
+| Reciente abr–ago 2026 | Bear suave HTF (bajo SMA200 sin CHoCH) | El ganador es cash + hold selectivo (S78) |
+
+## 3. Resultados consolidados S1–S89 (la calibración definitiva)
+
+| Estrategia | Perfil | Resultado clave |
+|---|---|---|
+| **S51** (hold semanal equally weighted, universo reto) | Bull | +92% en 90 días (vs S36 +53%) |
+| **S63** (put spread 0.30/0.10, DTE 21, trigger CHoCH pragmático) | CHoCH bear | +20.8% en selloff ene–abr 2026 (única positiva; con comisiones +2.6%) |
+| **S36** (call spread 0.30/0.10, DTE 21, RSI<25 + precio>SMA100) | Rebote | +53–60%, win rate 71–75%, budget 15% |
+| **S55** (cash en lateral) | Lateral | S36: 0 trades, capital intacto vs hold -96% |
+| **S67** (DTE 7–10 OTM) | — | -48%: el theta de los últimos días destruye |
+| **S75/S76** (defensivas en bear suave HTF) | Bear suave | -32.9% / -6.6%: RV alta encarece los puts |
+| **S78** (bull→hold, bear→cash) | Régimen-aware | **+26.7% en ventana reciente (ganador)**; dd -28.0% con crash_event 3% |
+
+La regla de oro que emerge: con $100 de capital, un put spread delta 0.30/0.10 DTE 21 cuesta $25–45 en tickers baratos y $150–1,700 en PLTR/TSLA/TQQQ/AMD; **solo BB, NOK, F, SOFI son operables** dentro del presupuesto. LCID y MARA se excluyen (vol. ~150% genera spreads degenerados y destruye primas sin stop).
+
+## 4. Prueba de estrés de crash (hallazgo 17, `stress_test.py`)
+
+Escenarios sintéticos inyectados sobre el feed real del universo reto (las barras sintéticas **reemplazan** las reales de las mismas fechas, con alineación fila a fila y hora igual al histórico — el bug antiguo que concatenaba con tz desalineada corrompía la cronología y está corregido):
+
+| Escenario | Perfil | S78 base | S78 mitigado (crash_event 3% + cooldown 5d) |
+|---|---|---|---|
+| E1 Flash | -20% en 1 día | $90.0 (dd -24.4%) | $96.1 (dd -4.3%) |
+| E2 Severo | -35% en 5 días + rebote +50% | $116.6 (+16.6%) | $138.3 (+38.3%, dd 0%) |
+| E3 Catastrófico | -50% en 3 días sin rebote | $54.6 (-45.4%) | límite físico (cae antes de cortar) |
+| E4 Realista | -30% en 20 días + rebote débil | $116.8 | $116.6 (dd 0%) |
+
+Conclusión: el CHoCH protege en selloffs negociables (2–4 semanas) pero **no en flash crashes de ≤3 días** — la estructura HI/LO no existe durante un pánico repentino y la reacción llega 2–5 días tarde. Validado en ventana real abr–ago 2026: drawdown mejora de -40.3% a -28.0% con equity superior ($128.9 vs $126.7). E3 es el límite físico de cualquier estrategia de cierre diario.
+
+## 5. Stops intradiarios (hallazgo 18, `stress_intraday.py`)
+
+Umbrales probados sobre `(1-ith)×close_prev` del subyacente, medibles en producción con el stream de equity de Alpaca (gratuito en el plan Basic):
+
+| Escenario | Base | **4%** | 6% | 8% | 10% |
+|---|---|---|---|---|---|
+| E1 Flash | $96.1 (dd -4.3%) | **$97.9 (dd -2.8%)** | $96.5 | $96.3 | $96.1 |
+| E2 Severo +rebote | $138.3 | **$141.6 (+41.6%, dd 0%)** | igual | $132.3 | $129.7 |
+| E3c rebal día 1 + shock | $97.3 (dd -2.7%) | **$100.5 (+0.5%, dd 0%)** | $98.6 | $97.6 | $97.4 |
+| Real abr–ago 2026 | $128.9 (dd -7.3%) | **$132.5 (+32.5%, dd -4.8%)** | $130.6 | $129.0 | $128.9 |
+
+Conclusión: **4% es el umbral óptimo** — mejora flash, catastrófico y peor caso de timing sin degradar nunca; ≥6% se dispara tarde y destruye hasta +15 puntos en selloffs con rebote. El gap de apertura no se detiene (ya consumado antes del stream): el stop solo acorta el resto del día. Defensa adoptada: `crash_event` 3% (cierre) + `intraday_stop` 4% + trailing de prima 30–40%.
+
+## 6. Reglas para el agente orquestador
+
+Ningún cambio de parámetro de estrategia entra en producción sin: (1) pasar por las cuatro ventanas de backtest; (2) pasar por los escenarios de estrés E1–E4 (y E3c si toca los stops); (3) validarse en la ventana real más reciente; (4) documentar el informe tipo `hallazgoN.md` con la tabla de resultados. La estrategia adoptada puede cambiar con los datos — los backtests son un loop continuo, no un entregable único: se recalibra con datos recientes cada vez que el usuario lo pida. No confiar en una única ventana: el error más caro del proyecto fue asumir que el motor ganador en bull (S51) funcionaba siempre.
