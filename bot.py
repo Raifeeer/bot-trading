@@ -529,6 +529,23 @@ def main():
             logger.info("FIRESTORE_ENABLED=%s (antes de write_state_snapshot)",
                         FIRESTORE_ENABLED)
             if FIRESTORE_ENABLED:
+                # Diagnóstico directo: escritura mínima a Firestore para
+                # localizar el punto exacto de fallo (el módulo state
+                # parece tragar excepciones sin loguearlas en CR).
+                try:
+                    from google.cloud import firestore as _fs
+                    _db = _fs.Client(project=None, database="polaris")
+                    _day = __import__("datetime").date.today().isoformat()
+                    _fs_doc = {"updated_at": __import__("datetime").datetime.now(
+                        __import__("datetime").timezone.utc).isoformat(),
+                        "probe": True}
+                    _db.collection("polaris").document(_day).set(_fs_doc,
+                                                                  merge=True)
+                    logger.info("DIAG_FS: probe escrito en polaris/%s",
+                                _day)
+                except Exception:  # noqa: BLE001
+                    import traceback as _tb
+                    print("DIAG_FS ERROR: " + _tb.format_exc(), flush=True)
                 try:
                     write_state_snapshot({
                         "equity": equity,
