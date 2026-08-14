@@ -32,7 +32,40 @@ DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL") or "deepseek-v4-flash"
 OPENAI_BASE = (os.environ.get("OPENAI_API_BASE") or "").strip()
 OPENAI_KEY = (os.environ.get("OPENAI_API_KEY") or "").strip()
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL") or "gpt-4o-mini"
-ENABLED = bool(DEEPSEEK_KEY or OPENAI_KEY)
+# Fallbacks: Gemini (Google AI Studio / GCP) y Grok (xAI). Las keys pueden
+# venir como variables de entorno directas o cargarse desde Secret Manager
+# de GCP si se da el nombre del secret (GCP_PROJECT_ID se inyecta en Cloud
+# Run con la service account del proyecto).
+GEMINI_KEY = (os.environ.get("GEMINI_API_KEY") or "").strip()
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL") or "gemini-2.5-flash"
+GROK_KEY = (os.environ.get("GROK_API_KEY") or "").strip()
+GROK_MODEL = os.environ.get("GROK_MODEL") or "grok-4-fast"
+
+
+def _sm_key(secret_name: str) -> str:
+    """Lee una key desde Secret Manager de GCP (la SA de Cloud Run necesita
+    el rol 'Secret Manager Secret Accessor')."""
+    project = (os.environ.get("GCP_PROJECT_ID") or "").strip()
+    if not project or not secret_name:
+        return ""
+    try:
+        from google.cloud import secretmanager
+        client = secretmanager.SecretManagerServiceClient()
+        name = f"projects/{project}/secrets/{secret_name}/versions/latest"
+        return client.access_secret_version(request={"name": name}).payload.data.decode().strip()
+    except Exception:  # noqa: BLE001
+        logger.exception("No se pudo leer secret %s de Secret Manager", secret_name)
+        return ""
+
+
+# Orden de resolución de keys de fallback (env directo > Secret Manager)
+if not GEMINI_KEY:
+    GEMINI_KEY = _sm_key(os.environ.get("GEMINI_SECRET_NAME")
+                         or "vercel-polaris-web-studio-GEMINI_API_KEY")
+if not GROK_KEY:
+    GROK_KEY = _sm_key(os.environ.get("GROK_SECRET_NAME")
+                       or "polaris-GROK_API_KEY")
+ENABLED = bool(DEEPSEEK_KEY or OPENAI_KEY or GEMINI_KEY or GROK_KEY)
 
 _context_cache = {"snapshot": {}, "updated_at": 0.0}
 _fund_cache = {}  # texto normalizado -> (ts, str)
@@ -51,6 +84,21 @@ SYSTEM_PROMPT = (
 
 COMMANDS = ("/estado", "/posiciones", "/historial", "/señales", "/senales",
             "/sinyales", "/riesgo", "/ayuda", "/help", "/start")
+
+
+def _has_ticker_hint(text: str) -> bool:
+    """Detecta si el texto probablemente menciona un ticker (palabra de 2-6
+    letras MAYÚSCULAS, p.ej. 'TSLA', 'PLTR', '¿cómo va AMD?'). Saludos como
+    'hola' no la activan, evitando consultas yfinance innecesarias."""
+    import re
+    if not text:
+        return False
+    low = text.lower()
+    if low in ("hola", "hi", "hello", "buenas", "hey"):
+        return False
+    words = re.findall(r"\b([A-Z]{2,6})\b", text)
+    skip = {"OK", "NO", "USD", "SMA", "ETF", "API", "LLM", "IA", "P", "E"}
+    return any(w not in skip for w in words)
 
 
 def enabled() -> bool:
@@ -102,7 +150,9 @@ def _call_llm(prompt: str) -> str | None:
             "Authorization": f"Bearer {key}",
         })
         try:
-            with urllib.request.urlopen(req, timeout=60) as r:
+            # Timeout corto: en Cloud Run el hilo de Telegram aborta a los
+            # 45 s; si la IA tarda más se usa el fallback.
+            with urllib.request.urlopen(req, timeout=30) as r:
                 data = json.loads(r.read().decode())
             content = data.get("choices") or []
             if content:
@@ -112,6 +162,64 @@ def _call_llm(prompt: str) -> str | None:
             logger.warning("LLM %s falla, probando siguiente: %s", model, e)
         except Exception:  # noqa: BLE001
             logger.exception("LLM error inesperado")
+    # Gemini usa su propio endpoint REST (no OpenAI-compatible) y su key va
+    # en la query string.
+    if GEMINI_KEY:
+        try:
+            gurl = ("https://generativelanguage.googleapis.com/v1beta/"
+                    f"models/{GEMINI_MODEL}:generateContent")
+            gpayload = json.dumps({
+                "contents": [{"parts": [{"text": f"{SYSTEM_PROMPT}\n\n"
+                                                f"PREGUNTA:\n{prompt}"}]}],
+                "generationConfig": {"maxOutputTokens": 1000,
+                                     "temperature": 0.3},
+            }).encode()
+            greq = urllib.request.Request(
+                gurl + f"?key={GEMINI_KEY}", data=gpayload,
+                headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(greq, timeout=30) as r:
+                gdata = json.loads(r.read().decode())
+            parts = (gdata.get("candidates") or [{}])[0].get("content",
+                                                            {}).get("parts",
+                                                                    [])
+            text = parts[0].get("text", "") if parts else ""
+            if text:
+                return text
+            logger.warning("Gemini sin texto: %s",
+                           json.dumps(gdata)[:200])
+        except (urllib.error.URLError, OSError) as e:
+            logger.warning("Gemini falla, probando Grok: %s", e)
+        except Exception:  # noqa: BLE001
+            logger.exception("Gemini error inesperado")
+    # Grok (xAI) es OpenAI-compatible.
+    if GROK_KEY:
+        configs.append(("https://api.x.ai/v1", GROK_KEY, GROK_MODEL, True))
+        for base, key, model, _compat in configs[-1:]:
+            url = f"{base}/chat/completions"
+            messages = [{"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": prompt}]
+            payload = json.dumps({
+                "model": model,
+                "messages": messages,
+                "max_tokens": 1000,
+                "temperature": 0.3,
+            }).encode()
+            req = urllib.request.Request(url, data=payload, headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {key}",
+            })
+            try:
+                with urllib.request.urlopen(req, timeout=30) as r:
+                    data = json.loads(r.read().decode())
+                content = data.get("choices") or []
+                if content:
+                    return content[0].get("message", {}).get("content", "")
+                logger.warning("Grok sin choices: %s",
+                               json.dumps(data)[:200])
+            except (urllib.error.URLError, OSError) as e:
+                logger.warning("Grok falla: %s", e)
+            except Exception:  # noqa: BLE001
+                logger.exception("Grok error inesperado")
     return None
 
 
@@ -158,12 +266,29 @@ def _build_context() -> str:
 
 
 def _fundamentals(text: str) -> str:
-    """Contexto fundamental on-demand: si la pregunta menciona un ticker
-    conocido del universo (o símbolo que Yahoo reconozca con precio válido),
-    obtiene P/E, precio vs SMA200 y fecha de earnings vía yfinance. Se añade
-    al prompt del LLM para respuestas más ricas sin afectar el tick
-    principal. Solo se consulta el PRIMER ticker candidato válido: yfinance
-    es lento y el usuario típicamente pregunta por uno a la vez."""
+    """Contexto fundamental on-demand con límite de tiempo. El cuerpo lento
+    (_fundamentals_slow) corre en un thread; si tarda >15 s se aborta y se
+    devuelve un aviso breve, protegiendo el presupuesto de tiempo del hilo
+    de Telegram (45 s en total)."""
+    import threading as _th
+    box = [None]
+    def _worker():
+        try:
+            box[0] = _fundamentals_slow(text)
+        except Exception:  # noqa: BLE001
+            logger.exception("Fallo en _fundamentals")
+    tw = _th.Thread(target=_worker, daemon=True, name="fund")
+    tw.start()
+    tw.join(15)
+    if tw.is_alive():
+        logger.warning("_fundamentals tardó >15s; se omite para %r", text[:40])
+        return "DATOS FUNDAMENTALES: sin datos (consulta omitida por tiempo)."
+    return box[0] or ""
+
+
+def _fundamentals_slow(text: str) -> str:
+    """Cuerpo lento de la consulta fundamental: yfinance (P/E, SMA200,
+    earnings) para el primer ticker candidato válido del texto."""
     import re
     from data.earnings import get_earnings
 
@@ -231,7 +356,10 @@ def answer(user_text: str) -> str | None:
     if txt.lower() in COMMANDS:
         return None
     ctx = _build_context()
-    fund = _fundamentals(txt)
+    # Fundamentos on-demand solo si la pregunta parece mencionar un ticker
+    # (palabra corta en mayúsculas o símbolo de 2-6 letras): saludos y
+    # preguntas generales no los necesitan y yfinance puede tardar >30 s.
+    fund = "" if not _has_ticker_hint(txt) else _fundamentals(txt)
     prompt = (f"ESTADO ACTUAL DEL BOT:\n{ctx}\n"
               f"{fund}\n"
               f"PREGUNTA DEL USUARIO:\n{txt}")

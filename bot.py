@@ -262,9 +262,23 @@ def main():
                 logger.critical("Watchdog: sin ticks completos en 25 min; "
                                 "reiniciando el proceso")
                 _sys.exit(1)
+            # Hilo de Telegram: si no actualiza su heartbeat en 10 min
+            # (p.ej. socket colgado esperando a DeepSeek), reiniciar el
+            # proceso para recrear el hilo TG fresco.
+            try:
+                from state.telegram_bot import (tg_heartbeat_ts,
+                                               TG_HB_TIMEOUT_S)
+                if time.time() - tg_heartbeat_ts() > TG_HB_TIMEOUT_S:
+                    logger.critical("Watchdog TG: hilo de Telegram congelado "
+                                    "más de %.0f s; reiniciando el proceso",
+                                    TG_HB_TIMEOUT_S)
+                    _sys.exit(1)
+            except Exception:  # noqa: BLE001
+                pass
     threading.Thread(target=_watchdog, daemon=True, name="watchdog").start()
 
     while True:
+        skip_tick = False
         try:
             snap = executor.account_snapshot()
             equity = snap["equity"]

@@ -7,3 +7,4 @@ scipy>=1.12
 pydantic>=2.5
 PyYAML>=6.0
 google-cloud-firestore>=2.16
+google-cloud-secret-manager>=2.20

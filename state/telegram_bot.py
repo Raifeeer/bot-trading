@@ -158,6 +158,36 @@ def _cmd_riesgo() -> str:
             f"📌 Máx. posiciones: {maxpos}")
 
 
+# Timeout máximo (segundos) que la IA puede tardar. Pasado ese tiempo se
+# aborta la llamada (thread kill por join con timeout) y se usa el fallback;
+# así el hilo de Telegram NUNCA queda congelado indefinidamente.
+_AI_TIMEOUT_S = 45
+
+
+def _ai_answer_with_timeout(text: str) -> str | None:
+    """Llama a la IA con un límite de tiempo real. Si la llamada se pasa del
+    timeout, devuelve None y el flujo cae al fallback (nunca cuelga el hilo)."""
+    import threading
+    from state.ai_assistant import answer as _ai_answer, update_context
+    box = [None]
+
+    def _work():
+        try:
+            update_context(_state)
+            box[0] = _ai_answer(text)
+        except Exception:  # noqa: BLE001
+            logger.exception("Fallo en respuesta IA")
+
+    t = threading.Thread(target=_work, daemon=True, name="tg-ia")
+    t.start()
+    t.join(_AI_TIMEOUT_S)
+    if t.is_alive():
+        logger.warning("IA tardó más de %ds para %r; se usa fallback",
+                       _AI_TIMEOUT_S, text[:40])
+        return None
+    return box[0]
+
+
 def _handle_message(text: str) -> None:
     txt = (text or "").strip().lower()
     if txt in ("/estado", "estado"):
@@ -176,21 +206,24 @@ def _handle_message(text: str) -> None:
         resp = HELP_TEXT
     else:
         # Fallback conversacional con IA si está configurada
-        ai_resp = None
-        try:
-            from state.ai_assistant import answer as _ai_answer, update_context
-            update_context(_state)
-            ai_resp = _ai_answer(text)
-        except ImportError:
-            ai_resp = None
-        except Exception:  # noqa: BLE001
-            logger.exception("Fallo en respuesta IA")
+        resp = None
+        ai_resp = _ai_answer_with_timeout(text)
         if ai_resp:
             resp = f"🤖 Polaris IA\n{ai_resp}"
-        else:
+        if not resp:
             resp = ("❓ No entendí el comando. Usa /ayuda para ver los "
                     "disponibles.")
-    _send(resp)
+    try:
+        ok = _send(resp)
+        logger.info("TG response sent=%s para %r", ok, text[:40])
+    except Exception:  # noqa: BLE001
+        logger.exception("Fallo enviando respuesta Telegram")
+
+
+# Heartbeat del hilo de Telegram (el watchdog del bot lo consulta; si el
+# hilo TG no actualiza esto en TG_HB_TIMEOUT_S, se reinicia el proceso).
+TG_HB = {"ts": [time.time()]}
+TG_HB_TIMEOUT_S = 600
 
 
 def _poll_loop() -> None:
@@ -198,8 +231,8 @@ def _poll_loop() -> None:
     while True:
         try:
             url = (f"https://api.telegram.org/bot{TOKEN}/getUpdates"
-                   f"?offset={_last_update_id[0] + 1}&timeout=20")
-            with urllib.request.urlopen(url, timeout=25) as r:
+                   f"?offset={_last_update_id[0] + 1}&timeout=10")
+            with urllib.request.urlopen(url, timeout=15) as r:
                 data = json.loads(r.read().decode())
             for upd in data.get("result", []) or []:
                 _last_update_id[0] = max(_last_update_id[0],
@@ -213,6 +246,7 @@ def _poll_loop() -> None:
                     _handle_message(msg["text"])
         except Exception as e:  # noqa: BLE001
             logger.error("Telegram poll falla: %s", e)
+        TG_HB["ts"].append(time.time())
         time.sleep(2)
 
 
@@ -227,3 +261,8 @@ def start_tg_bot() -> threading.Thread:
     t.start()
     logger.info("Telegram commands iniciado (polling)")
     return t
+
+
+def tg_heartbeat_ts() -> float:
+    """Última vez que el hilo de Telegram trabajó (para el watchdog)."""
+    return max(TG_HB["ts"])
