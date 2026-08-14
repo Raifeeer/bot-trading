@@ -31,7 +31,8 @@ try:
     from state.firestore_state import (write_state_snapshot, append_signal,
                                       append_equity_point)
     FIRESTORE_ENABLED = True
-except ImportError:
+except Exception:  # noqa: BLE001
+    logger.exception("Firestore NO disponible (import de state.firestore_state falló)")
     FIRESTORE_ENABLED = False
 from strategies.day_trading import DayMomentum, DayBreakout
 try:
