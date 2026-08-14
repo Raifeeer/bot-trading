@@ -87,8 +87,13 @@ def main():
             "gen-lang-client-0746441136")
         db = firestore.Client(project=project, database=database,
                               credentials=creds)
+        # Colección 'backtests' (histórico) + 'polaris/backtest' (doc legible
+        # públicamente por el dashboard; las reglas de la release 'polaris' solo
+        # exponen lectura en polaris/*).
         db.collection("backtests").document("latest").set(doc)
-        print(f"Publicado backtests/latest: {len(doc['scenarios'])} escenarios, "
+        db.collection("polaris").document("backtest").set(doc)
+        print(f"Publicado backtests/latest y polaris/backtest: "
+              f"{len(doc['scenarios'])} escenarios, "
               f"best={doc['best']['scenario']} ({doc['best']['retorno_pct']}%)")
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
