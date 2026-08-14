@@ -75,11 +75,41 @@ def inject_crash(base_hist: dict, crash_days, crash_mag, base_date,
                 rows.append(dict(open=open_, high=hi, low=low, close=close,
                                  volume=int(df["volume"].iloc[-1])))
                 spot = close
-        tail = pd.DataFrame(rows, index=rows and [
-            t + pd.Timedelta(days=i) for i in range(1, len(rows) + 1)])
-        # reindexar a días de trading aproximados (quitar fines de semana)
-        tail = tail[~tail.index.to_series().dt.weekday.isin((5, 6))]
-        out[sym] = pd.concat([df, tail])
+        # Cada fila de rows tiene su fecha calculada CON el salto de fines
+        # de semana (mismo calendario que el bucle de rows); así el índice
+        # queda alineado fila a fila con los valores sintéticos.
+        dates = []
+        nxt = t
+        for _ in rows:
+            nxt += pd.Timedelta(days=1)
+            while nxt.weekday() >= 5:
+                nxt += pd.Timedelta(days=1)
+            dates.append(nxt)
+        tail = pd.DataFrame(rows, index=dates)
+        # alinear la hora del índice sintético a la del histórico real
+        # (yfinance devuelve 04:00 UTC para días US; el tail queda 00:00
+        # UTC y el isin/sort se rompe). Usar la hora de la última barra real.
+        real_hour = df.index[-1].hour
+        tail.index = tail.index.map(lambda ts: ts.replace(hour=real_hour))
+        # corrección de barras incoherentes en las filas SINTÉTICAS: low
+        # <= close <= high y open dentro del rango. El assign vectorial
+        # global corrompía el recovery (propagaba el low mínimo de la caída
+        # a todas las barras), así que se corrige solo el bloque tail.
+        tail = tail.copy()
+        tail = tail.assign(low=tail[["low", "close"]].min(axis=1),
+                           high=tail[["high", "close"]].max(axis=1),
+                           open=tail[["open", "high"]].min(axis=1),
+                           close=tail[["open", "low"]].max(axis=1))
+        tail["close"] = tail[["close", "low"]].max(axis=1)
+        tail["high"] = tail[["high", "open"]].max(axis=1)
+        # CRÍTICO: las fechas del shock CAEN DENTRO del histórico real
+        # (las barras sintéticas son las mismas fechas que las reales).
+        # Reemplazar en vez de concatenar para evitar duplicados que,
+        # ordenados por índice, intercalan y corrompen qué barra ve el
+        # motor cada día (toma iloc[-1] del sub[index<=d]).
+        tail_dates = set(tail.index)
+        base_clean = df[~df.index.isin(tail_dates)]
+        out[sym] = pd.concat([base_clean, tail]).sort_index()
     return out
 
 

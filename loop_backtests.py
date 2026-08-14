@@ -956,12 +956,35 @@ def run_scenario(key: str, sc: dict, data: dict):
         rebal_symsb = sorted(sc["tickers"])[:sc["max_pos"]]
         crash_lockb = None  # día en que se activó el crash event (cool-down)
         for d in dates:
+            # --- Defensa INTRADIARIA (hallazgo18): si el precio del día
+            # rompe X% bajo el close previo (low del día), el rebalance del
+            # mismo día usa el precio de quiebre (ejecución intradiaria) en
+            # vez del close. Esto modela un stop/trailing stop que corta
+            # dentro del día, antes del cierre, y evita que un rebalance
+            # comprado en día de crash "herede" la pérdida al recomprar.
+            intraday_cutb = {}
+            if sc.get("intraday_stop"):
+                ith = sc["intraday_stop"]
+                for sym in sc["tickers"]:
+                    dfsym = data.get(sym)
+                    if dfsym is None or len(dfsym) < 2:
+                        continue
+                    sub = dfsym[dfsym.index.normalize() <= d]
+                    if len(sub) < 2:
+                        continue
+                    low_today = float(sub["low"].iloc[-1])
+                    close_prev = float(sub["close"].iloc[-2])
+                    if low_today <= (1 - ith) * close_prev:
+                        # precio de quiebre (best case: fill inmediato)
+                        intraday_cutb[sym] = (1 - ith) * close_prev
             # cerrar rebalance del hold
             if d >= next_rebalb:
                 for p in pos3b:
                     rows = data[p["symbol"]][data[p["symbol"]].index.normalize() == d]
                     if len(rows):
                         exit_spot = float(rows["close"].iloc[-1])
+                        if p["symbol"] in intraday_cutb:
+                            exit_spot = intraday_cutb[p["symbol"]]
                         val = p["entry_net"] * exit_spot / p["last_spot"]
                         pnl = val - p["entry_net"]
                         if sc.get("comision"):
@@ -979,8 +1002,11 @@ def run_scenario(key: str, sc: dict, data: dict):
                         continue
                     rows = dfsym[dfsym.index.normalize() == d]
                     if len(rows):
+                        last_spot = float(rows["close"].iloc[-1])
+                        if sym in intraday_cutb:
+                            last_spot = intraday_cutb[sym]
                         pos3b.append(dict(symbol=sym, entry_net=per,
-                                          last_spot=float(rows["close"].iloc[-1]),
+                                          last_spot=last_spot,
                                           entry_date=d, motor="regime_hold_cash",
                                           side="equity"))
                 next_rebalb = d + pd.Timedelta(days=7)
@@ -1030,21 +1056,28 @@ def run_scenario(key: str, sc: dict, data: dict):
                 crash_lockb = d
             elif crash_lockb is not None and (d - crash_lockb).days < 5:
                 crash_event = True
-            for sym in sc["tickers"]:
-                dfsym = data.get(sym)
-                if dfsym is None:
-                    continue
-                sub = dfsym[dfsym.index.normalize() <= d]
-                if len(sub) < 110:
-                    continue
-                n += 1
-                r = rsi(sub["close"])
-                s200 = sma(sub["close"], 200)
-                if pd.notna(r.iloc[-1]) and r.iloc[-1] > 50 and pd.notna(s200.iloc[-1]) \
-                        and sub["close"].iloc[-1] > s200.iloc[-1]:
-                    bull_countb += 1
-                if len(sub) >= 60 and put_choch_entry(sub, d) is not None:
-                    bear_countb += 1
+            # fuerza de bull hasta una fecha (stress test): permite sostener
+            # el hold hasta el día del shock sintético aunque la historia
+            # previa ya sea bear por CHoCH. El detector crash_event permanece
+            # activo dentro de la ventana de fuerza.
+            forced_bull = bool(sc.get("force_bull_until") and d <= pd.Timestamp(
+                sc["force_bull_until"], tz="UTC").normalize())
+            if not forced_bull:
+                for sym in sc["tickers"]:
+                    dfsym = data.get(sym)
+                    if dfsym is None:
+                        continue
+                    sub = dfsym[dfsym.index.normalize() <= d]
+                    if len(sub) < 110:
+                        continue
+                    n += 1
+                    r = rsi(sub["close"])
+                    s200 = sma(sub["close"], 200)
+                    if pd.notna(r.iloc[-1]) and r.iloc[-1] > 50 and pd.notna(s200.iloc[-1]) \
+                            and sub["close"].iloc[-1] > s200.iloc[-1]:
+                        bull_countb += 1
+                    if len(sub) >= 60 and put_choch_entry(sub, d) is not None:
+                        bear_countb += 1
             if bear_countb >= n * 0.3 or crash_event:
                 regimeb = "bear"  # salir del hold (cash) en selloff
             elif bull_countb >= n * 0.5:
@@ -1054,6 +1087,8 @@ def run_scenario(key: str, sc: dict, data: dict):
                 for p in pos3b:
                     rows = data[p["symbol"]][data[p["symbol"]].index.normalize() == d]
                     exit_spot = float(rows["close"].iloc[-1]) if len(rows) else p["last_spot"]
+                    if p["symbol"] in intraday_cutb:
+                        exit_spot = intraday_cutb[p["symbol"]]
                     val = p["entry_net"] * exit_spot / p["last_spot"]
                     pnl = val - p["entry_net"]
                     if sc.get("comision"):
