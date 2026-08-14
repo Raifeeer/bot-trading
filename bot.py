@@ -526,6 +526,8 @@ def main():
             acct = executor.account_snapshot() if not executor.dry_run else {
                 "equity": equity, "cash": equity, "portfolio_value": equity,
                 "buying_power": equity * 4}
+            logger.info("FIRESTORE_ENABLED=%s (antes de write_state_snapshot)",
+                        FIRESTORE_ENABLED)
             if FIRESTORE_ENABLED:
                 try:
                     write_state_snapshot({
