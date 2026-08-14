@@ -206,6 +206,9 @@ def _poll_loop() -> None:
                                          upd.get("update_id", 0))
                 msg = upd.get("message") or {}
                 chat = (msg.get("chat") or {}).get("id")
+                if msg.get("text"):
+                    logger.info("TG update chat=%s (esperado %s): %r",
+                                chat, CHAT_ID, msg["text"][:50])
                 if chat is not None and str(chat) == str(CHAT_ID) and msg.get("text"):
                     _handle_message(msg["text"])
         except Exception as e:  # noqa: BLE001
