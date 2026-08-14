@@ -84,6 +84,30 @@ def fetch_alpaca(symbol: str, timeframe: str, start: str, end: str = None,
     return _clean(df)
 
 
+def _alpaca_one(symbol: str, timeframe: str, start: str, end: str = None) -> pd.DataFrame:
+    """Descarga de Alpaca GARANTIZANDO un solo símbolo: con varios el SDK
+    devuelve MultiIndex (símbolo, timestamp) que rompe _clean()."""
+    api = _alpaca_client()
+    from alpaca.data.requests import StockBarsRequest
+    from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
+    tf_map = {"1min": TimeFrame.Minute,
+              "5min": TimeFrame(amount=5, unit=TimeFrameUnit.Minute),
+              "15min": TimeFrame(amount=15, unit=TimeFrameUnit.Minute),
+              "1d": TimeFrame.Day, "1day": TimeFrame.Day}
+    tf = tf_map.get(timeframe, TimeFrame.Day)
+    req = StockBarsRequest(symbol_or_symbols=[symbol], timeframe=tf,
+                           start=start, end=end)
+    df = api.get_stock_bars(req).df
+    if df.empty:
+        raise DataFeedError(f"Alpaca no devolvió datos para {symbol} ({timeframe})")
+    if isinstance(df.index, pd.MultiIndex):
+        # MultiIndex (símbolo, timestamp): quedarse con la fila del símbolo
+        df = df.loc[symbol].copy()
+    df.index.name = "timestamp"
+    df.index = pd.to_datetime(df.index, utc=True)
+    return _clean(df)
+
+
 def fetch_yfinance(symbol: str, timeframe: str, start: str, end: str = None) -> pd.DataFrame:
     """Respaldo con yfinance. Para intradía solo últimos 60 días (límite de Yahoo)."""
     import yfinance as yf
@@ -137,13 +161,62 @@ class MarketDataFeed:
         self.provider = provider or os.environ.get("DATA_PROVIDER", "yfinance")
         self._cache = {}
 
+    def _segmented(self, symbol: str, timeframe: str, start: str,
+                   end: str = None) -> pd.DataFrame:
+        """Cascada segmentada: Alpaca IEX es estable para ventanas LEJANAS
+        (sin rango 'recent SIP') pero rechaza el rango reciente en el plan
+        free; Yahoo cubre el rango reciente (inestable en ráfaga, por eso se
+        usa solo donde hace falta). Combina los segmentos en un solo DataFrame."""
+        import datetime as _dt
+
+        now = datetime.utcnow()
+        end_dt = pd.Timestamp(end or now, tz="UTC")
+        pd.Timestamp(start, tz="UTC")
+        # El rango 'recent SIP' de Alpaca free cubre ~los últimos 2 días
+        # (observado: ventanas que incluyen hoy o ayer fallan con
+        # 'subscription does not permit querying recent SIP data').
+        sip_cut = pd.Timestamp(now - timedelta(days=2), tz="UTC")
+        if end_dt < sip_cut:
+            # Todo lejano: Alpaca directo (rápido y estable).
+            # _alpaca_df() descarga SIEMPRE un solo símbolo: con múltiples
+            # símbolos el SDK devuelve MultiIndex (símbolo, timestamp) que
+            # rompe _clean; history() ya descompone por ticker aquí.
+            try:
+                return _alpaca_one(symbol, timeframe, start, end)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("%s: Alpaca lejano falló (%s), yfinance", symbol, e)
+                return fetch_yfinance(symbol, timeframe, start, end)
+        # Ventana mixta: cortar en sip_cut
+        cut = sip_cut.strftime("%Y-%m-%d")
+        parts = []
+        try:
+            parts.append(_alpaca_one(symbol, timeframe, start, cut))
+        except Exception as e:  # noqa: BLE001
+            logger.warning("%s: Alpaca lejano falló (%s), yfinance", symbol, e)
+            parts.append(fetch_yfinance(symbol, timeframe, start, cut))
+        try:
+            parts.append(fetch_yfinance(symbol, timeframe, cut, end))
+        except Exception as e:  # noqa: BLE001
+            logger.error("%s: Yahoo reciente falló (%s)", symbol, e)
+        # Unificar y deduplicar barras coincidentes en la frontera
+        merged = pd.concat([p for p in parts if not p.empty])
+        if merged.empty:
+            raise DataFeedError(f"Ningún proveedor devolvió datos para {symbol}")
+        merged = merged[~merged.index.duplicated(keep="last")]
+        return _clean(merged)
+
     def bars(self, symbol: str, timeframe: str, start: str, end: str = None,
              force: bool = False) -> pd.DataFrame:
         key = (symbol, timeframe, start, end or "now")
         if not force and key in self._cache:
             return self._cache[key].copy()
-        fetch = fetch_alpaca if self.provider == "alpaca" else fetch_yfinance
-        df = fetch(symbol, timeframe, start, end)
+        # Cascada segmentada (alpaca+yfinance) cuando el proveedor base es
+        # yfinance: mejora la estabilidad del histórico lejano sin perder el
+        # rango reciente que solo Yahoo entrega en el plan free.
+        if self.provider == "yfinance":
+            df = self._segmented(symbol, timeframe, start, end)
+        else:
+            df = fetch_alpaca(symbol, timeframe, start, end)
         self._cache[key] = df
         logger.info("%s %s %s: %d barras (%s)", symbol, timeframe,
                     start, len(df), self.provider)
