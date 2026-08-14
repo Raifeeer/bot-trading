@@ -62,8 +62,32 @@ except ImportError:
 from strategies.swing_trading import SwingTrend
 from options.chains import OptionFeed, SpreadBuilder
 from options.strategy import OptionsStrategy, OptionsPosition, evaluate_exit
+from options.option_details import enrich_positions
 from risk.manager import RiskManager
 from execution.alpaca_executor import AlpacaExecutor, ExecutionError
+
+
+def _enriched_positions(executor: AlpacaExecutor) -> list:
+    """Piernas crudas de Alpaca enriquecidas con option_details (DTE, greeks).
+
+    Nunca bloquea el tick: si el enriquecimiento falla, devuelve las piernas
+    tal cual salieron del executor."""
+    try:
+        if executor.dry_run:
+            return []
+        legs = executor.positions()
+        try:
+            from data.feed import MarketDataFeed
+            feed = MarketDataFeed(executor.cfg)
+        except Exception:  # noqa: BLE001
+            feed = None
+        return enrich_positions(legs, feed=feed)
+    except Exception:  # noqa: BLE001
+        logger.exception("Fallo enriqueciendo posiciones (publicando crudas)")
+        try:
+            return executor.positions()
+        except Exception:  # noqa: BLE001
+            return []
 
 
 def key_if_any(executor: AlpacaExecutor) -> bool:
@@ -507,7 +531,7 @@ def main():
                         "cash": acct.get("cash", equity),
                         "buying_power": acct.get("buying_power", None),
                         "positions": state["positions"],
-                        "alpaca_positions": executor.positions() if not executor.dry_run else [],
+                        "alpaca_positions": _enriched_positions(executor),
                         "orders_executed": executor.order_log[-50:] if not executor.dry_run else [],
                         "risk": {
                             "risk_per_trade_pct": cfg["risk"].get("risk_per_trade_pct", 0.01),
@@ -535,7 +559,7 @@ def main():
                      "dry_run": args.dry_run,
                      "buying_power": acct.get("buying_power"),
                      "positions": state["positions"],
-                     "alpaca_positions": executor.positions() if not executor.dry_run else [],
+                     "alpaca_positions": _enriched_positions(executor),
                      "risk": {"halted": rm.is_halted(),
                                 "regime": (regime or {}).get("regime", "unknown"),
                                 "regime_summary": (regime or {}).get("summary", "")},
