@@ -248,13 +248,18 @@ def main():
 
     # Watchdog: si ningún tick completo en MAX_TICK_SECONDS, el proceso se
     # reinicia y Cloud Run recrea la instancia automáticamente.
+    # El umbral es amplio a propósito (25 min): el primer tick tras un cold
+    # start de Cloud Run tarda ~20-23 min (arranque Telegram + Alpaca + tres
+    # descargas con fallback a yfinance por ticker). Los ticks regulares con
+    # cache terminan en 5-7 min; si un tick excede 25 min el proceso está de
+    # verdad colgado y el watchdog lo reinicia.
     import sys as _sys
     _hb = {"ts": [time.time()]}
     def _watchdog():
         while True:
             time.sleep(60)
-            if time.time() - _hb["ts"][-1] > 720:
-                logger.critical("Watchdog: sin ticks completos en 12 min; "
+            if time.time() - _hb["ts"][-1] > 1500:
+                logger.critical("Watchdog: sin ticks completos en 25 min; "
                                 "reiniciando el proceso")
                 _sys.exit(1)
     threading.Thread(target=_watchdog, daemon=True, name="watchdog").start()
