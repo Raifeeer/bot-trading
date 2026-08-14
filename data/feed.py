@@ -148,21 +148,33 @@ class MarketDataFeed:
         return df
 
     def history(self, symbols, timeframe: str = "1d", days: int = 365) -> dict:
-        """Descarga historia para varios símbolos, degradando a yfinance por símbolo si falla."""
+        """Descarga historia para varios símbolos en paralelo (cada ticker puede
+        tardar 15-20 s con fallback), degradando a yfinance por símbolo si falla."""
+        from concurrent.futures import ThreadPoolExecutor
+
         end = datetime.utcnow()
         start = (end - timedelta(days=days)).strftime("%Y-%m-%d")
-        out = {}
-        for s in symbols:
+
+        def _one(s):
             try:
-                out[s] = self.bars(s, timeframe, start, end.isoformat())
+                return s, self.bars(s, timeframe, start, end.isoformat())
             except Exception as e:  # noqa: BLE001
                 if self.provider != "yfinance":
                     logger.warning("%s: %s (%s) — reintento con yfinance", s, type(e).__name__, e)
                     try:
-                        out[s] = fetch_yfinance(s, timeframe, start, end.isoformat())
-                        continue
+                        return s, fetch_yfinance(s, timeframe, start, end.isoformat())
                     except Exception as e2:  # noqa: BLE001
                         logger.error("%s sin datos (ningún proveedor): %s", s, e2)
                 else:
                     logger.error("No se pudieron obtener datos de %s: %s", s, e)
+            return s, None
+
+        out = {}
+        # Threads limitados a 4: el cache sqlite de yfinance sufre
+        # "database is locked" con más concurrencia; la serialización total
+        # tardaba más de 12 min y disparaba el watchdog.
+        with ThreadPoolExecutor(max_workers=min(len(symbols), 4)) as ex:
+            for s, df in ex.map(_one, symbols):
+                if df is not None:
+                    out[s] = df
         return out
