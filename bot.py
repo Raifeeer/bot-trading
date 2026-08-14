@@ -117,6 +117,26 @@ def trading_mode(dry_run: bool = False) -> str:
     return "PAPER" if "paper" in base else "REAL"
 
 
+def _regime_snapshot(feed, tickers, state, equity_now: float) -> dict:
+    """Clasifica el régimen global S78 (bull/bear/cash) con los contadores
+    validados en los backtests (hallazgo16/hallazgo17) + defensas:
+    crash_event 3% (cool-down 5 días) e intraday_cuts del 4% (hallazgo18).
+    El crash_lock persiste en state para sobrevivir reinicios.
+    Devuelve el dict de risk.regime con 'below_floor' aplicado."""
+    from risk.regime import classify_regime, apply_crash_cooldown
+    from risk.floor import check_floor
+    # 210 días cubre el SMA200 + margen; las descargas 1d ya traen 100,
+    # pedir 210 aquí solo en el análisis de régimen (descarga adicional
+    # barata: yfinance la cachea por ticker y timeframe).
+    data_1d = feed.history(tickers, "1d", days=400) or {}
+    cfg_r = dict(cfg.get("risk", {}))
+    regime = classify_regime(data_1d, tickers, cfg=cfg_r)
+    regime = apply_crash_cooldown(regime, state)
+    floor_res = check_floor(float(equity_now), state, cfg=cfg_r)
+    regime["floor"] = floor_res
+    return regime
+
+
 def _manage_open_position(feed, builder, strat, pos):
     """Evalúa si la posición abierta debe cerrarse. Devuelve (signal_type o
     None, razón). Usa evaluate_exit de options.strategy con la prima actual."""
@@ -292,6 +312,26 @@ def main():
                 time.sleep(600)
                 continue
 
+            # 0. RÉGIMEN S78 (S1-S89, hallazgos 16-18) + piso de equity:
+            #    bull -> permitir entradas; bear/cash -> no entrar.
+            #    crash_event -3% en >=30% del universo -> bear (cool-down 5d).
+            #    intraday_cuts del 4% (hallazgo18) -> cierre de la posición
+            #    de ese subyacente al gestionar (se evalúa abajo).
+            try:
+                regime = _regime_snapshot(feed, tickers, state, equity)
+                state["regime"] = regime
+                logger.info("RÉGIMEN %s", regime.get("summary", regime))
+                if regime.get("floor", {}).get("crossed"):
+                    notify_risk_halt(regime["floor"]["reason"])
+                if regime["regime"] != "bull":
+                    state["regime_lock"] = regime["regime"]
+                else:
+                    state.pop("regime_lock", None)
+            except Exception:  # noqa: BLE001
+                logger.exception("Fallo clasificando régimen; entradas "
+                                 "permitidas solo si hay datos previos")
+                regime = state.get("regime", {})
+
             # 1. datos con el timeframe propio de cada estrategia:
             #    swing usa 1d (210 días para SMA200+ATR); day usa 5m/15m
             tf_by_strat = {}
@@ -327,7 +367,11 @@ def main():
                     if len(df) < (60 if tf == "1d" else 20):
                         continue
                     sig = strat.scan(df, symbol=sym)
-                    if sig.tradable and strat.last_structure:
+                    # Régimen S78: solo se abren entradas en régimen bull
+                    # (bear/cash = cash; el piso de equity también bloquea).
+                    if sig.tradable and strat.last_structure and \
+                            regime.get("regime") == "bull" and \
+                            not (regime.get("floor") or {}).get("below_floor"):
                         # Filtro anti-earnings: no entrar en posiciones N días
                         # antes de reportes de ganancias (riesgo de gap y
                         # IV crush). La decisión queda registrada como
@@ -382,8 +426,17 @@ def main():
             # 5-6. gestionar posiciones abiertas (evaluar salida y cerrar)
             for i, p in enumerate(list(state["positions"])):
                 try:
-                    sig_type, reason = _manage_open_position(
-                        feed, builder, strats.get(p["strategy"]), p)
+                    # Hallazgo18: stop intradiario 4% sobre el subyacente:
+                    # si el low del día rompió (1-0.04)*close_prev, cerrar
+                    # la posición de ese subyacente de inmediato (antes de
+                    # evaluar el resto de reglas de prima/DTE).
+                    cuts = (regime or {}).get("intraday_cuts", {})
+                    if p["symbol"] in cuts:
+                        sig_type, reason = "EXIT", ("intraday_stop_4pct: "
+                            f"{p['symbol']} <= {cuts[p['symbol']]}")
+                    else:
+                        sig_type, reason = _manage_open_position(
+                            feed, builder, strats.get(p["strategy"]), p)
                     if sig_type:
                         # cerrar patas del spread (vender lo comprado, etc.)
                         st = strat_structure_for(p, strats.get(p["strategy"]))
@@ -460,6 +513,10 @@ def main():
                             "risk_per_trade_pct": cfg["risk"].get("risk_per_trade_pct", 0.01),
                             "max_positions": cfg["risk"].get("max_positions", 5),
                             "halted": rm.is_halted(),
+                            "regime": (regime or {}).get("regime", "unknown"),
+                            "regime_summary": (regime or {}).get("summary", ""),
+                            "crash_active": (regime or {}).get("crash_active", False),
+                            "floor": (regime or {}).get("floor", {}),
                         },
                         "trading_mode": "DRY-RUN" if args.dry_run else (
                             "PAPER" if "paper" in (os.environ.get("APCA_API_BASE_URL") or "") else "REAL"),
@@ -479,7 +536,9 @@ def main():
                      "buying_power": acct.get("buying_power"),
                      "positions": state["positions"],
                      "alpaca_positions": executor.positions() if not executor.dry_run else [],
-                     "risk": {"halted": rm.is_halted()},
+                     "risk": {"halted": rm.is_halted(),
+                                "regime": (regime or {}).get("regime", "unknown"),
+                                "regime_summary": (regime or {}).get("summary", "")},
                      "universe": cfg["universo"].get("tickers", []),
                      "trading_mode": trading_mode(),
                      "decisions_today": [d for d in state["decisions"]

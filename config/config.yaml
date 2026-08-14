@@ -137,7 +137,7 @@ risk:
   earnings_horizon_days: 2
   # RETO $100 -> $200: perfil agresivo pero con válvulas de seguridad
   mode: aggressive             # conservative | moderate | aggressive
-  max_risk_per_trade_pct: 20.0 # % del capital en riesgo por operación (~$20/trade)
+  max_risk_per_trade_pct: 5.0 # % del capital en riesgo por operación (~$20/trade)
   max_open_positions: 2        # pocas posiciones simultáneas por capital reducido
   max_sector_weight_pct: 60.0  # concentración permitida para el reto
   max_drawdown_daily_pct: 15.0 # detiene trading del día si pierde 15% ($15)
