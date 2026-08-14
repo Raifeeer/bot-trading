@@ -954,6 +954,7 @@ def run_scenario(key: str, sc: dict, data: dict):
         pos3b, trades3b, ec3b = [], [], []
         next_rebalb = dates[0]
         rebal_symsb = sorted(sc["tickers"])[:sc["max_pos"]]
+        crash_lockb = None  # día en que se activó el crash event (cool-down)
         for d in dates:
             # cerrar rebalance del hold
             if d >= next_rebalb:
@@ -987,6 +988,48 @@ def run_scenario(key: str, sc: dict, data: dict):
             regimeb = "cash"
             bull_countb, bear_countb = 0, 0
             n = 0
+            # --- Detector de evento de crash (mitigación flash crash):
+            # si un ticker pierde ≥ umbral desde su máx reciente de 5 velas en
+            # ≤2 velas y ≥30% del universo lo muestra, cortar el hold a cash
+            # de inmediato (antes del CHoCH, que requiere estructura previa).
+            crash_event = False
+            if sc.get("crash_event"):
+                c_thresh = sc["crash_event"]  # ej. 0.08 = -8%
+                n_crash = 0
+                n_eval = 0
+                for sym in sc["tickers"]:
+                    dfsym = data.get(sym)
+                    if dfsym is None:
+                        continue
+                    sub = dfsym[dfsym.index.normalize() <= d]
+                    if len(sub) < 6:
+                        continue
+                    # Detección reactiva en el día del shock: comparar el open
+                    # del día en curso contra el máximo de las 6 velas previas
+                    # (excluyendo el día en curso). Un gap o apertura con
+                    # caída acumulada >= umbral corta el hold ese mismo día
+                    # (sin esperar al cierre). El rebalance del día 1 no es
+                    # afectado porque el open == hi6 del mismo bloque...
+                    # NO: para el día 1 open del shock == close previo == hi6
+                    # por construcción del shock sintético, así que no cancela.
+                    close_today = float(sub["close"].iloc[-1])
+                    close_2d = float(sub["close"].iloc[-3]) if len(sub) >= 3 \
+                        else close_today
+                    hi6_prev = float(sub["high"].iloc[-7:-1].max())
+                    n_eval += 1
+                    # velocidad de caída 2 días (pánico intradiario)
+                    fast = close_2d > 0 and close_today / close_2d - 1 \
+                        <= -c_thresh
+                    n_crash += 1 if fast else 0
+                if n_eval > 0 and n_crash >= n_eval * 0.3:
+                    crash_event = True
+            # --- cool-down del detector: una vez activado, no puede
+            # desactivarse hasta 5 días después, evitando que rebalances
+            # re-entren y se corten el mismo día durante pánicos en fases
+            if crash_event:
+                crash_lockb = d
+            elif crash_lockb is not None and (d - crash_lockb).days < 5:
+                crash_event = True
             for sym in sc["tickers"]:
                 dfsym = data.get(sym)
                 if dfsym is None:
@@ -1002,7 +1045,7 @@ def run_scenario(key: str, sc: dict, data: dict):
                     bull_countb += 1
                 if len(sub) >= 60 and put_choch_entry(sub, d) is not None:
                     bear_countb += 1
-            if bear_countb >= n * 0.3:
+            if bear_countb >= n * 0.3 or crash_event:
                 regimeb = "bear"  # salir del hold (cash) en selloff
             elif bull_countb >= n * 0.5:
                 regimeb = "bull"
