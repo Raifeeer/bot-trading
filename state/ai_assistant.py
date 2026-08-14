@@ -25,10 +25,10 @@ import urllib.request
 logger = logging.getLogger("polaris.ai")
 
 DEEPSEEK_KEY = (os.environ.get("DEEPSEEK_API_KEY") or "").strip()
-# Modelo configurable: el secret DEEPSEEK_API_KEY puede apuntar a un proxy
-# OpenAI-compatible (p. ej. el Hermes del usuario) que solo acepta ciertos
-# modelos (gpt-5-mini, claude-*, gemini-*, etc.). Ajustar aquí o vía env.
-DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL") or "deepseek-chat"
+# Modelo configurable. Default: DeepSeek V4 Flash (los nombres legacy
+# deepseek-chat / deepseek-reasoner fueron retirados de la API oficial el
+# 24-07-2026; ver https://api-docs.deepseek.com/updates/).
+DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL") or "deepseek-v4-flash"
 OPENAI_BASE = (os.environ.get("OPENAI_API_BASE") or "").strip()
 OPENAI_KEY = (os.environ.get("OPENAI_API_KEY") or "").strip()
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL") or "gpt-4o-mini"
