@@ -389,3 +389,9 @@ El usuario autorizó que, si una operación de Polaris en GCP devuelve `PERMISSI
 6. Solo después evaluar si el dashboard consume correctamente 5.0% y 2 posiciones, sin mostrar valores mock.
 
 No convertir el backtest $100→$200 en una promesa de rentabilidad ni activar trading REAL como resultado de esta auditoría.
+
+## 15. Contexto de mercado fechado para backtests — 15 de agosto de 2026
+
+Las notas completas están en `docs/market_context_2026-08-15.md`. Se verificaron Reuters y CNBC sobre dos estados de mercado relevantes: el 9 de junio hubo venta de tecnología/semiconductores y rebote incompleto, con presión geopolítica, inflación, Fed, valoraciones AI y rotación de momentum; el 13 de agosto el S&P 500 y Nasdaq cerraron en máximos, con rally concentrado en AI/chips, inflación de productores más suave y riesgo geopolítico todavía activo.
+
+Estas noticias son **contexto**, no señales. En una simulación histórica solo se pueden usar hechos publicados antes o en la fecha de decisión. La cobertura posterior se excluye de la información de entrada y solo puede usarse para explicar el resultado fuera de muestra. El intento de análisis de video de Gavin Baker no produjo salida utilizable; no se debe citar ni usar como evidencia hasta repetirlo y guardar el resultado.

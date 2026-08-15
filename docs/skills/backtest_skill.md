@@ -64,6 +64,12 @@ Umbrales probados sobre `(1-ith)×close_prev` del subyacente, medibles en produc
 
 Conclusión histórica: **4% fue el umbral óptimo en esos escenarios sintéticos**, no una garantía fuera de muestra. El gap de apertura no se detiene (ya consumado antes del stream): el stop solo acorta el resto del día. Defensa adoptada para PAPER: `crash_event` 3% (cierre) + `intraday_stop` 4% + trailing de prima 30–40%, sujeto a nueva validación tras corregir el motor.
 
-## 6. Reglas para el agente orquestador
+## 6. Contexto de mercado fechado
+
+El contexto de noticias para la ronda del 15 de agosto de 2026 está en `docs/market_context_2026-08-15.md`. Reuters y CNBC describen un selloff tecnológico con rebote incompleto el 9 de junio y un máximo concentrado en AI/chips el 13 de agosto. Estas notas sirven para etiquetar ventanas de momentum unwind, rebote, concentración y riesgo geopolítico; no son variables de entrada automáticas.
+
+En cada backtest, guardar la fecha de decisión y usar únicamente información disponible hasta esa fecha. La noticia posterior se puede citar en el informe de resultado, pero no en la lógica que decide la operación histórica. Los datos de earnings actuales de yfinance no son point-in-time y deben excluirse de las corridas primarias o marcarse como proxy retrospectivo.
+
+## 7. Reglas para el agente orquestador
 
 Ningún cambio de parámetro de estrategia entra en producción sin: (1) pasar por las cuatro ventanas de backtest; (2) pasar por E1–E4 y E3c si toca los stops; (3) validarse en la ventana más reciente; (4) documentar el informe con resultados reproducibles. Cada ronda debe incluir anti-look-ahead, fecha de decisión, comisiones, slippage y sensibilidad. El filtro anti-earnings de producción usa un calendario actual de yfinance y no es point-in-time; no inyectarlo sin más en historia. Los cierres o lambdas dentro de barridos deben evitar capturas tardías de variables (B023). La estrategia puede cambiar con los datos, pero no se debe perseguir $100→$200 mediante sobreajuste ni presentar una meta como rentabilidad esperada.
