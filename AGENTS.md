@@ -413,3 +413,11 @@ La auditoría corrigió una fuga de look-ahead en SMA200/volumen, normalizó UTC
 La matriz final tuvo 73 configuraciones; la sensibilidad tuvo 156. `regime_hold_cash` fue el motor más consistente por ventanas, mientras `smc_daily` fue negativo en la mayoría de configuraciones. Un ensemble fijo 70% `regime_hold_cash` + 30% `breakout55` tuvo mediana +13.493%, pero peor ventana -5.208%. El walk-forward del ensemble seleccionó pesos distintos por fold y terminó con +34.985% en un test y -2.232% en otro. La revisión concluye que no hay evidencia robusta para cambiar la estrategia PAPER en producción ni para presentar $100→$200 como objetivo alcanzable.
 
 No desplegar nuevas estrategias sin datos point-in-time de opciones/earnings, fills bid/ask, más ventanas fuera de muestra y validación walk-forward. Los artefactos están en `/home/ubuntu/backtests/` y sus manifiestos deben acompañar cada commit de investigación.
+
+## 17. Cierre de auditoría de esta sesión
+
+El estado versionado de esta sesión queda en `origin/main` con commit **`649151c`** (`research: audit engine and add robust walk-forward studies`). El árbol local quedó limpio después del push.
+
+El commit incluye la limpieza Ruff F/B completa, la corrección de timezone y ventana reciente del feed, el modelo opcional de slippage/coste equity, los motores de investigación breakout20/55, los scripts de matriz, sensibilidad, walk-forward rodante y ensembles, el informe `docs/hallazgo20_auditoria_y_robustez_2026-08-15.md` y los contextos de mercado fechados.
+
+Resultado operativo: Firestore quedó confirmado en la revisión 00056 con escritura completa y `Tick OK`; no se desplegó ninguna estrategia nueva. La investigación terminó con dependencia de régimen y tests recientes negativos para los candidatos seleccionados. Mantener Cloud Run en PAPER y no cambiar parámetros productivos hasta disponer de cadenas de opciones y earnings point-in-time, modelo de fills bid/ask/liquidez/assignment/gaps y validación fuera de muestra adicional.
