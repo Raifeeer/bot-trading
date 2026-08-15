@@ -669,3 +669,43 @@ lanzar excepción. Suite completa: 11/11 (`test_regime_s78.py` sigue excluido po
 **Pendiente inmediato:** desplegar este segundo fix (aún no construido ni desplegado al
 cerrar esta sección) y verificar en Cloud Logging que la posición TQQQ reconciliada se
 gestiona sin error en el próximo tick.
+
+
+## 20. Auditoría de procedencia del dashboard Polaris — 15 de agosto de 2026
+
+**Estado:** el código fuente original del dashboard no fue localizado en la sandbox, GitHub ni en la configuración del proyecto Vercel. No crear un falso repositorio a partir de un bundle minificado; conservar el bundle solo como evidencia temporal hasta recuperar la fuente real.
+
+### 20.1 Resultado de la búsqueda
+
+Se inspeccionaron los directorios de `/home/ubuntu`, los repositorios accesibles de la cuenta `Raifeeer`, el repositorio `Raifeeer/bot-trading`, las configuraciones locales de Vercel y los artefactos descargados del dominio de producción. No apareció una copia del proyecto que contenga la combinación esperada de `client/src`, `package.json`, archivos `.tsx/.jsx`, configuración Vite y código del dashboard. `Polaris-Web-Studio` contiene el sitio comercial de Polaris y componentes de otro producto; no debe tratarse como la fuente del dashboard de trading.
+
+El repositorio `bot-trading` sigue siendo exclusivamente Python/infraestructura/documentación; no añadir el frontend allí como reconstrucción especulativa. La referencia `client/src/pages/Home.tsx` que aparece en el bundle es un metadato de desarrollo conservado por el build, no una ruta local recuperable.
+
+### 20.2 Cómo se desplegó probablemente
+
+El proyecto Vercel confirmado es `polaris-options-dashboard`, propietario `cristian2200299-8837's projects`, framework Vite, root `.`, comando `pnpm run build`, output `dist` y Node.js 24.x. La CLI de Vercel puede listar el proyecto y sus despliegues, pero el proyecto no muestra repositorio Git enlazado.
+
+La deployment de producción inspeccionada fue `dpl_49qkt1wPuymjDDnL73w9NVjUKPHj`, alias `polaris-options-dashboard.vercel.app`, creada el 14 de agosto de 2026 a las 16:42 UTC. La API de Vercel devolvió `source=null`, `gitSource=null`, `meta={}` y `builds=[]`; la CLI mostró un build de 0 ms. Junto con el historial de despliegues de pocos segundos y el uso documentado de `vercel deploy --prebuilt`, la evidencia es consistente con un upload de artefacto precompilado desde una carpeta local, no con un despliegue conectado a Git. Esto explica por qué el proyecto se publicó pero su fuente nunca llegó a GitHub: Vercel recibió `dist/`, no un repositorio.
+
+Esto es una inferencia basada en metadatos de despliegue, no una prueba de quién creó originalmente la carpeta local. La ruta `/home/ubuntu/polaris-options-dashboard/client/src/...` no existe actualmente en esta sandbox ni en los repositorios rastreados.
+
+### 20.3 Hallazgo API-01 / Credenciales Alpaca
+
+El bundle de producción contiene en `Config.tsx`, componente `API-01`, línea 152, el literal visible `••••••••••••••••••••••43UL` bajo la etiqueta `API Key`. No proviene de Firestore ni de una variable de datos en vivo: está embebido como texto en el bundle compilado.
+
+Se comparó el sufijo `43UL` de forma segura con el secreto actual `alpaca-key` de Secret Manager, sin imprimir la credencial. El secreto actual tiene formato de una sola línea y su API key no termina en `43UL`. Por tanto, el sufijo del bundle **no coincide con la API key actualmente configurada**. No se puede determinar desde el bundle si fue un placeholder, una clave antigua o una demo; debe tratarse como un valor hardcodeado no verificable y retirarse.
+
+No se debe mostrar ningún sufijo de API key en el dashboard. El panel debe mostrar únicamente un estado real y no sensible, por ejemplo `Configurado en Secret Manager` si existe una señal backend verificable, o `No disponible`/`—` si no existe. Nunca debe leer `APCA_API_KEY_ID` desde el frontend: las credenciales de Alpaca solo deben permanecer en Secret Manager y ser consumidas por Cloud Run.
+
+### 20.4 Acción pendiente para el siguiente agente
+
+1. Recuperar la carpeta original `/home/ubuntu/polaris-options-dashboard` desde el equipo o almacenamiento donde se ejecutó el `vercel deploy --prebuilt`, o pedir al usuario que la adjunte. No intentar reconstruir el proyecto completo desde el bundle salvo como último recurso.
+2. Antes de versionar, ejecutar un escaneo de secretos y retirar el literal `43UL` y cualquier otro valor de credencial. Rotar la API key si existe cualquier posibilidad de que el valor visible corresponda a una clave histórica real.
+3. Crear un repositorio separado, preferentemente `Raifeeer/polaris-options-dashboard`, salvo que el usuario prefiera una carpeta `dashboard/` dentro de `bot-trading`. Incluir `package.json`, lockfile, `src/`, configuración Vite, README, `.env.example` sin valores y reglas de despliegue.
+4. Añadir una prueba que garantice que el panel de credenciales no contiene API keys, sufijos, secretos ni valores demo. Las pruebas deben confirmar que todos los paneles leen Firestore o muestran estado vacío explícito.
+5. Configurar el proyecto Vercel para Git después de la revisión y hacer el primer despliegue desde el commit versionado. Mantener el dashboard en producción con datos reales y no desplegar una reconstrucción no auditada.
+6. Documentar el hash del commit fuente, el hash de la deployment, el comando de build, el output, el alias de producción y la relación Git↔Vercel en este archivo.
+
+### 20.5 Evidencia guardada localmente
+
+La auditoría del bundle está en `/tmp/polaris-dashboard-audit/` durante esta sesión y contiene `index.html`, los assets JS descargados, fragmentos de `Home.tsx`, `Config.tsx`, Firestore y el análisis de riesgo. Es evidencia de producción, no fuente mantenible. Si se necesita conservarla entre sesiones, copiar solo una versión sanitizada a `docs/audits/` sin incluir tokens, datos personales ni credenciales.
