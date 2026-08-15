@@ -44,7 +44,16 @@ GROK_MODEL = os.environ.get("GROK_MODEL") or "grok-4-fast"
 
 def _sm_key(secret_name: str) -> str:
     """Lee una key desde Secret Manager de GCP (la SA de Cloud Run necesita
-    el rol 'Secret Manager Secret Accessor')."""
+    el rol 'Secret Manager Secret Accessor').
+
+    Se llama a import time del módulo (línea ~62), en el hilo principal de
+    Telegram, antes de lanzar el hilo con timeout que protege la respuesta
+    de la IA (_ai_answer_with_timeout). Sin `timeout=` aquí, un secreto sin
+    permiso (PERMISSION_DENIED) puede tardar 1-3 min en fallar por los
+    reintentos por defecto de la librería de gRPC, bloqueando el hilo de
+    Telegram ese tiempo en el primer mensaje que use el asistente de cada
+    proceso — reproducido en vivo el 15 ago 2026 con
+    vercel-polaris-web-studio-GEMINI_API_KEY y polaris-GROK_API_KEY."""
     project = (os.environ.get("GCP_PROJECT_ID") or "").strip()
     if not project or not secret_name:
         return ""
@@ -52,7 +61,8 @@ def _sm_key(secret_name: str) -> str:
         from google.cloud import secretmanager
         client = secretmanager.SecretManagerServiceClient()
         name = f"projects/{project}/secrets/{secret_name}/versions/latest"
-        return client.access_secret_version(request={"name": name}).payload.data.decode().strip()
+        return client.access_secret_version(
+            request={"name": name}, timeout=5.0).payload.data.decode().strip()
     except Exception:  # noqa: BLE001
         logger.exception("No se pudo leer secret %s de Secret Manager", secret_name)
         return ""

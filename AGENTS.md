@@ -821,3 +821,37 @@ pata sin cobertura. Usar siempre `OrderClass.MLEG` con ambas patas en la misma r
    §20): cada redeploy con equity ya bajo el piso puede volver a disparar la notificación
    de "cruce" en falso. No se corrigió en esta sesión; queda como hallazgo menor para
    revisión futura.
+
+## 27. Fix: Telegram tardaba minutos en responder (Secret Manager sin timeout) — 15 de agosto de 2026
+
+**Síntoma reportado en vivo:** el usuario preguntó por Telegram algo que activa el asistente
+IA ("Qué me dices de la acción de SpaceX?") y no obtuvo respuesta durante varios minutos.
+
+**Diagnóstico confirmado en Cloud Logging:** el mensaje sí llegó (`TG update chat=...`
+19:40:33), pero no hubo ni `TG response sent` ni `IA tardó más de 45s` durante más de 2
+minutos. La causa: `state/ai_assistant.py::_sm_key()` se llama a **import time** del módulo
+(líneas ~62-67, para resolver `GEMINI_KEY`/`GROK_KEY` de respaldo desde Secret Manager) en
+el **hilo principal de Telegram**, antes de que `_ai_answer_with_timeout` lance el hilo con
+el timeout de 45s que protege la llamada al LLM — ese timeout nunca cubre el import.
+
+`access_secret_version()` se llamaba sin `timeout=`, y los dos secretos de respaldo
+(`vercel-polaris-web-studio-GEMINI_API_KEY`, `polaris-GROK_API_KEY`) devuelven
+`PERMISSION_DENIED` para la service account del bot (compute default SA, distinta del SA de
+esta sesión). Sin timeout explícito, gRPC reintenta con backoff antes de rendirse: el log
+confirmó el error de Gemini a los ~2m25s y el de Grok ~40s después — casi 3 minutos
+bloqueando el hilo de Telegram, en el primer mensaje que usa el asistente de cada proceso
+(los valores quedan cacheados en globals del módulo tras el primer import, así que solo pasa
+una vez por arranque, pero se repite en cada redeploy).
+
+**Fix:** `access_secret_version(request={"name": name}, timeout=5.0)`. Un secreto denegado
+falla en ≤5s en vez de minutos. Test de regresión en
+`tests/test_ai_assistant_secret_timeout.py` (mock del cliente de Secret Manager, verifica
+que se pasa `timeout` y que sin `GCP_PROJECT_ID` nunca se llama a Secret Manager). Suite
+completa: 15/15.
+
+**Nota aparte, no corregida en esta sesión:** los fallbacks de Gemini/Grok seguirán sin
+funcionar de verdad (fallan rápido en vez de colgarse, pero siguen fallando) hasta que se
+le otorgue `roles/secretmanager.secretAccessor` a la service account del bot
+(`173223792589-compute@developer.gserviceaccount.com`) sobre esos dos secretos específicos,
+si el usuario quiere que esos fallbacks funcionen de verdad. DeepSeek (la clave primaria,
+vía variable de entorno directa) no depende de Secret Manager y no se ve afectado.
