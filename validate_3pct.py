@@ -9,7 +9,7 @@ TOP = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, TOP)
 
 from data.feed import MarketDataFeed  # noqa: E402
-from loop_backtests import run_scenario, UNI_RETO, SCENARIOS, CAPITAL_INICIAL  # noqa: E402
+from loop_backtests import run_scenario, UNI_RETO, SCENARIOS  # noqa: E402
 
 feed = MarketDataFeed(os.environ.get("DATA_PROVIDER", "yfinance"))
 base = feed.history(UNI_RETO, "1d", days=365)

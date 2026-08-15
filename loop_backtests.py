@@ -283,6 +283,19 @@ def option_exit_value(spread: dict, spot: float, days_later: int,
     return max(0.0, gross * (1.0 - slip))
 
 
+def equity_entry_cost(amount: float, sc: dict) -> float:
+    """Costo equity de entrada; `equity_cost_pct` representa ida y vuelta."""
+    cost = max(0.0, float(sc.get("equity_cost_pct", 0.0)))
+    return float(amount) * (1.0 + cost / 2.0)
+
+
+def equity_exit_value(entry_net: float, exit_spot: float,
+                      last_spot: float, sc: dict) -> float:
+    """Valor equity de salida después de la mitad del coste round-trip."""
+    cost = max(0.0, float(sc.get("equity_cost_pct", 0.0)))
+    return max(0.0, float(entry_net) * (exit_spot / last_spot) * (1.0 - cost / 2.0))
+
+
 # --------------------------------------------------------------- escenarios
 SCENARIOS = {
     # --- Motores puros, universo reto ---
@@ -664,10 +677,44 @@ def rebote_rsi_exit(hist, d):
         return False
     r = rsi(sub["close"])
     return bool(pd.notna(r.iloc[-1]) and r.iloc[-1] > 70)
-
-
 MOTORES["rebote_rsi"] = (rebote_rsi_entry, rebote_rsi_exit)
 
+
+def breakout_entry(hist, d, lookback=20, volume_mult=1.2):
+    """Ruptura de máximos previos con confirmación de volumen.
+
+    El día de decisión solo puede usar el cierre y volumen de `d` y las
+    barras anteriores. No se usa ninguna fila posterior al corte.
+    """
+    sub = hist[hist.index.normalize() <= d]
+    if len(sub) < max(lookback + 1, 40):
+        return None
+    prior = sub.iloc[-lookback-1:-1]
+    last = sub.iloc[-1]
+    vol_ref = sub["volume"].iloc[-min(len(sub), lookback + 20):-1].mean()
+    if (pd.notna(last["close"]) and last["close"] > prior["high"].max()
+            and pd.notna(vol_ref) and last["volume"] >= vol_ref * volume_mult):
+        return dict(type=f"breakout_{lookback}")
+    return None
+
+
+def breakout_exit(hist, d):
+    """Salir si el cierre pierde la SMA20, evitando perseguir rupturas fallidas."""
+    sub = hist[hist.index.normalize() <= d]
+    if len(sub) < 25:
+        return False
+    s20 = sma(sub["close"], 20)
+    return bool(pd.notna(s20.iloc[-1]) and sub["close"].iloc[-1] < s20.iloc[-1])
+
+
+MOTORES["breakout20"] = (
+    lambda hist, d: breakout_entry(hist, d, lookback=20, volume_mult=1.2),
+    breakout_exit,
+)
+MOTORES["breakout55"] = (
+    lambda hist, d: breakout_entry(hist, d, lookback=55, volume_mult=1.2),
+    breakout_exit,
+)
 
 def run_scenario(key: str, sc: dict, data: dict):
     today = pd.Timestamp.now(tz="UTC").normalize()
@@ -709,7 +756,7 @@ def run_scenario(key: str, sc: dict, data: dict):
             if len(exit_rows):
                 exit_spot = float(exit_rows["close"].iloc[-1])
             if pos.get("side") == "equity":  # motor hold: valor por cambio spot
-                val = pos["entry_net"] * (exit_spot / pos["last_spot"])
+                val = equity_exit_value(pos["entry_net"], exit_spot, pos["last_spot"], sc)
             else:
                 val = option_exit_value(pos["spread"], pos["last_spot"],
                                         days_held, sc, exit_spot=exit_spot)
@@ -918,7 +965,7 @@ def run_scenario(key: str, sc: dict, data: dict):
                         continue
                     rows = dfsym[dfsym.index.normalize() == d]
                     if len(rows):
-                        pos3.append(dict(symbol=sym, side="equity", entry_net=per,
+                        pos3.append(dict(symbol=sym, side="equity", entry_net=equity_entry_cost(per, sc),
                                          last_spot=float(rows["close"].iloc[-1]),
                                          entry_date=d, spread=None))
                 next_rebal = d + pd.Timedelta(days=7)
@@ -1004,7 +1051,7 @@ def run_scenario(key: str, sc: dict, data: dict):
                         exit_spot = float(rows["close"].iloc[-1])
                         if p["symbol"] in intraday_cutb:
                             exit_spot = intraday_cutb[p["symbol"]]
-                        val = p["entry_net"] * exit_spot / p["last_spot"]
+                        val = equity_exit_value(p["entry_net"], exit_spot, p["last_spot"], sc)
                         pnl = val - p["entry_net"]
                         if sc.get("comision"):
                             pnl -= sc["comision"]
@@ -1024,7 +1071,7 @@ def run_scenario(key: str, sc: dict, data: dict):
                         last_spot = float(rows["close"].iloc[-1])
                         if sym in intraday_cutb:
                             last_spot = intraday_cutb[sym]
-                        pos3b.append(dict(symbol=sym, entry_net=per,
+                        pos3b.append(dict(symbol=sym, entry_net=equity_entry_cost(per, sc),
                                           last_spot=last_spot,
                                           entry_date=d, motor="regime_hold_cash",
                                           side="equity"))
@@ -1107,7 +1154,7 @@ def run_scenario(key: str, sc: dict, data: dict):
                     exit_spot = float(rows["close"].iloc[-1]) if len(rows) else p["last_spot"]
                     if p["symbol"] in intraday_cutb:
                         exit_spot = intraday_cutb[p["symbol"]]
-                    val = p["entry_net"] * exit_spot / p["last_spot"]
+                    val = equity_exit_value(p["entry_net"], exit_spot, p["last_spot"], sc)
                     pnl = val - p["entry_net"]
                     if sc.get("comision"):
                         pnl -= sc["comision"]
@@ -1132,7 +1179,7 @@ def run_scenario(key: str, sc: dict, data: dict):
                     rows = data[p["symbol"]][data[p["symbol"]].index.normalize() == d]
                     if len(rows):
                         exit_spot = float(rows["close"].iloc[-1])
-                        val = p["entry_net"] * exit_spot / p["last_spot"]
+                        val = equity_exit_value(p["entry_net"], exit_spot, p["last_spot"], sc)
                         pnl = val - p["entry_net"]
                         if sc.get("comision"):
                             pnl -= sc["comision"]
@@ -1150,7 +1197,7 @@ def run_scenario(key: str, sc: dict, data: dict):
                         continue
                     rows = dfsym[dfsym.index.normalize() == d]
                     if len(rows):
-                        open_pos2.append(dict(symbol=sym, entry_net=per,
+                        open_pos2.append(dict(symbol=sym, entry_net=equity_entry_cost(per, sc),
                                               last_spot=float(rows["close"].iloc[-1]),
                                               entry_date=d, motor="hold_weekly", side="equity"))
                 next_rebal = d + pd.Timedelta(days=7)
@@ -1166,7 +1213,7 @@ def run_scenario(key: str, sc: dict, data: dict):
             rows = data[p["symbol"]][data[p["symbol"]].index.normalize() == dates[-1]]
             if len(rows):
                 exit_spot = float(rows["close"].iloc[-1])
-                val = p["entry_net"] * exit_spot / p["last_spot"]
+                val = equity_exit_value(p["entry_net"], exit_spot, p["last_spot"], sc)
             else:
                 val = p["entry_net"]
             pnl = val - p["entry_net"]
@@ -1185,7 +1232,7 @@ def run_scenario(key: str, sc: dict, data: dict):
         exit_rows = exit_df[exit_df.index.normalize() == dates[-1]]
         exit_spot = float(exit_rows["close"].iloc[-1]) if len(exit_rows) else pos["last_spot"]
         if pos.get("side") == "equity":
-            val = pos["entry_net"] * (exit_spot / pos["last_spot"])
+            val = equity_exit_value(pos["entry_net"], exit_spot, pos["last_spot"], sc)
         else:
             val = option_exit_value(pos["spread"], pos["last_spot"], days_held,
                                     sc, exit_spot=exit_spot)

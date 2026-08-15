@@ -403,3 +403,13 @@ Se corrigió una fuga de información en `loop_backtests.py`: `above_sma200` y `
 El motor ahora admite `slippage_pct` opcional. La entrada de un spread aumenta el costo por `1 + slippage_pct` y la salida reduce el valor por `1 - slippage_pct`; el valor por defecto es 0 para conservar comparabilidad legacy. Toda corrida relevante debe declarar el porcentaje usado, aplicar comisiones y etiquetar que sigue siendo un proxy de fills.
 
 `data/feed.py` sustituyó `datetime.utcnow()` por timestamps UTC con zona explícita; el test de caché dejó de emitir deprecaciones. La próxima matriz debe regenerarse desde el commit que contiene estas correcciones y no mezclar resultados previos.
+
+## 16. Auditoría profunda y robustez — 15 de agosto de 2026
+
+El informe reproducible completo está en `docs/hallazgo20_auditoria_y_robustez_2026-08-15.md`.
+
+La auditoría corrigió una fuga de look-ahead en SMA200/volumen, normalizó UTC y corrigió la rama de ventanas recientes del feed. El motor ahora acepta `slippage_pct` para opciones y `equity_cost_pct` para benchmarks equity. Se añadieron motores de investigación `breakout20` y `breakout55`, con ruptura de máximos previos y confirmación de volumen calculadas solo con el histórico hasta la fecha de decisión.
+
+La matriz final tuvo 73 configuraciones; la sensibilidad tuvo 156. `regime_hold_cash` fue el motor más consistente por ventanas, mientras `smc_daily` fue negativo en la mayoría de configuraciones. Un ensemble fijo 70% `regime_hold_cash` + 30% `breakout55` tuvo mediana +13.493%, pero peor ventana -5.208%. El walk-forward del ensemble seleccionó pesos distintos por fold y terminó con +34.985% en un test y -2.232% en otro. La revisión concluye que no hay evidencia robusta para cambiar la estrategia PAPER en producción ni para presentar $100→$200 como objetivo alcanzable.
+
+No desplegar nuevas estrategias sin datos point-in-time de opciones/earnings, fills bid/ask, más ventanas fuera de muestra y validación walk-forward. Los artefactos están en `/home/ubuntu/backtests/` y sus manifiestos deben acompañar cada commit de investigación.

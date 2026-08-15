@@ -5,7 +5,6 @@ payload.equity, payload.risk, payload.universe, payload.strategies;
 equity_curve[] e signals[] como campos del doc).
 """
 import os
-import uuid
 from datetime import date, datetime, timezone
 
 os.environ.setdefault("FIRESTORE_DATABASE", "polaris")

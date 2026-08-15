@@ -70,6 +70,12 @@ El contexto de noticias para la ronda del 15 de agosto de 2026 está en `docs/ma
 
 En cada backtest, guardar la fecha de decisión y usar únicamente información disponible hasta esa fecha. La noticia posterior se puede citar en el informe de resultado, pero no en la lógica que decide la operación histórica. Los datos de earnings actuales de yfinance no son point-in-time y deben excluirse de las corridas primarias o marcarse como proxy retrospectivo.
 
-## 7. Reglas para el agente orquestador
+## 7. Breakout y ensembles de investigación
+
+`breakout20` y `breakout55` son motores de investigación, no de producción. Una entrada exige que el cierre de la fecha de decisión supere el máximo de las `lookback` barras anteriores y que el volumen sea al menos 1.2x la referencia; ambos cálculos deben usar solo filas `<= d`. La salida de investigación usa pérdida de SMA20. Toda corrida debe reportar slippage, riesgo y número de operaciones.
+
+Los ensembles fijos de `regime_hold_cash` con breakout20/55 se evalúan como investigación separada. Los pesos no se pueden elegir sobre el test. La selección se realiza en train/validation, con mínimo de operaciones por split, y el peso elegido se mide en test fuera de muestra. Un retorno positivo en una sola ventana o una meta $100→$200 no es evidencia suficiente.
+
+## 8. Reglas para el agente orquestador
 
 Ningún cambio de parámetro de estrategia entra en producción sin: (1) pasar por las cuatro ventanas de backtest; (2) pasar por E1–E4 y E3c si toca los stops; (3) validarse en la ventana más reciente; (4) documentar el informe con resultados reproducibles. Cada ronda debe incluir anti-look-ahead, fecha de decisión, comisiones, slippage y sensibilidad. El filtro anti-earnings de producción usa un calendario actual de yfinance y no es point-in-time; no inyectarlo sin más en historia. Los cierres o lambdas dentro de barridos deben evitar capturas tardías de variables (B023). La estrategia puede cambiar con los datos, pero no se debe perseguir $100→$200 mediante sobreajuste ni presentar una meta como rentabilidad esperada.

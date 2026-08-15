@@ -78,3 +78,14 @@ Modo PAPER. Estrategias: SMC, S78 Regime-aware y régimen-aware (3). Régimen ac
 4. **Dashboard:** recuperar la fuente correcta `client/src/pages/Home.tsx`; el bundle de producción mostró que el antiguo payload 0.01/5 confundía porcentaje y límite. El bot ya publica el contrato corregido; falta confirmar el frontend y desplegar solo la fuente correcta.
 5. **Telegram:** las respuestas libres dependen del LLM (45 s timeout); evaluar respuestas asíncronas por chat action sin bloquear el polling.
 6. **Contexto de mercado:** investigar fuentes fechadas y anotar qué hechos son observados versus hipótesis; nunca usar noticias posteriores a la decisión en un backtest histórico.
+
+
+## 7. Auditoría profunda y backtesting reproducible — 15 de agosto de 2026
+
+La auditoría profunda está documentada en `docs/hallazgo20_auditoria_y_robustez_2026-08-15.md`. Se corrigieron una fuga de look-ahead en SMA200/volumen, la normalización UTC y la rama de feed de ventanas recientes. La validación actual pasa `compileall`, Ruff F/B y los tests deterministas de feed, riesgo, ejecución y asistente; el test de asistente puede mostrar que `gpt-4o-mini` ya no está soportado por el proxy, pero no falla el proceso.
+
+Los artefactos de investigación ya no están vacíos: `/home/ubuntu/backtests/` contiene la matriz de 73 configuraciones, sensibilidad de 156 combinaciones, walk-forward simple y rodante, ensembles fijos y ensemble walk-forward, además de gráficos en `backtests/charts/`. La fuente real es yfinance a través de `MarketDataFeed`, con 520 días, ventanas explícitas, anti-look-ahead, slippage parametrizado para opciones y coste equity de 0.2% round-trip en benchmarks.
+
+Los motores `breakout20` y `breakout55` son de investigación únicamente. `regime_hold_cash` es el candidato más consistente por ventanas, pero el walk-forward más reciente termina negativo. El ensemble 70% régimen/30% breakout55 mejora la mediana y el drawdown, pero no elimina la ventana negativa; no hay cambio autorizado a producción.
+
+**Pendientes actualizados:** obtener datos point-in-time de cadenas de opciones y earnings; modelar fills bid/ask, liquidez, assignment y gaps; repetir walk-forward con más años y fuentes verificables; implementar el stream de equity de Alpaca antes de depender del stop intradiario; y corregir/confirmar la fuente del dashboard antes de cualquier redeploy. No cambiar la estrategia PAPER solo por resultados de una ventana.

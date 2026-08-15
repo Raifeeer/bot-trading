@@ -21,7 +21,7 @@ secret = os.environ.get("APCA_API_SECRET_KEY",
 
 def get_spot(t):
     try:
-        r = requests.get(f"https://data.alpaca.markets/v2/stocks/snapshots",
+        r = requests.get("https://data.alpaca.markets/v2/stocks/snapshots",
                          params={"symbols": t},
                          headers={"APCA-API-KEY-ID": key,
                                   "APCA-API-SECRET-KEY": secret}, timeout=15)

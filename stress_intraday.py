@@ -16,15 +16,13 @@ import os
 import sys
 import time
 
-import numpy as np
 import pandas as pd
 
 TOP = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, TOP)
 
 from data.feed import MarketDataFeed  # noqa: E402
-from loop_backtests import (run_scenario, UNI_RETO, CAPITAL_INICIAL,
-                             SCENARIOS, realized_vol)  # noqa: E402
+from loop_backtests import (UNI_RETO, SCENARIOS)  # noqa: E402
 from stress_test import inject_crash, run_stress  # noqa: E402
 
 
@@ -79,7 +77,7 @@ def main():
         if gap > 0:
             d1 = data[UNI_RETO[0]][
                 data[UNI_RETO[0]].index.normalize() == base_date].index[0]
-            for sym, df in data.items():
+            for _sym, df in data.items():
                 if d1 not in df.index:
                     continue
                 idx = list(df.index).index(d1)
@@ -98,7 +96,6 @@ def main():
         # ventana de fuerza de bull: el régimen se fuerza a bull hasta el
         # día antes del primer día de shock (el detector crash_event sí
         # permanece activo dentro de esa ventana).
-        same_day = False  # rebal_same_day ya se extrajo antes como SAME_DAY
         # El shock dura crash_days días hábiles; forzar bull hasta el último
         # día del shock para que el motor entre al crash SOSTENIENDO la
         # posición (el detector crash_event sí sigue activo y corta).
@@ -139,7 +136,7 @@ def main():
                 sd2 = shock_start2 + pd.Timedelta(days=1)
                 while sd2.weekday() >= 5:
                     sd2 += pd.Timedelta(days=1)
-                for sym, df in data.items():
+                for _sym, df in data.items():
                     sd_loc = sd2.replace(hour=df.index[-1].hour,
                                          minute=0, second=0,
                                          microsecond=0)
@@ -168,7 +165,7 @@ def main():
                     nxt += pd.Timedelta(days=1)
                 shock_days.append(nxt)
             sd = shock_days[0]
-            for sym, df in data.items():
+            for _sym, df in data.items():
                 # alinear la hora de sd a la del índice del DF (04:00 UTC en
                 # datos US; el get_loc falla si las horas difieren)
                 sd_loc = sd.replace(

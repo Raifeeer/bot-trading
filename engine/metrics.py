@@ -32,7 +32,6 @@ def portfolio_metrics(equity: pd.DataFrame, risk_free_rate: float = 0.04,
         else:
             start = None
 
-    mean_r = ret.mean()
     std_r = ret.std()
     ann_ret = (1 + total_ret) ** (1 / years) - 1 if years > 0 else 0.0
     ann_vol = std_r * np.sqrt(252)

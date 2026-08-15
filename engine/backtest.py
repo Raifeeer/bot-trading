@@ -8,11 +8,10 @@ Salida: tabla de operaciones (trades), equity curve diaria y métricas
 (comisión: ver engine/metrics.py).
 """
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 
 import pandas as pd
-import numpy as np
 
 from strategies.base import SignalType
 from risk.manager import RiskManager, PositionState
@@ -85,9 +84,6 @@ class BacktestEngine:
                 event_list.append((ts, sym, i, bar))
         event_list.sort(key=lambda e: e[0])
 
-        # Historial acumulativo por símbolo (crece por slicing hasta el índice)
-        hist_idx = {sym: 0 for sym in data}
-
         for ts, sym, idx, row in event_list:
             full = data[sym]
             hist = full.iloc[:idx + 1]
@@ -107,7 +103,7 @@ class BacktestEngine:
                     # salida por estrategia
                     if len(hist) < 60:
                         continue
-                    for sname, strat in self.strategies.items():
+                    for _sname, strat in self.strategies.items():
                         sig = strat.scan(hist, symbol=sym, entry_price=st.entry_price,
                                          stop_price=st.stop_price,
                                          target_price=st.target_price,
@@ -137,7 +133,7 @@ class BacktestEngine:
                 open_positions = [BacktestState.__class__.__name__ and PositionState(
                     symbol=s, entry_price=v.entry_price, stop_price=v.stop_price)
                     for s, v in states.items()]
-                for sname, strat in self.strategies.items():
+                for _sname, strat in self.strategies.items():
                     sig = strat.scan(hist, symbol=sym)
                     if sig.tradable:
                         entry_px = self._slip(row["close"], buy=True)

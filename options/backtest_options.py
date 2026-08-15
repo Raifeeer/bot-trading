@@ -15,7 +15,6 @@ Uso:
   DATA_PROVIDER=yfinance python options/backtest_options.py [AAPL MSFT NVDA]
 """
 import argparse
-import json
 import logging
 import os
 import sys
@@ -29,9 +28,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import get_config
 from data.feed import MarketDataFeed
 from strategies.swing_trading import SwingTrend
-from strategies.day_trading import DayMomentum
 from options.chains import (OptionType, OptionContract, Leg, OptionStructure,
-                            black_scholes_price, greeks, select_strikes)
+                            black_scholes_price, greeks)
 from options.strategy import OptionsStrategy
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -80,8 +78,6 @@ def run_option_backtest(data: dict, strat, capital: float = 100_000.0,
         for i, (ts, row) in enumerate(df.iterrows()):
             hist = df.iloc[:i + 1]
             spot = row["close"]
-            chain = build_synthetic_chain(spot, sigma)
-
             # --- gestionar posición abierta ---
             if sym in open_pos:
                 op = open_pos[sym]

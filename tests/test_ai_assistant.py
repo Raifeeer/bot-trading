@@ -9,7 +9,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from state import ai_assistant, telegram_bot  # noqa: E402
+from state import ai_assistant  # noqa: E402
 
 
 def main() -> None:

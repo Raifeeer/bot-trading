@@ -18,6 +18,12 @@ import numpy as np
 logger = logging.getLogger("feed")
 
 
+def _utc_timestamp(value):
+    """Normaliza datetime/Timestamp/string a un Timestamp UTC aware."""
+    ts = pd.Timestamp(value)
+    return ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
+
+
 class DataFeedError(RuntimeError):
     pass
 
@@ -115,8 +121,8 @@ def fetch_yfinance(symbol: str, timeframe: str, start: str, end: str = None) -> 
 
     tf_map = {"1min": "1m", "5min": "5m", "15min": "15m", "1d": "1d"}
     tf = tf_map.get(timeframe, "1d")
-    end_dt = pd.Timestamp(end or "now", tz="UTC")
-    start_dt = pd.Timestamp(start, tz="UTC")
+    end_dt = _utc_timestamp(end or "now")
+    start_dt = _utc_timestamp(start)
     if timeframe != "1d" and (end_dt - start_dt).days > 60:
         logger.warning("yfinance limita intradía a ~60 días; se usa el máximo disponible")
     # Reintentos: el cache sqlite de yfinance a veces lanza
@@ -179,8 +185,7 @@ class MarketDataFeed:
 
     @staticmethod
     def _utc(value):
-        ts = pd.Timestamp(value)
-        return ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
+        return _utc_timestamp(value)
 
     def _history_cached(self, symbol: str, timeframe: str,
                         start: str, end: str, days: int):
@@ -218,12 +223,16 @@ class MarketDataFeed:
         free; Yahoo cubre el rango reciente (inestable en ráfaga, por eso se
         usa solo donde hace falta). Combina los segmentos en un solo DataFrame."""
         now = datetime.now(timezone.utc)
-        end_dt = pd.Timestamp(end or now, tz="UTC")
-        pd.Timestamp(start, tz="UTC")
+        start_dt = _utc_timestamp(start)
+        end_dt = _utc_timestamp(end or now)
+        if end_dt < start_dt:
+            raise DataFeedError(f"Rango invertido: {start} > {end}")
         # El rango 'recent SIP' de Alpaca free cubre ~los últimos 2 días
         # (observado: ventanas que incluyen hoy o ayer fallan con
         # 'subscription does not permit querying recent SIP data').
-        sip_cut = pd.Timestamp(now - timedelta(days=2), tz="UTC")
+        sip_cut = _utc_timestamp(now - timedelta(days=2))
+        if start_dt >= sip_cut:
+            return fetch_yfinance(symbol, timeframe, start, end)
         if end_dt < sip_cut:
             # Todo lejano: Alpaca directo (rápido y estable).
             # _alpaca_df() descarga SIEMPRE un solo símbolo: con múltiples

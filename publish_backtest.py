@@ -8,7 +8,6 @@ Requiere GOOGLE_APPLICATION_CREDENTIALS o gcloud auth (en Cloud Run usa la
 identidad del servicio; localmente activa la cuenta con `gcloud auth login`).
 """
 import csv
-import json
 import os
 import sys
 from datetime import datetime, timezone
@@ -72,7 +71,6 @@ def main():
     doc["source"] = "loop_backtests.py (89 escenarios S1-S89)"
     try:
         from google.cloud import firestore
-        from google.auth.transport.requests import Request
         import google.oauth2.credentials as _creds
         database = os.environ.get("FIRESTORE_DATABASE", "polaris")
         creds = None

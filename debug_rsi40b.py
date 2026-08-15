@@ -3,8 +3,7 @@ import sys
 sys.path.insert(0, '.')
 import pandas as pd
 from data.feed import MarketDataFeed
-from loop_backtests import (rebote_rsi40_entry, build_spread, realized_vol,
-                            UNI_RETO)
+from loop_backtests import (rebote_rsi40_entry, build_spread, realized_vol)
 
 feed = MarketDataFeed("yfinance")
 syms = ["SOFI", "F", "NOK", "BB"]
@@ -12,7 +11,7 @@ data = feed.history(syms, "1d", days=365)
 start = pd.Timestamp("2026-06-01", tz="UTC")
 end = pd.Timestamp("2026-08-14", tz="UTC")
 
-for i, d in enumerate(sorted({ts.normalize() for df in data.values() for ts in df.index})):
+for _i, d in enumerate(sorted({ts.normalize() for df in data.values() for ts in df.index})):
     if not (start <= d <= end):
         continue
     for sym, df in sorted(data.items()):

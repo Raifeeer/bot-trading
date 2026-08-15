@@ -13,7 +13,7 @@ import logging
 from dataclasses import dataclass
 from datetime import date, timedelta
 
-from options.chains import (Leg, OptionContract, OptionFeed, OptionStructure,
+from options.chains import (Leg, OptionFeed, OptionStructure,
                             OptionType, select_strikes)
 from strategies.base import Signal, SignalType
 
@@ -129,8 +129,6 @@ class WheelStrategy:
             df = df.get(sym)
             if df is None or not len(df):
                 continue
-            _c = "Close" if "Close" in df.columns else "close"
-            spot = float(df.iloc[-1][_c])
             out.append(Signal(symbol=sym, signal_type=SignalType.SHORT,
                               score=0.8, stop_price=None, target_price=None,
                               reason=("wheel_csp: delta<=0.20, ROC>=1%%/mes, "

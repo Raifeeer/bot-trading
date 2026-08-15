@@ -4,7 +4,6 @@ loop_backtests.py."""
 import csv
 import glob
 import os
-import sys
 
 OUT = "/home/ubuntu/backtests/bt_resumen.csv"
 rows = []

@@ -70,13 +70,13 @@ for ticker in CANDIDATES:
         return NormalDist().cdf(d1)
 
     rows = []
-    for exp in chain:
-        ed = dt.date.fromisoformat(exp)
+    for expiry in chain:
+        ed = dt.date.fromisoformat(expiry)
         dte = (ed - TODAY).days
         if dte < 10 or dte > 45:
             continue
         try:
-            c = o.option_chain(exp)
+            c = o.option_chain(expiry)
         except Exception:
             continue
         calls = c.calls

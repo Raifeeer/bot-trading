@@ -34,12 +34,12 @@ for th in (0.03, 0.05, 0.08, 0.12, 0.15):
         end = data[UNI_RETO[0]].index[-1].normalize()
         s78 = dict(sc0, crash_event=th,
                    window_dates=(str(base_date.date()), str(end.date())))
-        _, _, ec, _, _ = run_scenario(f"sweep", s78, data)
+        _, _, ec, _, _ = run_scenario("sweep", s78, data)
         eq = pd.DataFrame(ec)
         rows.append(dict(umbral=th, esc=name, equity_final=eq["equity"].iloc[-1],
                          dd=eq["equity"].min() / eq["equity"].max() - 1))
         hold = dict(hold0, window_dates=(str(base_date.date()), str(end.date())))
-        _, _, ech, _, _ = run_scenario(f"sweep_h", hold, data)
+        _, _, ech, _, _ = run_scenario("sweep_h", hold, data)
         eqh = pd.DataFrame(ech)
         rows.append(dict(umbral=th, esc=name, equity_final=eqh["equity"].iloc[-1],
                          dd=eqh["equity"].min() / eqh["equity"].max() - 1,

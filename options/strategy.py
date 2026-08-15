@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from strategies.base import Strategy, Signal, SignalType
-from options.chains import OptionStructure, SpreadBuilder, OptionType, price_to_greeks
+from options.chains import OptionStructure, SpreadBuilder
 
 logger = logging.getLogger("options.strategy")
 

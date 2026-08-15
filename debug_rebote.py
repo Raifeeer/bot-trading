@@ -1,8 +1,6 @@
 """Diagnóstico rebote_rsi: ver señales reales en la ventana mar-jul 2026."""
 import sys
 sys.path.insert(0, '.')
-import pandas as pd
-import numpy as np
 from data.feed import MarketDataFeed
 
 feed = MarketDataFeed("yfinance")

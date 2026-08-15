@@ -17,7 +17,6 @@ Variables de entorno:
       proyecto está en modo Datastore y no sirve para el SDK web)
   GOOGLE_APPLICATION_CREDENTIALS: clave de service account (Cloud Run)
 """
-import json
 import logging
 import os
 from datetime import date, datetime, timezone
