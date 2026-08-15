@@ -275,7 +275,7 @@ def _build_context() -> str:
     return "\n".join(lines)
 
 
-def _fundamentals(text: str) -> str:
+def _fundamentals(text: str, notify=None) -> str:
     """Contexto de mercado on-demand (fundamentales + técnico real del
     motor) con límite de tiempo. El cuerpo lento (_fundamentals_slow) corre
     en un thread; si tarda >15 s se aborta y se devuelve un aviso breve,
@@ -285,7 +285,7 @@ def _fundamentals(text: str) -> str:
     box = [None]
     def _worker():
         try:
-            box[0] = _fundamentals_slow(text)
+            box[0] = _fundamentals_slow(text, notify=notify)
         except Exception:  # noqa: BLE001
             logger.exception("Fallo en _fundamentals")
     tw = _th.Thread(target=_worker, daemon=True, name="fund")
@@ -349,7 +349,7 @@ def _technical_snapshot(sym: str, hist) -> str:
     )
 
 
-def _fundamentals_slow(text: str) -> str:
+def _fundamentals_slow(text: str, notify=None) -> str:
     """Cuerpo lento de la consulta de mercado: yfinance (P/E, SMA200,
     earnings) + análisis técnico real del motor (_technical_snapshot) para
     el primer ticker candidato válido del texto."""
@@ -381,6 +381,8 @@ def _fundamentals_slow(text: str) -> str:
             px = getattr(fi, "last_price", None)
             if px is None or px <= 0:
                 continue  # palabra falsa o símbolo inexistente
+            if notify:
+                notify(f"📈 Encontré {sym.upper()}, revisando precio y fundamentales…")
             hist_full = None
             sma200 = None
             try:
@@ -390,6 +392,8 @@ def _fundamentals_slow(text: str) -> str:
                     sma200 = float(close.iloc[-200:].mean())
             except Exception:  # noqa: BLE001
                 pass
+            if notify and hist_full is not None and not hist_full.empty:
+                notify(f"📊 Calculando la señal técnica del motor para {sym.upper()}…")
             pe = getattr(fi, "trailing_pe", None)
             earnings = get_earnings(sym)
             result = ("DATOS FUNDAMENTALES (consulta puntual):\n"
@@ -412,8 +416,12 @@ def _fundamentals_slow(text: str) -> str:
     return result
 
 
-def answer(user_text: str) -> str | None:
+def answer(user_text: str, notify=None) -> str | None:
     """Responde con IA si está habilitada y el texto no es un comando.
+
+    `notify(msg)`, si se pasa, avisa por Telegram el progreso de cada etapa
+    lenta (buscar ticker, indicadores técnicos, llamada al LLM) según va
+    ocurriendo, en vez de dejar al usuario sin señal 30-60s.
 
     Devuelve la respuesta o None (no habilitado / es un comando).
     """
@@ -426,10 +434,12 @@ def answer(user_text: str) -> str | None:
     # Fundamentos on-demand solo si la pregunta parece mencionar un ticker
     # (palabra corta en mayúsculas o símbolo de 2-6 letras): saludos y
     # preguntas generales no los necesitan y yfinance puede tardar >30 s.
-    fund = "" if not _has_ticker_hint(txt) else _fundamentals(txt)
+    fund = "" if not _has_ticker_hint(txt) else _fundamentals(txt, notify=notify)
     prompt = (f"ESTADO ACTUAL DEL BOT:\n{ctx}\n"
               f"{fund}\n"
               f"PREGUNTA DEL USUARIO:\n{txt}")
+    if notify:
+        notify("🧠 Generando la respuesta con la IA…")
     resp = _call_llm(prompt)
     if not resp:
         return None

@@ -172,15 +172,26 @@ _AI_TIMEOUT_S = 45
 
 def _ai_answer_with_timeout(text: str) -> str | None:
     """Llama a la IA con un límite de tiempo real. Si la llamada se pasa del
-    timeout, devuelve None y el flujo cae al fallback (nunca cuelga el hilo)."""
+    timeout, devuelve None y el flujo cae al fallback (nunca cuelga el hilo).
+
+    Pasa `notify` (envoltura de _send que nunca lanza) hasta answer() para
+    que cada etapa lenta (buscar ticker, indicadores técnicos, llamada al
+    LLM) avise por Telegram según va ocurriendo, en vez de un solo aviso
+    genérico al principio."""
     import threading
     from state.ai_assistant import answer as _ai_answer, update_context
     box = [None]
 
+    def _notify(msg: str) -> None:
+        try:
+            _send(msg)
+        except Exception:  # noqa: BLE001
+            logger.exception("Fallo enviando aviso de progreso")
+
     def _work():
         try:
             update_context(_state)
-            box[0] = _ai_answer(text)
+            box[0] = _ai_answer(text, notify=_notify)
         except Exception:  # noqa: BLE001
             logger.exception("Fallo en respuesta IA")
 

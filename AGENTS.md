@@ -905,5 +905,33 @@ Test de regresión en `tests/test_telegram_ack_message.py`: mockea `_send` y
 `_ai_answer_with_timeout` para verificar el orden (aviso antes de la llamada lenta) y que
 los comandos conocidos no disparan el aviso. Suite completa: 20/20.
 
-Desplegado junto con §28 en `polaris-bot-00061-qgn` (§28) y la revisión siguiente (§29,
-pendiente de confirmar el número exacto al cerrar esta sección).
+Desplegado en `polaris-bot-00062-xcc`.
+
+## 30. Avisos de progreso por etapa, no solo un mensaje genérico — 15 de agosto de 2026
+
+A petición del usuario, el aviso único de §29 se amplió a avisos por etapa: `notify`
+(callback que envuelve `_send`) ahora se propaga desde `telegram_bot._ai_answer_with_timeout`
+hasta `ai_assistant.answer()` → `_fundamentals()` → `_fundamentals_slow()`, y cada punto lento
+manda su propio mensaje según ocurre:
+
+1. `telegram_bot._handle_message` (inmediato, sin cambios de §29): "🤖 Dame unos segundos,
+   estoy analizando…"
+2. `_fundamentals_slow`, al confirmar un ticker válido (precio real de yfinance, no una
+   palabra falsa): "📈 Encontré {SYM}, revisando precio y fundamentales…"
+3. `_fundamentals_slow`, antes de calcular la señal técnica: "📊 Calculando la señal técnica
+   del motor para {SYM}…"
+4. `answer()`, justo antes de llamar al LLM: "🧠 Generando la respuesta con la IA…"
+
+Si el mensaje no menciona un ticker, solo se envían los avisos 1 y 4 (no hay etapa de
+fundamentales/técnico que anunciar). `notify` es opcional en todas las firmas
+(`answer(text, notify=None)`, etc.) para no romper las llamadas existentes sin callback.
+
+Test de regresión en `tests/test_ai_assistant_progress_notify.py`: mockea `yfinance.Ticker`
+(con un factory por símbolo — un mock que devuelve el mismo precio para cualquier ticker
+producía un falso positivo con la palabra "de" en "qué opinas de AAPL", resuelto en el
+primer intento del test), `data.earnings.get_earnings` y `_call_llm`; verifica que los
+mensajes de progreso mencionan el ticker real y la etapa de "generando respuesta", y que
+`answer()` sigue funcionando sin `notify`. Suite completa: 22/22.
+
+**Pendiente:** construir y desplegar (no incluido en `polaris-bot-00062-xcc`, que solo tiene
+el aviso genérico de §29).
