@@ -933,5 +933,24 @@ primer intento del test), `data.earnings.get_earnings` y `_call_llm`; verifica q
 mensajes de progreso mencionan el ticker real y la etapa de "generando respuesta", y que
 `answer()` sigue funcionando sin `notify`. Suite completa: 22/22.
 
-**Pendiente:** construir y desplegar (no incluido en `polaris-bot-00062-xcc`, que solo tiene
-el aviso genérico de §29).
+Desplegado en `polaris-bot-00063-4b9`.
+
+## 31. El watchdog reinició el proceso de verdad por primera vez — 15 de agosto de 2026
+
+Primera prueba real en producción del fix de §25 (`os._exit` en vez de `sys.exit`). El tick
+que arrancó a las 22:59:22 se colgó tras `FIRESTORE_ENABLED=True` (sin traceback: un
+cuelgue silencioso, el tipo exacto de fallo para el que existe el watchdog — no relacionado
+con los cambios de esta sesión). A los 25 minutos:
+
+```
+23:25:03  CRITICAL Watchdog: sin ticks completos en 25 min; reiniciando el proceso
+23:25:09  Container called exit(1)
+23:25:11  Starting new instance
+23:25:12  STARTUP TCP probe succeeded
+```
+
+Antes del fix de §25, ese log CRITICAL no reiniciaba nada — confirmado en vivo el mismo día
+(§25). Esta vez el contenedor murió de verdad (`Container called exit(1)`, evento propio de
+Cloud Run) y una instancia nueva arrancó en segundos. Es la primera vez, en toda la historia
+documentada de este bot, que el mecanismo de recuperación automática ante cuelgues funciona
+como siempre se supuso que funcionaba.
