@@ -84,11 +84,28 @@ información del dashboard debe ser real y provenir de una fuente identificable.
 real en el sentido de que salió de una corrida, pero mide una estrategia que no es la que
 su etiqueta declara, y que nadie propondría operar.
 
-**Pendiente de decisión del dueño** (no ejecutado en esta sesión, por ser una escritura a
-producción visible en el dashboard): republicar `polaris/backtest` desde
-`docs/backtests/2026-08-15/bt_resumen.csv`, con S51 en +3.6% y, preferiblemente, sin
-promover ningún "mejor escenario" elegido a posteriori sobre la misma muestra en la que se
-mide — que es en sí una forma de sobreajuste.
+**Republicado el 2026-08-15T14:07:29Z**, con autorización del dueño. El documento nuevo:
+
+- `best` = **S78** (+26.7%, 144 trades, wr 42%), la estrategia de *producción* — no el
+  máximo del corpus. Promover el máximo sobre la misma muestra en que se mide es
+  sobreajuste por construcción, y en esta corrida el máximo es S16 (+101.7%) con **3
+  trades**: ruido, no estrategia. Se conservó la clave `best` en lugar de eliminarla
+  porque la fuente del dashboard (`Home.tsx`) no es inspeccionable y §9 advierte de no
+  adivinar su contrato.
+- `scenarios` = 30 elementos, el mismo tamaño de lista que manejaba el documento anterior,
+  para no alterar el renderizado.
+- `corpus` (campo nuevo) = mediana 0.0%, media +13.3%, 41 positivos de 89, 28 sin operar.
+  Existe para que el panel pueda mostrar la realidad del corpus y no solo un titular.
+- `nota` (campo nuevo) con la advertencia de proxies Black–Scholes y de que no es P&L real.
+
+Respaldo del documento anterior tomado antes de sobrescribir. S51 ya no aparece en la lista
+(con +3.6% queda fuera del top 30).
+
+**Cautela pendiente:** la lista sigue ordenada por retorno descendente, así que su primer
+elemento es ahora S16 (+101.7%, 3 trades). El problema del ruido no desaparece: se movió
+del campo `best` a la cabecera de la lista. Conviene evaluar un filtro de muestra mínima
+(p. ej. descartar escenarios con menos de 10 operaciones) antes de que el dashboard lo
+muestre como si fuera un resultado destacable.
 
 ## 6. Qué NO cambia este hallazgo
 

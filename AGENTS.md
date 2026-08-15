@@ -474,14 +474,24 @@ de 89**, y **28 escenarios con 0 trades**. El mejor por retorno (S16, +101.7%) t
 trades: ruido, no estrategia. La lectura honesta del corpus es mucho más sobria que la
 selección de titulares que circulaba.
 
-**Impacto en producción, pendiente de decisión del dueño.** El documento Firestore
-`polaris/backtest` publica `best = {S51, 92.5%, 61 trades, wr 44.3%}` y el dashboard lo
-muestra como titular (`S51 · 92.5%`). Ese titular es un artefacto del motor legacy y
-sobreestima el benchmark real ~26x, lo que choca con el requisito permanente de §9 (todo
-dato del dashboard debe ser real y de fuente identificable). **No se republicó desde esta
-sesión por ser una escritura visible en producción.** Cuando se haga, republicar desde
-`docs/backtests/2026-08-15/bt_resumen.csv` y evitar promover un "mejor escenario" elegido a
-posteriori sobre la misma muestra en la que se mide.
+**Impacto en producción: `polaris/backtest` republicado el 2026-08-15T14:07:29Z** con
+autorización del dueño. El documento anterior publicaba `best = {S51, 92.5%, 61 trades}` y
+el dashboard lo mostraba como titular: un artefacto del motor legacy que sobreestimaba el
+benchmark real ~26x, en contra del requisito permanente de §9.
+
+El documento nuevo lleva `best` = **S78** (+26.7%, 144 trades, wr 42%), la estrategia de
+*producción* y no el máximo del corpus — promover el máximo sobre la misma muestra en que
+se mide es sobreajuste, y aquí ese máximo es S16 (+101.7%) con **3 trades**. Se conservó la
+clave `best` en vez de eliminarla porque la fuente del dashboard no es inspeccionable (§9
+advierte de no adivinar su contrato). Se mantuvieron 30 elementos en `scenarios` para no
+alterar el renderizado, y se añadieron dos campos nuevos: `corpus` (mediana 0.0%, media
++13.3%, 41/89 positivos, 28 sin operar) y `nota` con la advertencia de proxies
+Black–Scholes. Respaldo del documento previo tomado antes de sobrescribir.
+
+**Cautela abierta:** la lista sigue ordenada por retorno descendente, así que su cabecera es
+ahora S16 (+101.7%, 3 trades). El ruido no desapareció, se movió de `best` a la cabecera de
+la lista; evaluar un filtro de muestra mínima (p. ej. ≥10 operaciones) antes de darlo por
+cerrado.
 
 **Lo que este hallazgo NO levanta:** siguen vigentes todas las advertencias de §14.3 y §16
 — primas Black–Scholes en vez de cadenas point-in-time, earnings no point-in-time, ausencia
