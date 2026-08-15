@@ -15,13 +15,21 @@ El dashboard es una SPA React 19 + Tailwind 4 desplegada en Vercel (`polaris-opt
 | Configuración (perfil reto, universo) | `polaris/config` + `payload.universe` |
 | Curva de equity | `equity_curve` del doc del día |
 
-**Regla permanente del dueño:** cero mock. Si un doc del día no existe aún, el dashboard muestra estado vacío con etiqueta explícita ("esperando primer tick"), nunca cifras inventadas. El antiguo fallback demo se mantiene solo como capa de seguridad con estados visibles.
+**Regla permanente del dueño:** cero mock. Si un doc del día no existe aún, el dashboard muestra estado vacío con etiqueta explícita ("esperando primer tick"), nunca cifras inventadas. El bundle de producción auditado el 15 de agosto de 2026 contiene estados vacíos explícitos y la ruta principal de Firestore; no debe conservar cifras demo como fallback visible.
 
 **Detalle crítico de las posiciones:** el bot publica las piernas crudas de Alpaca en `payload.alpaca_positions` (ej. `TQQQ260918C00085000` long 10 @2.32 + `TQQQ260918C00100000` short -10 @0.35). El frontend las **agrupa por subyacente** (`toPosRaw` + `mapPositions`): detecta spreads call/put debit/credit y calcula prima de entrada, prima actual neta, P&L, theta y vega agregados. Priorizar siempre `alpaca_positions` cuando `positions` esté vacío; no revertir ese orden.
 
 **Guardas visibles:** el KPI de equity (EQ-01) muestra la guarda del piso $99,900 y la meta $100,100, con aviso destacado si el equity cruza bajo el piso.
 
 **Deploy del dashboard:** el build de Vercel falla de forma reproducible (pnpm/Node 24, `ERR_PNPM_META_FETCH_FAIL`). Flujo permanente: build local (`pnpm build` en el sandbox) + deploy de artefactos estáticos precompilados vía MCP de Vercel (`framework: null`, outputDirectory = `dist` compilado, `vercel.json` SPA).
+
+## 1.1 Auditoría de producción — 15 ago 2026
+
+La URL pública `https://polaris-options-dashboard.vercel.app` se cargó correctamente y mostró `Fuente Firestore · polaris`, equity `$99,689.50`, modo `PAPER`, curva de equity, dos piernas Alpaca agrupadas como spread TQQQ y el documento de backtest. El documento `polaris/backtest` es real y declara `source=loop_backtests.py (89 escenarios S1-S89)`, mejor escenario `S51`, retorno `92.5%`, win rate `44.3%` y 61 trades; por tanto, BT-04 puede mostrar `44% win` y `S51 · 92.5%` con redondeo legítimo.
+
+El bundle conserva la ruta de fuente `client/src/pages/Home.tsx` en `data-loc`, pero esa fuente no está disponible en la sandbox ni dentro del repo local `Raifeeer/Polaris-Web-Studio`; dicho repositorio es el sitio comercial principal. No modificarlo como dashboard de trading sin recuperar la fuente correcta del proyecto Vercel/Manus.
+
+Se detectó una posible corrección de presentación: el bundle formatea `x.riskPerTradePct.toFixed(1)` directamente. El payload real usa `risk.risk_per_trade_pct=0.01`, por lo que la interfaz muestra `0.0% del capital` si el frontend no convierte fracción a porcentaje. Antes de corregirlo, recuperar la fuente `Home.tsx`, confirmar el contrato y añadir una prueba. El texto `Gestión: esperando reglas publicadas por el bot` también indica que el payload actual no publica reglas de gestión suficientes para ese panel; no inventar valores.
 
 ## 2. Telegram — alerta + conversación
 
@@ -52,7 +60,7 @@ El bot de Telegram corre **dentro del mismo contenedor** de Cloud Run (hilo de p
 }
 ```
 
-`payload.regime` es string (`"bull"`/`"bear"`); cualquier nuevo valor requiere actualizar el frontend simultáneamente. El doc se escribe con **merge** (no overwrite) una vez por tick; el dashboard se actualiza solo.
+`payload.regime` es string (`"bull"`/`"bear"`); cualquier nuevo valor requiere actualizar el frontend simultáneamente. El campo `payload.risk.risk_per_trade_pct` se publica como fracción decimal en el bot actual (por ejemplo, `0.01` = 1%); el frontend debe convertirlo a porcentaje antes de mostrarlo. El doc se escribe con **merge** (no overwrite) una vez por tick; el dashboard se actualiza solo.
 
 ## 4. Mobile y UX (decisiones de diseño)
 

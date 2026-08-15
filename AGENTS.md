@@ -218,7 +218,11 @@ Proyecto `polaris-options-dashboard` desplegado en `polaris-options-dashboard.ve
 > 3. Página `Backtest`: ejecutar el backtest como paso del pipeline (Cloud Run job o endpoint) y servir el resultado desde Firestore.
 > 4. Si una fuente real aún no existe para algún campo, NO inventarla: el frontend debe declararlo vacío u ocultar el panel.
 
-**Estado actual (14 ago 2026):** equity, posiciones, modo y universo ya son 100% en vivo desde Firestore. Pendiente: curva de equity sin datos → mostrar estado vacío; métricas de backtest y señales/demo siguen embebidas en `mockData.ts` (hoja de ruta anterior).
+**Estado actual auditado (15 ago 2026):** equity, posiciones, modo, universo, curva y BT-04 se observan en producción desde Firestore. El documento `polaris/backtest` es real y publica `source=loop_backtests.py (89 escenarios S1-S89)`, mejor escenario `S51`, retorno `92.5%`, win rate `44.3%` y 61 trades; los valores visibles `44% win` y `S51 · 92.5%` son redondeos legítimos. Las señales no publicadas se muestran como estado vacío explícito.
+
+El bundle de producción conserva la ruta de fuente `client/src/pages/Home.tsx`, pero esa fuente no está disponible en la sandbox y el repo local `Raifeeer/Polaris-Web-Studio` es el sitio comercial principal, no el dashboard de trading. No modificar ese repo como dashboard sin recuperar la fuente correcta del proyecto Vercel/Manus.
+
+Se detectó una posible corrección de presentación: el bundle formatea `riskPerTradePct.toFixed(1)` directamente, mientras el bot publica `payload.risk.risk_per_trade_pct=0.01` como fracción decimal. Por eso la interfaz muestra `0.0% del capital` aunque el valor real equivale a 1%. Recuperar `Home.tsx`, confirmar el contrato, corregir la conversión a porcentaje y añadir una prueba antes de desplegar. El texto `Gestión: esperando reglas publicadas por el bot` indica que el payload actual no publica reglas de gestión suficientes para ese panel; no inventar esos valores.
 
 ## 10. Historial de incidentes conocidos (para diagnóstico)
 
