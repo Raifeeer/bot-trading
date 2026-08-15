@@ -1,43 +1,38 @@
 # Skill: Estado operativo del sistema Polaris (para agentes nuevos)
 
-Esta skill es el **punto de entrada obligatorio** para cualquier agente que continúe, diagnostique u opere el sistema Polaris desde una sesión nueva. Resume el estado exacto de la infraestructura, el problema activo y cómo reanudarlo sin perder horas de diagnóstico. Última actualización: 14 de agosto de 2026, ~22:50 UTC.
+Esta skill es el **punto de entrada obligatorio** para cualquier agente que continúe, diagnostique u opere el sistema Polaris desde una sesión nueva. Resume el estado exacto de la infraestructura, los incidentes operativos y cómo reanudar el trabajo sin perder horas de diagnóstico. Última actualización: 15 de agosto de 2026, ~05:00 UTC.
 
 ## 1. Mapa del sistema en una mirada
 
 | Pieza | Dónde está | Referencia clave |
 |---|---|---|
-| Código del bot | `/home/ubuntu/bot-trading-sync` (repo local; push a GitHub `Raifeeer/Polaris-Web-Studio` — el bot vive como carpeta `bot-trading-sync` dentro de ese repo) | `bot.py`, `AGENTS.md`, `docs/skills/` |
+| Código del bot | `/home/ubuntu/bot-trading` (repo GitHub `Raifeeer/bot-trading`, branch `main`) | `bot.py`, `AGENTS.md`, `docs/skills/` |
 | Bot en producción | Cloud Run `polaris-bot`, us-central1, proyecto `gen-lang-client-0746441136` | SA `173223792589-compute@developer.gserviceaccount.com` |
 | Imagen Docker | Artifact Registry `us-central1-docker.pkg.dev/gen-lang-client-0746441136/polaris-images/polaris-bot:latest` | Tag `latest` se actualiza en cada build |
 | Dashboard (código) | Proyecto Manus webdev `/home/ubuntu/polaris-options-dashboard` | Checkpoint más reciente: `52f4cb52` |
 | Dashboard (producción) | Vercel, https://polaris-options-dashboard.vercel.app | Deploy vía `vercel deploy --prebuilt` (pnpm build falla en el entorno; subir bundle pre-compilado) |
-| Firestore | DB Native `polaris` (NO la default del proyecto, que es Datastore) | Keyfile: `/home/ubuntu/upload/gen-lang-client-0746441136-8353da1d9f65.json` |
-| Broker | Alpaca **PAPER**: `https://paper-api.alpaca.markets/v2` | Key `PK6NXQZR54PK7DKCFEM7U3ULNE` (también en Secret Manager como `alpaca-key`) |
-| Telegram | Bot @Raifeeer, chat id `1779931930` | Token en Secret Manager (`TELEGRAM_BOT_TOKEN`) y en sesión como `8790081999:AAFaJQdQhd7VCvStpd8M2HHpi2JsoP_JyRc` |
+| Firestore | DB Native `polaris` (NO la default del proyecto, que es Datastore) | ADC de Cloud Run, Firebase Admin o REST autenticado; no guardar keyfiles en el repo |
+| Broker | Alpaca **PAPER**: `https://paper-api.alpaca.markets/v2` | Credenciales exclusivamente desde Secret Manager: `alpaca-key` |
+| Telegram | Bot @Raifeeer, chat id `1779931930` | Token exclusivamente desde Secret Manager (`TELEGRAM_BOT_TOKEN`); rotar cualquier token histórico expuesto |
 | LLM (Telegram) | DeepSeek V4 Flash (`deepseek-chat`), timeout 45 s | Secret Manager `deepseek-api-key`; fallbacks `gemini-api-key` y `grok-api-key` |
 | Backtests | `/home/ubuntu/backtests/` + `backtest_retos.py` | Resultados S1–S89 documentados en `hallazgo*.md` |
 
 **Advertencia de entorno:** en sesiones nuevas de la sandbox, `gcloud` no está en el PATH de inmediato. Restaurarlo con `export PATH=/home/ubuntu/.google/google-cloud-sdk/bin:$PATH` (también existe en `/home/ubuntu/google-cloud-sdk/bin`). No editar los archivos `.env` de la sesión con shell commands (restricción del entorno); usar la ruta completa al binario es suficiente.
 
-## 2. El problema activo: el bot no escribe a Firestore
+## 2. Incidente de Firestore: resuelto, pendiente de limpieza y redeploy
 
-El dashboard mostraba equity congelado porque el bot completaba ticks cada 10–15 min pero **nunca publicaba snapshots**. Todo el diagnóstico (cronología completa en AGENTS.md sección 13) converge en esto:
+El dashboard había mostrado equity congelado porque el bot completaba ticks cada 10–15 minutos sin materializar snapshots. La investigación quedó documentada en `AGENTS.md`, sección 13. La revisión 00052 confirmó que el contenedor puede escribir y que el snapshot completo se publica correctamente.
 
-1. La imagen vieja (revisión 00046) tenía un `NameError: cfg` en `_regime_snapshot` y además el import de `state.firestore_state` fallaba **antes** de `logging.basicConfig`, dejando `FIRESTORE_ENABLED=False` de forma silenciosa. Corregido en commits `ffe5943` y `6e70bab`.
-2. Tras los fixes, los logs confirman `FIRESTORE_ENABLED=True`, el bloque de escritura se ejecuta, el tick termina (`Tick OK`), pero el doc del día **no se actualiza** y ningún warning de `state.firestore` llega jamás a Cloud Logging.
-3. La misma service account **sí puede escribir**: el endpoint `/diag/fs` (dentro del mismo contenedor) escribe y lista docs correctamente, y una escritura idéntica con `firebase-admin` desde la sandbox también funciona.
-4. **Probe instalado (commit `fee6a09a`, revisión activa `polaris-bot-00052-lbz`)**: antes de `write_state_snapshot`, `bot.py` intenta un `set({"probe": True}, merge=True)` mínimo; loguea `DIAG_FS: probe escrito` si funciona o imprime el traceback completo (`DIAG_FS ERROR:`) si falla.
+**Evidencia verificada:**
 
-**Hipótesis dominante:** el payload completo contiene un tipo no serializable (`Decimal`, `datetime` o un objeto de alpaca-py dentro de `_enriched_positions()` u `orders_executed`) y el error se pierde porque los warnings del módulo no llegan a Cloud Logging. El probe con payload mínimo lo confirmará o descartará.
+- Cloud Run `polaris-bot-00052-lbz` está `Ready` y recibe el 100% del tráfico.
+- Los logs muestran `FIRESTORE_ENABLED=True`, `DIAG_FS: probe escrito` y `Tick OK` con equity `99689.50`.
+- Firestore `polaris/2026-08-15` tiene `updated_at=2026-08-15T04:42:24.592357+00:00`, `trading_mode=PAPER`, régimen `bull`, guarda de piso activa y 30 puntos de curva.
+- El `payload` contiene campos reales: `alpaca_positions`, `orders_executed`, `positions`, `risk`, `strategies`, `universe` y `decisions_today`.
 
-**Pasos inmediatos para continuar:**
-1. Esperar el siguiente `Tick OK` de la 00052 (los ticks tardan ~10 min) y leer logs: `gcloud logging read "resource.type=cloud_run_revision AND resource.labels.service_name=polaris-bot" --limit 100 --format="value(textPayload)"`.
-2. Si `DIAG_FS: probe escrito` → limpiar tipos en el payload (`_enriched_positions`, `orders_executed`: convertir `Decimal`→`float`, `datetime`→`str`, objetos de alpaca-py a dicts) y esperar el snapshot real.
-3. Si `DIAG_FS ERROR:` → seguir el traceback.
-4. Tras validar: `gcloud run services update polaris-bot --region us-central1 --min-instances 1 --max-instances 1` (las 2 instancias actuales causan `HTTP 409` en el polling de Telegram).
-5. Quitar el probe, redesplegar revisión limpia, y comprobar que `polaris/2026-08-14` queda con payload real (el `updated_at` dejará de decir "test-local").
+El probe confirmó permisos/ADC y el snapshot completo posterior confirmó que no hay fallo de serialización reproducible. El probe ya fue retirado localmente de `bot.py`; falta construir y desplegar la versión limpia, validar dos ticks y volver a `min-instances=1 / max-instances=1` para eliminar conflictos de polling de Telegram. Después se deben borrar únicamente los campos temporales `probe`/`diag` del documento del día mediante Firebase/Firestore, conservando el payload y la curva.
 
-**Estado del puente temporal:** existe un doc `polaris/2026-08-14` creado manualmente con un script local (equity 99689.5, `updated_at: "test-local"`, campo `probe: true`). Por eso el dashboard de Vercel ya muestra datos reales en vivo. Es un marcador de diagnóstico: será sobrescrito por el bot en cuanto la escritura funcione. Si el agente decide regenerar este puente, la escritura con `firebase-admin` desde la sandbox funciona de forma demostrada.
+El incidente anterior tuvo tres causas operativas: un `NameError` en la imagen vieja, logging inicial posterior al import condicional de Firestore y reutilización de una instancia antigua cuando `min-instances=1`. Los fixes de logging/import y el despliegue forzado a dos instancias permitieron aislar y resolver el problema. No modificar el perfil de riesgo S78 como parte de esta limpieza.
 
 ## 3. Esquema Firestore (contrato bot ↔ dashboard)
 
@@ -59,7 +54,9 @@ El dashboard (React 19 + Tailwind 4, **cero mock**: sin doc muestra "—" y esta
 
 ## 4. Reglas operativas comprobadas en esta sesión
 
-**Despliegue del bot.** El build local con `gcloud builds submit --config cloudbuild.yaml .` falla si el contexto incluye `__pycache__` o archivos whiteout de overlay (`.wh..wh..opq`): deben eliminarse antes. Tras `gcloud run deploy`, Cloud Run puede seguir enrutando a la **instancia vieja** (minScale=1 la satisface heredando instancia); siempre verificar con `gcloud run revisions list --format="table(metadata.name,status.active)"` que la nueva revisión esté activa y que una instancia de ella arrancó (`Bot iniciado` con timestamp reciente). Para forzar una instancia nueva: `--min-instances 2 --max-instances 2` y luego volver a 1/1.
+**Despliegue del bot.** El build local con `gcloud builds submit --config cloudbuild.yaml .` falla si el contexto incluye `__pycache__` o archivos whiteout de overlay (`.wh..wh..opq`): deben eliminarse antes. Tras `gcloud run deploy`, Cloud Run puede seguir enrutando a la **instancia vieja** (minScale=1 la satisface heredando instancia); siempre verificar con `gcloud run revisions list --format="table(metadata.name,status.active)"` que la nueva revisión esté activa y que una instancia de ella arrancó (`Bot iniciado` con timestamp reciente). Para forzar una instancia nueva: `--min-instances 2 --max-instances 2` y luego volver a 1/1. Nunca usar `--set-env-vars` o `--set-secrets` aislados; conservar el spec completo.
+
+**Permisos GCP.** El usuario autorizó que el agente se autoasigne el rol mínimo necesario dentro de `gen-lang-client-0746441136` cuando una operación de Polaris devuelva `PERMISSION_DENIED`, siempre que primero verifique los roles existentes y documente en `AGENTS.md` el rol, el motivo, el recurso y si procede retirarlo. No solicitar otra credencial si la cuenta de servicio ya tiene `roles/resourcemanager.projectIamAdmin`.
 
 **Advertencia de envs:** nunca usar `gcloud run services update --set-env-vars` aislado (en el pasado borró `APCA_API_BASE_URL` y `DATA_PROVIDER`); editar el spec completo y aplicar con `services replace`.
 

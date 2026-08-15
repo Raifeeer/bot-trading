@@ -73,7 +73,7 @@ gcloud secrets versions access latest --secret=deepseek-api-key --project=gen-la
 gcloud run services describe polaris-bot --region us-central1 --format=json
 ```
 
-Claves paper de Alpaca usadas en desarrollo (válidas para pruebas): key `PK6NXQZR54PK7DKCFEM7U3ULNE`, secret `8HqWabPkVeWgig67o9topXdo6y65scrVuvVyoPK4Jkj5`, endpoint `https://paper-api.alpaca.markets/v2`. Firestore se accede con `gcloud auth print-access-token` como bearer contra la REST API (`https://firestore.googleapis.com/v1/projects/gen-lang-client-0746441136/databases/polaris/documents/...`).
+Las credenciales de Alpaca PAPER se consumen exclusivamente desde Secret Manager mediante `alpaca-key`; nunca deben copiarse a esta skill ni a commits. El endpoint es `https://paper-api.alpaca.markets/v2`. Firestore se accede con `gcloud auth print-access-token` como bearer contra la REST API (`https://firestore.googleapis.com/v1/projects/gen-lang-client-0746441136/databases/polaris/documents/...`). Si aparecen credenciales históricas en documentación, deben rotarse.
 
 ## 7. Historial de incidentes de infraestructura
 

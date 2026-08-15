@@ -74,7 +74,7 @@ El service Cloud Run `polaris-bot` referencia estos secretos de Secret Manager c
 | `APCA_API_SECRET_KEY` | alpaca-key (Secret Manager) | Secreto de la API de Alpaca |
 | `APCA_API_BASE_URL` | env var (valor) | `https://paper-api.alpaca.markets` — **PAPER; cambiar a `https://api.alpaca.markets` para REAL** |
 | `DEEPSEEK_API_KEY` | deepseek-api-key (Secret Manager) | Asistente IA de Telegram (modelo `deepseek-chat`, sobrescribible con `DEEPSEEK_MODEL`) |
-| `TELEGRAM_BOT_TOKEN` | env var (valor) | Token del bot @Raifeeer (8790081999:AAFaJQdQ...) |
+| `TELEGRAM_BOT_TOKEN` | Secret Manager (`TELEGRAM_BOT_TOKEN`) | Token del bot @Raifeeer; no documentar el valor |
 | `TELEGRAM_CHAT_ID` | env var (valor) | Chat autorizado del dueño (1779931930) |
 | `DATA_PROVIDER` | env var (valor) | `yfinance` (principal) |
 | `FIRESTORE_DATABASE` | env var (valor) | `polaris` (base de datos Firestore Native) |
@@ -87,7 +87,7 @@ gcloud secrets versions access latest --secret=deepseek-api-key --project=gen-la
 gcloud run services describe polaris-bot --region us-central1 --format=json
 ```
 
-Las claves de Alpaca paper concretas usadas durante el desarrollo (validas para pruebas): key `PK6NXQZR54PK7DKCFEM7U3ULNE`, secret `8HqWabPkVeWgig67o9topXdo6y65scrVuvVyoPK4Jkj5`, endpoint `https://paper-api.alpaca.markets/v2`.
+Las credenciales de Alpaca PAPER no deben aparecer en documentación ni commits. Se consumen desde Secret Manager mediante `alpaca-key`; el endpoint es `https://paper-api.alpaca.markets/v2`. Las credenciales que aparecieron en documentación histórica deben rotarse.
 
 El asistente IA de Telegram (`ai_assistant.py`) ahora usa **DeepSeek V4 Flash** con fallbacks a Gemini y Grok (API keys en Secret Manager del proyecto: `deepseek-api-key`, `gemini-api-key`, `grok-api-key`). Cada llamada al LLM tiene timeout de 45 s para evitar congelar el hilo de polling.
 
@@ -260,9 +260,11 @@ El directorio **`docs/skills/`** contiene la documentación exhaustiva de cada c
 
 El orden recomendado para cualquier intervención: (1) leer primero `docs/skills/estado_operativo_skill.md` (estado operativo al momento de pausar, 14 ago 2026) y esta guía; (2) leer `bot.py` completo; (3) para cambios de lógica, editar, probar localmente con `python3 -m py_compile` + los tests en `tests/`, y ejecutar el bot en modo `--dry-run` con credenciales paper; (4) redeployar vía Docker + `services update` como en la sección 5; (5) verificar con Cloud Logging y `/diag/state` que los ticks corren al menos 2 ciclos seguidos (~25 min). El market data de Yahoo y el poll de Telegram son las fuentes de inestabilidad históricas; cualquier cambio en `data/feed.py` o `state/telegram_bot.py` merece una ventana de observación de 30 minutos.
 
-## 13. INCIDENTE ACTIVO: el bot no escribe a Firestore (diagnóstico 14 ago 2026, en curso)
+## 13. INCIDENTE RESUELTO: publicación de snapshots a Firestore (14–15 ago 2026)
 
-**Síntoma:** el dashboard en Vercel mostraba equity congelado ($99,669.50) y sin posiciones. Causa raíz identificada: **el bot en Cloud Run no publicaba ningún snapshot a Firestore** pese a completar ticks cada 10–15 minutos.
+**Síntoma original:** el dashboard en Vercel mostraba equity congelado ($99,669.50) y sin posiciones. El bot completaba ticks cada 10–15 minutos, pero el snapshot diario no se materializaba en Firestore.
+
+**Estado actual (verificado el 15 de agosto de 2026):** la revisión `polaris-bot-00052-lbz` escribe correctamente el snapshot completo a la DB Native `polaris`. La resolución se confirmó con `FIRESTORE_ENABLED=True`, el probe mínimo `DIAG_FS: probe escrito`, `Tick OK` posterior y un documento `polaris/2026-08-15` con `updated_at` real, `payload` completo y curva de equity. El probe era diagnóstico y debe retirarse antes del redeploy limpio; no forma parte del comportamiento permanente.
 
 ### 13.1 Cronología y hallazgos del diagnóstico
 
@@ -276,29 +278,40 @@ El incidente se rastreó el 14 de agosto de 2026 (tarde, hora AST; la revisión 
 6. **Tras el fix de import, FIRESTORE_ENABLED=True pero la escritura sigue sin materializarse.** Logs del 14/08 22:21 confirman `FIRESTORE_ENABLED=True (antes de write_state_snapshot)` y el tick se completó (`Tick OK`), pero el doc `polaris/2026-08-14` no se creó/actualizó. Curiosidad clave: el warning `logger.warning("Fallo al escribir estado en Firestore: %s", e)` del módulo `state/firestore_state.py` **nunca aparece en Cloud Logging** (cero apariciones en ~5000 líneas revisadas), ni siquiera el `logger.exception("Error publicando estado a Firestore")` del except de `bot.py` (línea ~558). Esto sugiere que los mensajes del logger `state.firestore` no llegan al stdout capturado por Cloud Run, o que el bloque de escritura no se ejecuta por otra ruta.
 7. **min-instances=1 reutilizaba la instancia vieja.** Cloud Run satisfacía minScale=1 con la instancia heredada de la revisión anterior, por lo que los fixes no se aplicaban aunque la revisión nueva tuviera 100% del tráfico. Solución operativa: desplegar con `--min-instances 2 --max-instances 2` para forzar una instancia de la última revisión y verificar con `gcloud run revisions list --format="table(metadata.name,status.active)"`.
 
-### 13.2 Estado exacto al momento de pausar (14 ago 2026, ~22:48 UTC)
+### 13.2 Evidencia de resolución
 
-La revisión `polaris-bot-00052-lbz` está activa con `min-instances=2 / max-instances=2`. Su primera instancia arrancó a las 22:34–22:35 UTC y completó el primer Régimen bull (22:40). Está instalado en el código un **probe de diagnóstico directo** (commit `fee6a09a`) justo antes de `write_state_snapshot`: crea un `firestore.Client(database="polaris")` e intenta `set({"updated_at":..., "probe": True}, merge=True)` sobre `polaris/{YYYY-MM-DD}`; si funciona loguea `DIAG_FS: probe escrito`, si falla imprime el traceback completo con `DIAG_FS ERROR: ...` en stdout.
+La revisión `polaris-bot-00052-lbz` quedó activa el 14 de agosto con `min-instances=2 / max-instances=2` para forzar una instancia de la revisión nueva y evitar que Cloud Run reutilizara la instancia vieja. En los logs de esa revisión se verificó:
 
-El doc `polaris/2026-08-14` **fue creado manualmente con un script local** (payload de prueba: `{"updated_at": "test-local", "payload": {"equity": 99689.5, "trading_mode": "PAPER", "risk": {"regime": "bull"}, "strategies": ["smc","s78","regime_aware"], "universe": ["SOFI","PLTR","F","TSLA","AMD","NOK","BB","TQQQ"]}}`). Gracias a esto, el dashboard de Vercel ya muestra datos reales: equity $99,689.50, régimen bull, 1 spread TQQQ debit_call con P&L -$310, modo PAPER, fuente "Firestore · polaris", último tick "hace 1 min". OJO: el campo `updated_at` dice "test-local" y el `probe: true` existe; son marcadores temporales del diagnóstico.
+- `FIRESTORE_ENABLED=True (antes de write_state_snapshot)`.
+- `DIAG_FS: probe escrito en polaris/2026-08-15`.
+- `Tick OK — equity=99689.50 posiciones=0`.
+- El documento `polaris/2026-08-15` tiene `updated_at=2026-08-15T04:42:24.592357+00:00`, `trading_mode=PAPER`, régimen `bull`, guarda de piso activa y 30 puntos de curva de equity.
+- El documento contiene campos reales de `payload`, incluyendo `alpaca_positions`, `orders_executed`, `positions`, `risk`, `strategies`, `universe` y `decisions_today`.
 
-Hay **dos problemas secundarios activos**: (a) el polling de Telegram con 2 instancias produce `HTTP Error 409: Conflict` masivo; (b) el doc del día creado manualmente sobrescribirá/será sobrescrito por el bot en cuanto la escritura funcione.
+La evidencia descarta tanto un problema de permisos/ADC como un fallo de serialización del payload en la revisión activa. El snapshot completo se escribió después del probe. El `probe: true` permanece temporalmente en el documento porque la escritura diagnóstica usó `merge=True`; debe eliminarse o quedar reemplazado al limpiar el documento.
 
-### 13.3 Hipótesis restantes (por orden de probabilidad)
+El código del repositorio se actualizó al `origin/main` (`0cd0fd5`) y el probe ya fue retirado localmente de `bot.py`. Falta desplegar esa versión limpia, comprobar dos ticks y devolver el servicio a una sola instancia para eliminar el conflicto de polling de Telegram.
 
-1. **Payload no serializable:** `_enriched_positions()` u `orders_executed` contienen `Decimal`, `datetime`, o un objeto de alpaca-py que `set()` rechaza; el error se perdería porque los warnings del módulo no llegan a Cloud Logging. El probe usa un payload mínimo (dict plano) y si funciona confirmaría esto.
-2. **Colisión de escrituras concurrentes** entre las 2 instancias sobre el mismo documento (merge simultáneos), menos probable porque merge es atómico por campo.
-3. **Cliente con base de datos distinta** en la ruta de `write_state_snapshot` (improbable: el código usa `os.environ.get("FIRESTORE_DATABASE", "polaris")` y el env está definido).
+### 13.3 Diagnóstico final
 
-### 13.4 Plan de acción para el agente que continúa
+1. **Permisos y ADC:** descartados. `/diag/fs` y el probe usaron la misma identidad de Cloud Run y escribieron en la DB `polaris`.
+2. **Import silencioso:** corregido al mover `logging.basicConfig` antes de los imports condicionales y registrar cualquier excepción; la revisión activa confirma `FIRESTORE_ENABLED=True`.
+3. **Serialización del payload:** no se reprodujo en la revisión 00052; el snapshot completo se publicó con posiciones, órdenes, riesgo y curva de equity.
+4. **Instancia antigua:** mitigado forzando temporalmente `min/max-instances=2`. Debe revertirse a `1/1` después del redeploy limpio.
+5. **Probe y documento puente:** son residuos de diagnóstico. El probe se elimina del código y el campo temporal del documento se limpia con una operación Firebase/Firestore explícita, sin borrar los datos reales del día.
 
-1. **Leer los logs de Cloud Run tras el siguiente Tick OK** de la 00052 (los ticks tardan ~10 min; buscar `DIAG_FS: probe escrito` o `DIAG_FS ERROR`). Comando: `gcloud logging read "resource.type=cloud_run_revision AND resource.labels.service_name=polaris-bot" --limit 100 --format="value(textPayload)"`.
-2. **Si el probe funciona** → el payload completo es el culpable: revisar `_enriched_positions` y `orders_executed` en `bot.py`, convertir todos los tipos a JSON-serializables (str/float/int/bool/list/dict), y reintentar hasta ver el doc actualizarse con payload real.
-3. **Si el probe falla** → seguir el traceback impreso en el log.
-4. **Restaurar el servicio a 1 instancia** (`gcloud run services update polaris-bot --region us-central1 --min-instances 1 --max-instances 1`) apenas la escritura funcione, para eliminar el 409 de Telegram.
-5. **Quitar el probe de diagnóstico** de `bot.py` y redesplegar una revisión limpia.
-6. **Limpiar el doc puente**: el bot sobrescribirá `polaris/2026-08-14` con payload completo al primer tick exitoso; comprobar entonces que `updated_at` deje de ser "test-local" y que el dashboard refleje el equity vivo.
-7. **Verificar el dashboard en Vercel** (https://polaris-options-dashboard.vercel.app) y recordarle al usuario que ahora sí se mueve cada tick.
+### 13.4 Cierre y acciones pendientes inmediatas
+
+1. Ejecutar `python3 -m py_compile bot.py state/firestore_state.py` y las pruebas locales disponibles.
+2. Hacer commit y push del `bot.py` sin probe y de esta actualización documental.
+3. Construir y publicar una imagen limpia desde el repositorio `Raifeeer/bot-trading`, sin `--set-env-vars` ni `--set-secrets` aislados.
+4. Actualizar Cloud Run solo con la imagen, verificar que la revisión resultante esté `Ready` y que registre un `Bot iniciado` reciente.
+5. Esperar y verificar **dos ticks completos** con `FIRESTORE_ENABLED=True`, `Tick OK` y `updated_at` avanzando en `polaris/2026-08-15`.
+6. Ajustar `min-instances=1` y `max-instances=1`; confirmar que desaparece el `409 Conflict` de Telegram.
+7. Limpiar únicamente los campos temporales `probe`/`diag` del documento del día mediante Firestore, conservando el payload real y la curva de equity.
+8. Comprobar el dashboard `https://polaris-options-dashboard.vercel.app` y documentar el timestamp visible y la fuente Firestore.
+
+No se debe modificar el perfil de riesgo, el régimen S78 ni las reglas del reto `$100 → $200` como parte de este incidente.
 
 ### 13.5 Comandos de diagnóstico rápidos (probados y funcionales)
 
@@ -322,3 +335,5 @@ curl https://polaris-bot-173223792589.us-central1.run.app/diag/fs      # lista d
 ### 13.6 Reglas operativas aprendidas en esta sesión
 
 No asumir que `gcloud run deploy` aplica el código nuevo de inmediato: verificar con `revisions list` que la nueva revisión está activa y que una instancia de ELLA arrancó (`Bot iniciado` con timestamp reciente). Si la instancia vieja sigue generando ticks, forzar min/max-instances=2. El pnpm build del dashboard falla en el entorno de desarrollo (problema de pnpm/wouter); el workaround validado es desplegar vía bundle pre-compilado con `vercel deploy --prebuilt`. El log del proceso del contenedor llega a Cloud Logging solo si `logging.basicConfig` corre antes; cualquier import condicional al arranque debe ir después. El logger `state.firestore` parece no llegar a Cloud Logging (sus warnings nunca aparecieron) — no confiar en ellos para diagnóstico; loguear siempre contra el logger root/bot o con print+flush.
+
+El usuario autorizó que, si una operación de Polaris en GCP devuelve `PERMISSION_DENIED`, el agente pueda autoasignarse el rol mínimo necesario dentro del proyecto `gen-lang-client-0746441136`, documentando en `AGENTS.md` el permiso otorgado, el motivo, el recurso afectado y si debe retirarse después. No pedir otra credencial si la cuenta de servicio ya tiene `roles/resourcemanager.projectIamAdmin`; verificar primero los roles actuales y evitar privilegios permanentes más amplios de lo necesario.
