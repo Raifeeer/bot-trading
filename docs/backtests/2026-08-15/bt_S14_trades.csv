@@ -1,0 +1,2 @@
+symbol,entry_date,exit_date,entry_premium,exit_value,pnl,pnl_pct,reason,days_held,motor
+SOFI,2026-06-23 00:00:00+00:00,2026-06-29 00:00:00+00:00,32.14591727107271,45.27071038737752,13.124793116304808,0.40828802630296923,tp_1.4,6,swing

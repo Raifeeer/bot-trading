@@ -1,0 +1,2 @@
+symbol,entry_date,exit_date,entry_premium,exit_value,pnl,pnl_pct,reason,days_held,motor
+F,2026-08-11 00:00:00+00:00,2026-08-12 00:00:00+00:00,14.577996174340457,10.769441462705984,-3.808554711634473,-0.2612536500961718,fin_backtest,1,smc_daily

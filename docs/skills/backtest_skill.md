@@ -2,6 +2,10 @@
 
 **Archivos de referencia:** `loop_backtests.py` (motor S1–S89), `backtest_retos.py` (precios Black-Scholes), `stress_test.py` (crashes sintéticos, hallazgo 17), `stress_intraday.py` (stops intradiarios, hallazgo 18), y los informes `/home/ubuntu/backtests/hallazgo1.md..18.md`. En esta sandbox, `/home/ubuntu/backtests/` está vacío al iniciar una sesión nueva: los CSV deben regenerarse y conservarse como artefactos versionados o en almacenamiento persistente.
 
+> **Matriz reproducible disponible desde el 15 ago 2026 en `docs/backtests/2026-08-15/`** (151 CSV: resumen + trades/equity por escenario), con informe en `docs/hallazgo21_regeneracion_backtests_2026-08-15.md`. Siete de los ocho escenarios titulares reproducen dentro de ±3 puntos; el único que no era reproducible, S51, quedó corregido (ver §3).
+
+> **Nota de datos (sandbox de Claude Code):** yfinance no funciona aquí — `curl_cffi` choca con la intercepción TLS del proxy (`Recv failure` en todos los tickers) y sin imitación de navegador Yahoo responde 429. Usar la cascada `_segmented` de `data/feed.py` con credenciales de Alpaca desde Secret Manager (`alpaca-key` / `alpaca-secret`). Coste: falta el tramo reciente que solo Yahoo cubre, así que las ventanas terminan ~2 sesiones antes de hoy; declararlo en cada informe.
+
 ## 1. Herramientas y qué mide cada una
 
 | Script | Qué hace | Para qué sirve |
@@ -28,7 +32,7 @@ Los backtests usan cuatro ventanas con comportamientos de régimen distintos, y 
 
 | Estrategia | Perfil | Resultado clave |
 |---|---|---|
-| **S51** (hold semanal equally weighted, universo reto) | Bull | Resultado histórico publicado +92%, pendiente de regenerar; el motor ahora usa explícitamente `hold_weekly` y ya no el benchmark legacy de una sola posición. |
+| **S51** (hold semanal equally weighted, universo reto) | Bull | **Regenerado 15 ago 2026: +3.6%, 105 trades, dd −10.2%.** El +92% histórico era un artefacto del motor legacy `hold`, que concentraba el capital en una sola posición (+92.5% con dd −63.5%); con `hold_weekly` explícito el benchmark real es +3.6%. No volver a citar el +92%. |
 | **S63** (put spread 0.30/0.10, DTE 21, trigger CHoCH pragmático) | CHoCH bear | +20.8% en selloff ene–abr 2026 (única positiva; con comisiones +2.6%) |
 | **S36** (call spread 0.30/0.10, DTE 21, RSI<25 + precio>SMA100) | Rebote | +53–60%, win rate 71–75%, budget 15% |
 | **S55** (cash en lateral) | Lateral | S36: 0 trades, capital intacto vs hold -96% |

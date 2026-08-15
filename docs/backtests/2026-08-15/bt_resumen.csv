@@ -1,0 +1,90 @@
+scenario,name,motor,window_days,tickers,risk_pct,max_pos,dte,delta,tp,sl,max_rv,anti_earnings,equity_final,retorno_pct,trades,wins,win_rate,pnl_total,max_drawdown_pct,max_equity,segundos
+S1,Swing en universo reto,swing,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.2,2,21,0.3/0.15,1.5,0.15,,False,100.0,0.0,0,0,0.0,0.0,0.0,100.0,1.0
+S2,SMC diario en universo reto,smc_daily,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.2,2,21,0.3/0.15,1.5,0.15,,False,98.85,-1.2,16,9,56.0,-1.15,-51.2,178.13,3.0
+S3,RSI bounce en universo reto,rsi_bounce,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.2,2,21,0.3/0.15,1.5,0.15,,False,100.0,0.0,0,0,0.0,0.0,0.0,100.0,0.0
+S4,Swing riesgo 30%,swing,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.3,2,21,0.3/0.15,1.5,0.15,,False,100.0,0.0,0,0,0.0,0.0,0.0,100.0,1.0
+S5,Swing gestión apretada,swing,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.2,2,14,0.3/0.15,1.3,0.4,,False,100.0,0.0,0,0,0.0,0.0,0.0,100.0,1.0
+S6,Swing spread OTM 0.25/0.10,swing,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.2,2,21,0.25/0.1,1.5,0.15,,False,100.0,0.0,0,0,0.0,0.0,0.0,100.0,1.0
+S7,Swing + RV<60%,swing,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.2,2,21,0.3/0.15,1.5,0.15,0.6,False,100.0,0.0,0,0,0.0,0.0,0.0,100.0,1.0
+S8,Swing anti-earnings,swing,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.2,2,21,0.3/0.15,1.5,0.15,,True,100.0,0.0,0,0,0.0,0.0,0.0,100.0,1.0
+S9,Swing en ETFs,swing,90,"SPY,QQQ,IWM,TQQQ,SQQQ",0.2,2,21,0.3/0.15,1.5,0.15,,False,100.0,0.0,0,0,0.0,0.0,0.0,100.0,1.0
+S10,Swing en tech amplio,swing,90,"NVDA,TSLA,AMD,PLTR,AAPL,AMZN,META,MSFT,GOOGL",0.2,2,21,0.3/0.15,1.5,0.15,,False,100.0,0.0,0,0,0.0,0.0,0.0,100.0,1.0
+S11,Swing universo amplio,swing,90,"SPY,QQQ,IWM,TQQQ,SQQQ,NVDA,TSLA,AMD,PLTR,AAPL",0.2,2,21,0.3/0.15,1.5,0.15,,False,100.0,0.0,0,0,0.0,0.0,0.0,100.0,1.0
+S12,Swing RV<60% + anti-earnings + TP1.4,swing,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.25,2,21,0.3/0.15,1.4,0.4,0.6,True,100.0,0.0,0,0,0.0,0.0,0.0,100.0,1.0
+S13,RSI bounce anti-earnings + RV<60%,rsi_bounce,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.25,2,14,0.3/0.15,1.3,0.4,0.6,True,100.0,0.0,0,0,0.0,0.0,0.0,100.0,0.0
+S14,Swing tickers baratos F/BB/NOK,swing,90,"F,BB,NOK",0.4,2,21,0.3/0.15,1.4,0.4,,False,113.12,13.1,1,1,100.0,13.12,0.0,113.12,1.0
+S15,Swing tickers baratos SOFI+,swing,90,"F,BB,NOK,SOFI",0.4,2,21,0.3/0.15,1.4,0.4,,False,113.12,13.1,1,1,100.0,13.12,0.0,113.12,1.0
+S16,Swing OTM 0.20/0.10 riesgo 50%,swing,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.5,1,21,0.2/0.1,1.4,0.4,,False,201.66,101.7,3,3,100.0,101.66,0.0,201.66,1.0
+S17,Swing DTE corto 10d,swing,90,"F,BB,NOK,SOFI",0.4,2,10,0.3/0.15,1.3,0.4,,False,108.22,8.2,1,1,100.0,8.22,0.0,108.22,1.0
+S18,SMC tickers baratos,smc_daily,90,"F,BB,NOK,SOFI",0.4,2,21,0.3/0.15,1.4,0.4,,False,55.61,-44.4,23,11,48.0,-44.39,-73.2,218.34,3.0
+S19,RSI bounce tickers baratos,rsi_bounce,90,"F,BB,NOK,SOFI",0.4,2,14,0.3/0.15,1.3,0.4,0.6,False,100.0,0.0,0,0,0.0,0.0,0.0,100.0,0.0
+S20,Swing tickers baratos anti-earnings,swing,90,"F,BB,NOK,SOFI",0.4,2,21,0.3/0.15,1.4,0.4,,True,113.12,13.1,1,1,100.0,13.12,0.0,113.12,1.0
+S21,SMC UNI_RETO trailing TP1.6,smc_daily,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.2,2,21,0.3/0.15,1.6,0.5,,False,94.13,-5.9,17,6,35.0,-5.87,-48.2,169.85,4.0
+S22,SMC UNI_RETO riesgo 15%,smc_daily,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.15,3,21,0.3/0.15,1.5,0.5,,False,122.28,22.3,14,7,50.0,22.28,-34.8,178.13,5.0
+S23,SMC UNI_RETO DTE 30,smc_daily,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.2,2,30,0.3/0.15,1.5,0.5,,False,119.54,19.5,10,4,40.0,19.54,-36.5,170.19,4.0
+S24,SMC + RV<65%,smc_daily,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.2,2,21,0.3/0.15,1.5,0.5,0.65,False,103.51,3.5,7,3,43.0,3.51,-22.9,137.92,4.0
+S25,SMC + anti-earnings,smc_daily,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.2,2,21,0.3/0.15,1.5,0.5,,True,108.41,8.4,15,7,47.0,8.41,-42.6,178.13,4.0
+S26,Mean reversion UNI_RETO,mean_rev,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.2,2,14,0.3/0.15,1.3,0.4,,False,100.0,0.0,0,0,0.0,0.0,0.0,100.0,2.0
+S27,Mean reversion tickers baratos,mean_rev,90,"F,BB,NOK,SOFI",0.3,2,14,0.3/0.15,1.3,0.4,,False,100.0,0.0,0,0,0.0,0.0,0.0,100.0,2.0
+S28,Swing señal relajada,swing,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.2,2,21,0.3/0.15,1.5,0.5,,False,100.0,0.0,0,0,0.0,0.0,0.0,100.0,1.0
+S29,SMC ventana 180d,smc_daily,180,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.2,2,21,0.3/0.15,1.5,0.5,,False,100.12,0.1,31,13,42.0,0.12,-44.0,152.11,7.0
+S30,SMC ventana 300d,smc_daily,280,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.2,2,21,0.3/0.15,1.5,0.5,,True,180.48,80.5,49,23,47.0,80.48,-42.7,304.19,6.0
+S31,SMC rv<70 + anti-earn risk15,smc_daily,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.15,3,21,0.3/0.15,1.5,0.5,0.7,True,145.16,45.2,4,3,75.0,45.16,0.0,148.01,4.0
+S32,SMC anti-earn TP2.0,smc_daily,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.15,3,21,0.3/0.15,2.0,0.5,,True,153.63,53.6,8,4,50.0,53.63,-21.5,169.71,4.0
+S33,SMC anti-earn risk10,smc_daily,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.1,3,21,0.3/0.15,1.5,0.5,,True,130.43,30.4,3,2,67.0,30.43,0.0,133.28,4.0
+S34,SMC DTE30 + anti-earn,smc_daily,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.15,3,30,0.3/0.15,1.5,0.5,,True,160.97,61.0,8,4,50.0,60.97,-12.2,170.19,4.0
+S35,SMC delta 0.25/0.12,smc_daily,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.15,3,21,0.25/0.12,1.5,0.5,,True,114.55,14.6,16,7,44.0,14.55,-35.0,170.11,4.0
+S36,SMC spread 0.30/0.10,smc_daily,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.15,3,21,0.3/0.1,1.5,0.5,,True,159.29,59.3,13,7,54.0,59.29,-26.4,206.94,4.0
+S37,SMC DTE 14 + anti-earn,smc_daily,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.15,3,14,0.3/0.15,1.3,0.5,,True,128.56,28.6,20,11,55.0,28.56,-37.1,179.01,3.0
+S38,SMC rv<55 + anti-earn,smc_daily,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.15,3,21,0.3/0.15,1.5,0.5,0.55,True,130.43,30.4,3,2,67.0,30.43,0.0,133.28,3.0
+S39,S36 + TP 1.8,smc_daily,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.15,3,21,0.3/0.1,1.8,0.5,,True,158.48,58.5,9,4,44.0,58.48,-23.5,197.92,4.0
+S40,S36 + rv<70,smc_daily,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.15,3,21,0.3/0.1,1.5,0.5,0.7,True,162.77,62.8,4,3,75.0,62.77,0.0,166.58,4.0
+S41,S36 + DTE 25,smc_daily,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.15,3,25,0.3/0.1,1.5,0.5,,True,165.25,65.3,3,2,67.0,65.25,0.0,169.05,4.0
+S42,S36 exposición 2x20%,smc_daily,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.2,2,21,0.3/0.1,1.5,0.5,,True,138.03,38.0,17,8,47.0,38.03,-36.7,206.94,3.0
+S43,Put spread bearish,put_smc,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.15,3,21,0.3/0.1,1.5,0.5,,True,87.79,-12.2,1,0,0.0,-12.21,-12.2,100.0,3.0
+S44,Doble lado call+put,both,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.15,2,21,0.3/0.1,1.5,0.5,,True,159.29,59.3,13,7,54.0,59.29,-26.4,206.94,4.0
+S45,S36 TP 1.5 SL 0.35,smc_daily,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.15,3,21,0.3/0.1,1.5,0.35,,True,148.01,48.0,10,6,60.0,48.01,-26.6,206.94,4.0
+S46,S36 TP 1.3 SL 0.5,smc_daily,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.15,3,21,0.3/0.1,1.3,0.5,,True,177.35,77.3,14,9,64.0,77.35,-25.0,208.22,3.0
+S47,SMC + precio>SMA200,smc_daily,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.15,3,21,0.3/0.1,1.5,0.5,,True,96.19,-3.8,1,0,0.0,-3.81,0.0,100.0,3.0
+S48,SMC + volumen spark,smc_daily,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.15,3,21,0.3/0.1,1.5,0.5,,True,165.79,65.8,9,6,67.0,65.79,-19.9,206.94,3.0
+S49,SMC+SMA200+vol,smc_daily,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.15,3,21,0.3/0.1,1.5,0.5,,True,100.0,0.0,0,0,0.0,0.0,0.0,100.0,2.0
+S50,S36 con comisiones,smc_daily,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.15,3,21,0.3/0.1,1.5,0.5,,True,152.37,52.4,4,3,75.0,52.37,0.0,158.78,4.0
+S51,Benchmark hold tickers semanal,hold_weekly,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.25,8,21,0.3/0.1,1.5,0.5,,False,103.6,3.6,105,49,47.0,3.6,-10.2,104.4,2.0
+S52,S36 risk 12%,smc_daily,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.12,3,21,0.3/0.1,1.5,0.5,,True,106.4,6.4,1,1,100.0,6.4,0.0,106.4,4.0
+S53,S36 max_pos 4 risk 15%,smc_daily,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.15,4,21,0.3/0.1,1.5,0.5,,True,159.29,59.3,13,7,54.0,59.29,-26.4,206.94,3.0
+S54,S36 selloff invierno (enero),smc_daily,n/a (fechas),"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.15,3,21,0.3/0.1,1.5,0.5,,True,89.59,-10.4,12,4,33.0,-10.41,-19.9,111.8,2.0
+S55,S36 ventana lateral (sep-dic 25),smc_daily,n/a (fechas),"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.15,3,21,0.3/0.1,1.5,0.5,,True,100.0,0.0,0,0,0.0,0.0,0.0,100.0,0.0
+S56,S36 selloff + comisiones,smc_daily,n/a (fechas),"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.15,3,21,0.3/0.1,1.5,0.5,,True,78.04,-22.0,9,2,22.0,-21.96,-22.0,100.0,3.0
+S57,Benchmark hold semanal selloff,hold_weekly,n/a (fechas),"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.25,8,21,0.3/0.1,1.5,0.5,,False,93.19,-6.8,105,37,35.0,-6.81,-10.3,103.94,2.0
+S58,Benchmark hold semanal lateral,hold_weekly,n/a (fechas),"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.25,8,21,0.3/0.1,1.5,0.5,,False,109.61,9.6,64,31,48.0,9.61,-1.9,110.84,1.0
+S59,S36 sizing min $12,smc_daily,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.15,3,21,0.3/0.1,1.5,0.5,,True,156.37,56.4,3,2,67.0,56.37,0.0,160.18,4.0
+S60,S36 sizing min $8 + comisiones,smc_daily,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.15,3,21,0.3/0.1,1.5,0.5,,True,152.37,52.4,4,3,75.0,52.37,0.0,158.78,4.0
+S61,Puts selloff enero,put_smc,n/a (fechas),"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.15,3,21,0.3/0.1,1.5,0.5,,True,102.1,2.1,5,1,20.0,2.1,-6.6,109.33,3.0
+S62,Doble lado + hold fallback,both,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.15,2,21,0.3/0.1,1.5,0.5,,True,159.29,59.3,13,7,54.0,59.29,-26.4,206.94,4.0
+S63,Puts CHoCH selloff,put_choch,n/a (fechas),"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.15,3,21,0.3/0.1,1.5,0.5,,True,119.66,19.7,8,4,50.0,19.66,-4.6,119.66,2.0
+S64,Regime-aware completo,regime_aware,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.15,3,21,0.3/0.1,1.5,0.5,,True,100.0,0.0,0,0,0.0,0.0,0.0,100.0,2.0
+S65,Hold semanal benchmark,hold_weekly,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.25,8,21,0.3/0.1,1.5,0.5,,False,103.6,3.6,105,49,47.0,3.6,-10.2,104.4,2.0
+S66,Puts CHoCH ventana reciente,put_choch,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.15,3,21,0.3/0.1,1.5,0.5,,True,100.0,0.0,0,0,0.0,0.0,0.0,100.0,2.0
+S67,Puts CHoCH DTE 10 delta 0.25/0.08,put_choch,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.2,2,10,0.25/0.08,1.5,0.5,,True,51.69,-48.3,5,0,0.0,-48.31,-48.3,100.0,2.0
+S68,Puts CHoCH risk 30% (agresivo),put_choch,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.3,2,21,0.3/0.1,1.5,0.5,,True,133.51,33.5,5,3,60.0,33.51,-24.3,133.51,2.0
+S69,Puts CHoCH + comisiones,put_choch,n/a (fechas),"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.15,3,21,0.3/0.1,1.5,0.5,,True,98.86,-1.1,8,3,38.0,-1.14,-14.8,104.48,2.0
+S70,Regime agresivo risk 30%,regime_aware,90,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.3,2,21,0.3/0.1,1.5,0.5,,True,72.32,-27.7,2,0,0.0,-27.68,-27.7,100.0,2.0
+S71,Regime selloff ene-abr,regime_aware,n/a (fechas),"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.15,3,21,0.3/0.1,1.5,0.5,,True,87.47,-12.5,2,0,0.0,-12.53,0.0,100.0,0.0
+S72,S36 rally reciente (jun-ago),smc_daily,n/a (fechas),"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.15,3,21,0.3/0.1,1.5,0.5,,True,93.59,-6.4,1,0,0.0,-6.41,0.0,100.0,3.0
+S73,"Calls rebote (dip+RSI<25, mar-jul)",rebote_rsi,n/a (fechas),"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.15,3,21,0.3/0.1,1.5,0.5,,True,100.0,0.0,0,0,0.0,0.0,0.0,100.0,2.0
+S74,Hold semanal reciente (abr-ago),hold_weekly,n/a (fechas),"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.25,8,21,0.3/0.1,1.5,0.5,,False,97.83,-2.2,161,61,38.0,-2.17,-17.5,117.72,3.0
+S75,Regime-aware reciente completo,regime_aware,n/a (fechas),"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.3,2,21,0.3/0.1,1.5,0.5,,True,67.12,-32.9,2,0,0.0,-32.88,-32.9,100.0,3.0
+S76,Regime-aware ticks baratos selloff tech,regime_aware,n/a (fechas),"SOFI,F,NOK,BB",0.3,2,21,0.3/0.1,1.5,0.5,,True,93.43,-6.6,2,0,0.0,-6.57,-4.0,100.0,1.0
+S77,Hold tech pesado rebote (jun-ago),hold_weekly,n/a (fechas),"NVDA,TSLA,AMD,PLTR,AAPL,AMZN,META,MSFT,GOOGL",0.25,8,21,0.3/0.1,1.5,0.5,,False,108.67,8.7,89,51,57.0,8.67,-2.6,108.88,2.0
+S78,"Regime bull→hold, bear→cash (sin puts caras)",regime_hold_cash,n/a (fechas),"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.25,8,21,0.3/0.1,1.5,0.5,,False,126.69,26.7,144,60,42.0,26.69,-24.4,167.56,5.0
+S79,Calls dip-SPY: rebote post-crash jun,rebote_rsi,n/a (fechas),"TQQQ,TSLA,AMD,PLTR,NVDA",0.15,3,14,0.3/0.1,1.5,0.5,,True,100.0,0.0,0,0,0.0,0.0,0.0,100.0,1.0
+S80,Walk-forward reciente: 30d + 30d,smc_daily,60,"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.15,3,21,0.3/0.1,1.5,0.5,,True,93.59,-6.4,1,0,0.0,-6.41,0.0,100.0,2.0
+S81,Rebote RSI30/28 mar-jul,rebote_rsi_v2,n/a (fechas),"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.15,3,21,0.3/0.1,1.5,0.5,,True,100.0,0.0,0,0,0.0,0.0,0.0,100.0,2.0
+S82,Rebote RSI30/28 ciclo completo,rebote_rsi_v2,n/a (fechas),"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.15,3,21,0.3/0.1,1.5,0.5,,True,100.0,0.0,0,0,0.0,0.0,0.0,100.0,3.0
+S83,Rebote giro SMA5 mar-jul,rebote_sma5,n/a (fechas),"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.15,3,21,0.3/0.1,1.5,0.5,,True,89.86,-10.1,3,1,33.0,-10.14,-10.9,100.0,1.0
+S84,Rebote giro SMA5 tech pesado jun-ago,rebote_sma5,n/a (fechas),"TQQQ,TSLA,AMD,PLTR,NVDA",0.15,3,14,0.3/0.1,1.5,0.5,,True,99.9,-0.1,2,1,50.0,-0.1,0.0,106.35,1.0
+S85,Rebote RSI40 calibrado jun-jul,rebote_rsi40,n/a (fechas),"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.15,3,21,0.3/0.1,1.5,0.5,,True,100.0,0.0,0,0,0.0,0.0,0.0,100.0,1.0
+S86,Rebote RSI40 tech pesado jun-ago,rebote_rsi40,n/a (fechas),"TQQQ,TSLA,AMD,PLTR,NVDA",0.15,3,21,0.3/0.1,1.5,0.5,,True,100.0,0.0,0,0,0.0,0.0,0.0,100.0,1.0
+S87,Rebote RSI40 tickers baratos jun-ago,rebote_rsi40,n/a (fechas),"SOFI,F,NOK,BB",0.15,3,21,0.3/0.1,1.5,0.5,,True,100.0,0.0,0,0,0.0,0.0,0.0,100.0,1.0
+S88,Rebote RSI40 OTM 0.25/0.08 jun-ago,rebote_rsi40,n/a (fechas),"SOFI,PLTR,F,TSLA,AMD,NOK,BB,TQQQ",0.15,3,21,0.25/0.08,1.5,0.5,,True,100.0,0.0,0,0,0.0,0.0,0.0,100.0,1.0
+S89,Rebote RSI40 OTM baratos risk 30%,rebote_rsi40,n/a (fechas),"SOFI,F,NOK,BB",0.3,3,21,0.25/0.08,1.5,0.5,,True,69.89,-30.1,2,0,0.0,-30.11,-20.6,100.0,1.0
