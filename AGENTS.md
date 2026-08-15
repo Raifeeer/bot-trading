@@ -540,3 +540,74 @@ Logging que el mensaje "Reconciliación al arrancar: N posición(es) reconstruid
 en el primer tick tras el despliegue, y que el spread de TQQQ ya detectado pasa a aparecer
 en `state["positions"]` (verificable en `/diag/state` o en el próximo snapshot de
 Firestore).
+## 19. Pendiente prioritario: evaluar TradingAgents frente a Polaris — plan para otro agente
+
+**Estado:** pendiente; no iniciar automáticamente el despliegue ni modificar la estrategia productiva. El objetivo es comprobar con datos reproducibles si TradingAgents aporta valor incremental sobre Polaris, no asumir que una arquitectura multiagente implica rentabilidad.
+
+### 19.1 Qué se quiere probar
+
+El repositorio externo [`TauricResearch/TradingAgents`](https://github.com/TauricResearch/TradingAgents) es un framework multiagente de investigación. Su README describe analistas de fundamentales, sentimiento, noticias y técnica; investigadores bull/bear; trader; equipo de riesgo y portfolio manager. La ejecución descrita por el proyecto es sobre un exchange simulado y el propio README advierte que el framework no es consejo financiero y que los resultados varían con el modelo, temperatura, periodo y calidad de datos. El paper original también presenta resultados frente a baselines, pero es evidencia de investigación histórica, no una garantía de rendimiento en Polaris ni en producción. [TA1] [TA2]
+
+La pregunta experimental debe ser estricta: **¿TradingAgents mejora una decisión de Polaris con el mismo universo, datos, costes, ventanas y reglas de riesgo, fuera de muestra, después de contabilizar latencia y coste de LLM?** No se debe formular como “¿puede duplicar $100 a $200?” porque esa meta induce selección por retorno y sobreajuste.
+
+### 19.2 Aislamiento obligatorio
+
+No clonar el repositorio externo dentro de `bot-trading` ni copiar su código al loop de producción al comienzo. Usar un directorio y entorno separados, por ejemplo `/home/ubuntu/TradingAgents` y un virtualenv independiente, fijar un tag o commit concreto y registrar el hash con `git rev-parse HEAD`. En la fecha de esta documentación el repositorio mostraba la versión `v0.3.1` y el commit visible `a33fd4c`; el agente que ejecute la prueba debe volver a comprobarlo y registrar el hash real utilizado.
+
+La primera integración debe ser **advisory/shadow**: TradingAgents genera un informe y una recomendación estructurada, pero no puede enviar órdenes, cambiar `RiskManager`, cambiar sizing, cambiar TP/SL, saltarse circuit breakers, escoger credenciales de Alpaca ni escribir directamente en `orders_executed`. La salida se guarda separada como `tradingagents_advisory` o en un documento de investigación distinto. El feature flag inicial debe ser `TRADINGAGENTS_ENABLED=false` y cualquier prueba PAPER debe tener un kill switch independiente.
+
+Las claves de LLM, datos y proveedores se deben obtener de Secret Manager o del entorno seguro; nunca escribirlas en `AGENTS.md`, commits, prompts guardados, CSV ni logs. “Gratis” se debe interpretar únicamente como código abierto: las llamadas a LLM y proveedores de datos pueden tener coste, límites, latencia y cambios de disponibilidad.
+
+### 19.3 Variantes A/B pre-registradas
+
+Usar pares de decisiones con el mismo timestamp, ticker, snapshot de mercado y estado de Polaris. No comparar ejecuciones hechas con datos de mercado distintos.
+
+| Variante | Descripción | Puede modificar órdenes | Propósito |
+|---|---|---:|---|
+| A — Polaris baseline | Polaris actual, sin salida TradingAgents. | Sí, solo dentro de PAPER y reglas existentes. | Control principal. |
+| B0 — TradingAgents shadow | TradingAgents analiza el mismo snapshot; su recomendación se registra pero no afecta decisiones. | No. | Medir acuerdo, latencia, coste y estabilidad. |
+| B1 — Filtro conservador | TradingAgents puede **suprimir** una señal existente si la evidencia estructurada contradice la señal; nunca puede aumentar riesgo, tamaño o número de posiciones. | Solo veto limitado en PAPER. | Medir si reduce falsos positivos y drawdown. |
+| B2 — Score auxiliar | La salida se convierte en un score acotado y se usa como una característica adicional, con límites idénticos de `RiskManager`. | No cambia los límites. | Medir si aporta señal incremental frente al baseline. |
+
+No ejecutar B1/B2 hasta que B0 demuestre que la salida está estructurada, llega dentro del timeout, tiene provenance de datos y puede repetirse. No usar TradingAgents para seleccionar strikes, primas, fills ni órdenes de opciones en la primera fase; la traducción a vertical spreads debe seguir siendo responsabilidad determinista de Polaris.
+
+### 19.4 Datos y control anti-look-ahead
+
+Para cada decisión guardar un manifiesto con commit de Polaris, commit de TradingAgents, proveedor, timestamp UTC, fecha `as_of`, ticker, ventana OHLCV, indicadores, snapshot de fundamentales, identificadores y timestamps de noticias, sentimiento, modelo, proveedor, configuración, temperatura, número de debates, prompt versionado, respuesta estructurada, latencia, tokens/coste y error/reintentos.
+
+Las noticias, Reddit y StockTwits deben ser snapshots fechados disponibles **antes** de la decisión histórica. El README de TradingAgents advierte que las fuentes sociales y de noticias cambian aunque se fije la fecha del ticker; usar la web actual para explicar una operación histórica invalida el test. Si no existe un archivo point-in-time, marcar ese escenario como no reproducible y excluirlo del resultado principal.
+
+Las ventanas mínimas deben conservar la disciplina ya usada en Polaris: lateralidad septiembre–diciembre de 2025, selloff enero–abril de 2026, ventana abril–agosto de 2026 y una ventana reciente cerrada al día de ejecución. Para un test más robusto, separar train 2024–2025, validation enero–junio de 2026 y test julio–agosto de 2026; el test nunca puede seleccionar modelo, prompt, peso o umbral.
+
+Las opciones requieren una cautela adicional: si no hay cadenas históricas point-in-time, bid/ask, liquidez, assignment y fills, el experimento principal debe comparar **señales y decisiones de exposición**, no declarar P&L de opciones como si fuera real. El motor de opciones de Polaris debe mantener sus costes, slippage, comisiones, DTE, deltas y límites; no permitir que TradingAgents fabrique primas.
+
+### 19.5 Métricas y criterios de decisión
+
+Guardar resultados por ventana, ticker, variante y réplica. Las métricas mínimas son retorno neto después de costes, máximo drawdown, Sharpe/Sortino con advertencia de muestra, profit factor, win rate, número de operaciones, turnover, duración media, peor operación, pérdida acumulada, exposición media, tiempo en cash, señales vetadas, acuerdos/desacuerdos con Polaris, latencia p50/p95, tokens/coste por decisión, errores, timeouts y estabilidad entre réplicas.
+
+Pre-registrar antes de mirar el test un criterio de promoción conservador: al menos tres ventanas fuera de muestra; mejora de retorno neto o reducción de drawdown frente a A en la mediana; ninguna ventana con deterioro material de drawdown; mejora que sobreviva a slippage/costes; y coste/latencia que no rompan el watchdog ni el presupuesto. Una configuración que gana únicamente en la ventana del objetivo `$100 → $200`, con pocas operaciones o tras probar muchos prompts, se clasifica como **sobreajuste** y no se promueve.
+
+Repetir B0 con varias réplicas del mismo snapshot o con temperatura/configuración fijada. Si las recomendaciones cambian materialmente, reportar la dispersión y no convertir una salida aislada en regla. La decisión final debe separar señal de mercado, calidad de ejecución y calidad de la explicación LLM.
+
+### 19.6 Secuencia de implementación para otro agente
+
+1. Leer este `AGENTS.md`, `docs/skills/estado_operativo_skill.md`, `docs/skills/backtest_skill.md`, `config/config.yaml`, `risk/manager.py`, `bot.py` y el README oficial de TradingAgents.
+2. Confirmar la revisión Cloud Run activa, modo PAPER, estado de Firestore y que no hay cambios productivos sin documentar.
+3. Clonar TradingAgents en entorno separado, fijar commit/tag, instalar dependencias y ejecutar solo un smoke test con un ticker y fecha no productiva.
+4. Crear `research/tradingagents_eval/` o `scripts/tradingagents_eval/` con adaptador de entrada/salida, esquema JSON, manifiesto y logger; no editar el loop de órdenes de Polaris.
+5. Ejecutar A y B0 con exactamente el mismo snapshot de datos. Guardar JSON/CSV, coste, latencia y provenance.
+6. Validar que no haya claves en artefactos, que los prompts no contengan secretos, que los resultados sean parseables y que los timeouts sean menores que el presupuesto del tick.
+7. Repetir por ventanas históricas, incluyendo un test fuera de muestra reservado. Generar tablas y gráficos de retorno, drawdown, acuerdo, latencia y coste.
+8. Solo si B0 muestra valor y reproducibilidad, implementar B1 como veto limitado en una rama PAPER separada; nunca cambiar el universo, sizing o circuit breakers al mismo tiempo.
+9. Ejecutar una observación PAPER mínima de varios ciclos y comparar con A; cualquier deploy requiere revisión explícita, nueva revisión Cloud Run y rollback documentado.
+10. Publicar `docs/hallazgo21_tradingagents_eval_YYYY-MM-DD.md`, `backtests/tradingagents_ab_*.csv`, manifiestos, gráficos, commit de código y decisión go/no-go en este `AGENTS.md`.
+
+### 19.7 Criterio go/no-go
+
+**GO experimental** solo si el valor incremental aparece fuera de muestra, en varias ventanas, con costes y slippage, sin aumentar drawdown de forma relevante, con latencia estable y sin incumplir las reglas de riesgo. **NO-GO** si el resultado depende de una sola ventana, de noticias posteriores, de pocas operaciones, de un prompt elegido después del test, de un modelo concreto no disponible, de datos sin timestamp o de P&L simulado sin fills realistas. Incluso con GO experimental, mantenerlo en shadow/PAPER hasta una revisión posterior; no pasar a real automáticamente.
+
+### 19.8 Referencias oficiales para el experimento
+
+[TA1]: https://github.com/TauricResearch/TradingAgents "Repositorio y README oficial de TradingAgents"
+[TA2]: https://arxiv.org/abs/2412.20138 "Paper original: TradingAgents: Multi-Agents LLM Financial Trading Framework"
+[TA3]: https://github.com/TauricResearch/TradingAgents/blob/main/CHANGELOG.md "Changelog y versiones del framework"
