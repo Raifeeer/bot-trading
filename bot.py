@@ -124,6 +124,97 @@ def load_state() -> dict:
     return {"positions": [], "decisions": [], "orders": []}
 
 
+def reconcile_positions_with_broker(executor: AlpacaExecutor, state: dict) -> int:
+    """Reconstruye en `state["positions"]` los spreads abiertos en Alpaca que
+    el estado local desconoce.
+
+    `data/bot_state.json` vive en el filesystem efímero del contenedor: un
+    redeploy, un reinicio de instancia o que Cloud Run levante una instancia
+    nueva lo resetean a cero, mientras que las posiciones siguen abiertas en
+    Alpaca (fuente de verdad del broker). Sin esta reconciliación el bot
+    queda ciego a esas posiciones: no evalúa su TP/SL/DTE y no las cuenta
+    para el límite de `max_open_positions`. Se ejecuta una vez al arrancar.
+    Devuelve el número de posiciones reconstruidas.
+    """
+    from options.option_details import parse_occ
+    try:
+        legs = executor.positions()
+    except Exception:  # noqa: BLE001
+        logger.exception("Reconciliación: no se pudo leer posiciones de Alpaca")
+        return 0
+    legs = [leg for leg in legs if leg.get("asset_class") == "us_option"]
+    if not legs:
+        return 0
+
+    known_symbols = {
+        spec.get("symbol")
+        for pos in state["positions"]
+        for spec in (pos.get("legs") or [])
+    }
+    unknown = [leg for leg in legs if leg["symbol"] not in known_symbols]
+    if not unknown:
+        return 0
+
+    by_underlying = {}
+    for leg in unknown:
+        occ = parse_occ(leg["symbol"])
+        if occ is None:
+            continue
+        by_underlying.setdefault(occ["underlying"], []).append((leg, occ))
+
+    reconstructed = 0
+    for underlying, group in by_underlying.items():
+        # Solo se reconstruyen verticales de 2 patas (long + short, mismo
+        # tipo y vencimiento): es la única estructura que abre este bot hoy.
+        # Otras formas quedan sin reconstruir y se registran en el log para
+        # revisión manual, en vez de adivinar una estructura incorrecta.
+        by_exp_type = {}
+        for leg, occ in group:
+            key = (occ["expiration_date"], occ["option_type"])
+            by_exp_type.setdefault(key, []).append((leg, occ))
+        for (exp, otype), pair in by_exp_type.items():
+            if len(pair) != 2:
+                logger.warning(
+                    "Reconciliación: %s %s %s no forma un vertical de 2 patas "
+                    "(%d patas encontradas); no se reconstruye automáticamente",
+                    underlying, exp, otype, len(pair))
+                continue
+            (leg_a, occ_a), (leg_b, occ_b) = pair
+            long_leg, short_leg = ((leg_a, occ_a), (leg_b, occ_b)) \
+                if leg_a["qty"] > 0 else ((leg_b, occ_b), (leg_a, occ_a))
+            if long_leg[0]["qty"] <= 0 or short_leg[0]["qty"] >= 0:
+                logger.warning(
+                    "Reconciliación: %s %s %s no tiene una pata long y otra "
+                    "short claras; no se reconstruye automáticamente",
+                    underlying, exp, otype)
+                continue
+            direction = "call" if otype == "CALL" else "put"
+            structure = (f"{direction}_spread_{underlying}_"
+                        f"{long_leg[1]['strike']}_{short_leg[1]['strike']}")
+            net_premium = float(long_leg[0]["avg_entry"]) - float(short_leg[0]["avg_entry"])
+            state["positions"].append({
+                "symbol": underlying,
+                "strategy": "reconciled_broker",
+                "structure": structure,
+                "net_premium": net_premium,
+                "max_risk": abs(net_premium) * 100,
+                "legs": [
+                    {"symbol": long_leg[0]["symbol"], "side": "buy",
+                     "qty": abs(int(long_leg[0]["qty"]))},
+                    {"symbol": short_leg[0]["symbol"], "side": "sell",
+                     "qty": abs(int(short_leg[0]["qty"]))},
+                ],
+                "entry_orders": [],
+                "entry_ts": datetime.utcnow().isoformat(),
+                "reconciled": True,
+            })
+            reconstructed += 1
+            logger.warning(
+                "Reconciliación: reconstruida posición %s (%s) desde Alpaca; "
+                "no estaba en el estado local del bot", underlying, structure)
+    return reconstructed
+
+
 def _option_order_specs(structure, cfg, closing=False):
     """Prepara órdenes por pata con una cotización válida y precio límite.
 
@@ -324,6 +415,13 @@ def main():
     builder = SpreadBuilder(option_feed)
     strats = build_strategies(cfg, builder)
     state = load_state()
+    if not no_alpaca:
+        n_reconciled = reconcile_positions_with_broker(executor, state)
+        if n_reconciled:
+            logger.warning(
+                "Reconciliación al arrancar: %d posición(es) reconstruida(s) "
+                "desde Alpaca que no estaban en el estado local", n_reconciled)
+            save_state(state)
 
     tickers = cfg["universo"]["tickers"]
     logger.info("Bot iniciado: %d estrategias, %d tickers, poll=%.0fmin, dry_run=%s",

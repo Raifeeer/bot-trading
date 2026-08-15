@@ -499,3 +499,44 @@ de fills bid/ask y liquidez, y walk-forward con pesos inestables entre folds. Na
 convierte el reto $100 → $200 en un objetivo con respaldo empírico; la caída del benchmark
 de +92.5% a +3.6% y una mediana de corpus de 0.0% empujan en la dirección contraria.
 Mantener Cloud Run en PAPER.
+
+## 20. Fix: posiciones abiertas invisibles tras reinicio del contenedor — 15 de agosto de 2026
+
+**Síntoma detectado en vivo:** el snapshot de `polaris/2026-08-15` mostraba `positions: []`
+(estado interno del bot) mientras `alpaca_positions` sí tenía un call spread abierto en
+TQQQ (long 85C / short 100C, vence 2026-09-18). El bot tenía una posición real abierta en
+el broker de la que no sabía nada.
+
+**Causa raíz:** `state["positions"]` se carga una sola vez al arrancar desde
+`data/bot_state.json` (`load_state()` en `bot.py`), un archivo en el filesystem efímero del
+contenedor de Cloud Run. Un redeploy, un reinicio de instancia o que Cloud Run levante una
+instancia nueva resetean ese archivo a `{"positions": []}`, mientras la posición sigue
+abierta en Alpaca (fuente de verdad real). Sin reconciliación al arrancar, el bot quedaba
+ciego a esa posición: nunca evaluaba su TP/SL/DTE (`_manage_open_position` solo itera
+`state["positions"]`) y no la contaba para `max_open_positions`, pudiendo abrir posiciones
+adicionales por encima del límite de riesgo real.
+
+**Fix aplicado:** `reconcile_positions_with_broker(executor, state)` en `bot.py`, llamada
+una vez al arrancar `main()` justo después de `load_state()` (solo si hay credenciales
+reales de Alpaca). Compara las patas de opciones que devuelve `executor.positions()` contra
+los símbolos ya conocidos en `state["positions"]`; para las patas desconocidas, agrupa por
+subyacente + vencimiento + tipo y reconstruye verticales de 2 patas (long+short) con
+`net_premium` calculado desde el `avg_entry` real de Alpaca (no un precio de mercado
+recalculado). Estructuras que no forman un par 2-patas claro (una sola pata suelta, más de
+2 patas del mismo vencimiento) **no se reconstruyen automáticamente**: se registra un
+`logger.warning` para revisión manual en vez de adivinar una estructura incorrecta. Las
+posiciones reconstruidas llevan `"strategy": "reconciled_broker"` y `"reconciled": True`
+para poder auditarlas después.
+
+Tests en `tests/test_position_reconciliation.py` (4 casos: reconstrucción de un vertical
+completo, no duplicar una posición ya conocida, no adivinar con una sola pata suelta, no-op
+sin posiciones de opciones). Suite completa corrida: 10/10 (`test_regime_s78.py` excluido
+por el `SyntaxError` preexistente en f-strings anidados, ya documentado en §14.2, no
+relacionado con este cambio).
+
+**No desplegado en esta sesión.** El cambio está en el árbol de `main` de este repo, listo
+para el flujo de build/deploy de la sección 5. Antes de desplegar: confirmar en Cloud
+Logging que el mensaje "Reconciliación al arrancar: N posición(es) reconstruida(s)" aparece
+en el primer tick tras el despliegue, y que el spread de TQQQ ya detectado pasa a aparecer
+en `state["positions"]` (verificable en `/diag/state` o en el próximo snapshot de
+Firestore).
