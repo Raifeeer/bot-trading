@@ -39,7 +39,7 @@ manifest = {
     "model": {
         "capital_initial_usd": 100.0,
         "commission_usd_per_leg": 0.65,
-        "slippage": "not yet modeled in loop_backtests; must be added before production decisions",
+        "slippage": "optional slippage_pct overlay on option entry/exit; each run must record the value",
         "option_pricing": "Black-Scholes proxy using realized volatility; not point-in-time option chains",
         "anti_lookahead": [
             "signals use rows normalized <= decision date",

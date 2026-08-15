@@ -269,6 +269,20 @@ def value_spread(spread, spot, days_later, sc, exit_spot=None):
     return (px_l - px_s) * 100 * MARGIN_MULT
 
 
+def option_entry_cost(spread: dict, sc: dict) -> float:
+    """Costo de entrada con slippage por contrato; 0 por defecto para legacy."""
+    slip = max(0.0, float(sc.get("slippage_pct", 0.0)))
+    return float(spread["net"]) * (1.0 + slip)
+
+
+def option_exit_value(spread: dict, spot: float, days_later: int,
+                      sc: dict, exit_spot: float | None = None) -> float:
+    """Valor de salida neto después de slippage; modelado, no fill real."""
+    slip = max(0.0, float(sc.get("slippage_pct", 0.0)))
+    gross = value_spread(spread, spot, days_later, sc, exit_spot=exit_spot)
+    return max(0.0, gross * (1.0 - slip))
+
+
 # --------------------------------------------------------------- escenarios
 SCENARIOS = {
     # --- Motores puros, universo reto ---
@@ -697,8 +711,8 @@ def run_scenario(key: str, sc: dict, data: dict):
             if pos.get("side") == "equity":  # motor hold: valor por cambio spot
                 val = pos["entry_net"] * (exit_spot / pos["last_spot"])
             else:
-                val = value_spread(pos["spread"], pos["last_spot"], days_held, sc,
-                                   exit_spot=exit_spot)
+                val = option_exit_value(pos["spread"], pos["last_spot"],
+                                        days_held, sc, exit_spot=exit_spot)
             entry_net = pos["entry_net"]
             cur = val / entry_net if entry_net > 0 else 0
             reason = ""
@@ -743,12 +757,12 @@ def run_scenario(key: str, sc: dict, data: dict):
                     continue
                 hist = df[df.index.normalize() <= d]
                 if sc.get("above_sma200"):
-                    s200 = sma(df["close"], 200)
+                    s200 = sma(hist["close"], 200)
                     if pd.isna(s200.iloc[-1]) or hist["close"].iloc[-1] < s200.iloc[-1]:
                         continue
                 if sc.get("volume_spark"):
-                    v20 = df["volume"].rolling(20).mean()
-                    if len(df) >= 20 and df["volume"].iloc[-1] < v20.iloc[-1]:
+                    v20 = hist["volume"].rolling(20).mean()
+                    if len(hist) >= 20 and hist["volume"].iloc[-1] < v20.iloc[-1]:
                         continue
                 rv = realized_vol(df[df.index.normalize() <= d])
                 if sc.get("max_rv") and rv > sc["max_rv"]:
@@ -774,10 +788,11 @@ def run_scenario(key: str, sc: dict, data: dict):
                 if min_net is not None and spread["net"] < min_net:
                     continue
                 risk_budget = equity * sc["risk_pct"]
-                if spread["net"] > min(risk_budget, equity * 0.5):
+                entry_net = option_entry_cost(spread, sc)
+                if entry_net > min(risk_budget, equity * 0.5):
                     continue
                 open_pos.append(dict(symbol=sym, spread=spread,
-                                     entry_net=spread["net"],
+                                     entry_net=entry_net,
                                      last_spot=spot, entry_date=d,
                                      motor=sc["motor"], side=side))
                 break
@@ -826,7 +841,8 @@ def run_scenario(key: str, sc: dict, data: dict):
                     exit_spot = float(rows["close"].iloc[-1]) if len(rows) else pos["last_spot"]
                     pos["last_spot"] = exit_spot
                 else:
-                    val = value_spread(pos["spread"], pos["last_spot"], days_held, sc)
+                    val = option_exit_value(pos["spread"], pos["last_spot"],
+                                            days_held, sc)
                     entry_net = pos["entry_net"]
                     cur = val / entry_net if entry_net > 0 else 0
                     reason = ""
@@ -923,10 +939,11 @@ def run_scenario(key: str, sc: dict, data: dict):
                     if spread is None:
                         continue
                     risk_budget = equity3 * sc["risk_pct"]
-                    if spread["net"] > min(risk_budget, equity3 * 0.5):
+                    entry_net = option_entry_cost(spread, sc)
+                    if entry_net > min(risk_budget, equity3 * 0.5):
                         continue
                     pos3.append(dict(symbol=sym, side="put", spread=spread,
-                                     entry_net=spread["net"], last_spot=spot,
+                                     entry_net=entry_net, last_spot=spot,
                                      entry_date=d))
                     break
             ec3.append(dict(date=d, equity=round(equity3, 2), open_positions=len(pos3)))
@@ -937,9 +954,9 @@ def run_scenario(key: str, sc: dict, data: dict):
             if pos.get("side") == "equity":
                 val = pos["entry_net"] * exit_spot / pos["last_spot"]
             else:
-                val = value_spread(pos["spread"], pos["last_spot"],
-                                   (dates[-1] - pos["entry_date"]).days, sc,
-                                   exit_spot=exit_spot)
+                val = option_exit_value(pos["spread"], pos["last_spot"],
+                                        (dates[-1] - pos["entry_date"]).days,
+                                        sc, exit_spot=exit_spot)
             pnl = val - pos["entry_net"]
             if pos.get("side") != "equity" and sc.get("comision"):
                 pnl -= 2.0 * sc["comision"] * 2
@@ -1170,8 +1187,8 @@ def run_scenario(key: str, sc: dict, data: dict):
         if pos.get("side") == "equity":
             val = pos["entry_net"] * (exit_spot / pos["last_spot"])
         else:
-            val = value_spread(pos["spread"], pos["last_spot"], days_held, sc,
-                               exit_spot=exit_spot)
+            val = option_exit_value(pos["spread"], pos["last_spot"], days_held,
+                                    sc, exit_spot=exit_spot)
         pnl = val - pos["entry_net"]
         if pos.get("side") != "equity" and sc.get("comision"):
             pnl -= 2.0 * sc["comision"] * 2  # 2 patas × $0.65, entr+sal

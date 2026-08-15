@@ -10,7 +10,7 @@ Todos los datos se normalizan a un DataFrame con columnas:
 import logging
 import os
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 import numpy as np
@@ -186,7 +186,7 @@ class MarketDataFeed:
                         start: str, end: str, days: int):
         """Devuelve una ventana reciente si hay un histórico superset fresco."""
         key = (symbol, timeframe)
-        now = datetime.utcnow().timestamp()
+        now = datetime.now(timezone.utc).timestamp()
         with self._history_lock:
             entry = self._history_cache.get(key)
             if not entry or now - entry["fetched_at"] > self._history_ttl(timeframe):
@@ -195,7 +195,7 @@ class MarketDataFeed:
                 return None
             df = entry["df"]
         start_ts = self._utc(start)
-        end_ts = self._utc(end or datetime.utcnow())
+        end_ts = self._utc(end or datetime.now(timezone.utc))
         return df.loc[(df.index >= start_ts) & (df.index <= end_ts)].copy()
 
     def _history_store(self, symbol: str, timeframe: str,
@@ -207,7 +207,7 @@ class MarketDataFeed:
                 return
             self._history_cache[key] = {
                 "days": days,
-                "fetched_at": datetime.utcnow().timestamp(),
+                "fetched_at": datetime.now(timezone.utc).timestamp(),
                 "df": df.copy(),
             }
 
@@ -217,9 +217,7 @@ class MarketDataFeed:
         (sin rango 'recent SIP') pero rechaza el rango reciente en el plan
         free; Yahoo cubre el rango reciente (inestable en ráfaga, por eso se
         usa solo donde hace falta). Combina los segmentos en un solo DataFrame."""
-        import datetime as _dt
-
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         end_dt = pd.Timestamp(end or now, tz="UTC")
         pd.Timestamp(start, tz="UTC")
         # El rango 'recent SIP' de Alpaca free cubre ~los últimos 2 días
@@ -277,7 +275,7 @@ class MarketDataFeed:
         tardar 15-20 s con fallback), degradando a yfinance por símbolo si falla."""
         from concurrent.futures import ThreadPoolExecutor
 
-        end = datetime.utcnow()
+        end = datetime.now(timezone.utc)
         start = (end - timedelta(days=days)).strftime("%Y-%m-%d")
 
         def _one(s):
