@@ -421,3 +421,13 @@ El estado versionado de esta sesión queda en `origin/main` con commit **`649151
 El commit incluye la limpieza Ruff F/B completa, la corrección de timezone y ventana reciente del feed, el modelo opcional de slippage/coste equity, los motores de investigación breakout20/55, los scripts de matriz, sensibilidad, walk-forward rodante y ensembles, el informe `docs/hallazgo20_auditoria_y_robustez_2026-08-15.md` y los contextos de mercado fechados.
 
 Resultado operativo: Firestore quedó confirmado en la revisión 00056 con escritura completa y `Tick OK`; no se desplegó ninguna estrategia nueva. La investigación terminó con dependencia de régimen y tests recientes negativos para los candidatos seleccionados. Mantener Cloud Run en PAPER y no cambiar parámetros productivos hasta disponer de cadenas de opciones y earnings point-in-time, modelo de fills bid/ask/liquidez/assignment/gaps y validación fuera de muestra adicional.
+
+## 18. Permisos IAM de Claude-trading-bot — 15 de agosto de 2026
+
+Por confirmación explícita del usuario, se copiaron a `claude-trading-bot@gen-lang-client-0746441136.iam.gserviceaccount.com` los 12 roles de proyecto que tenía la SA operativa `manus-39@gen-lang-client-0746441136.iam.gserviceaccount.com`.
+
+La comparación posterior confirmó **12 roles en origen y 12 en destino, sin roles faltantes ni extras**:
+
+`roles/artifactregistry.admin`, `roles/cloudbuild.builds.editor`, `roles/cloudscheduler.admin`, `roles/cloudscheduler.serviceAgent`, `roles/cloudtasks.admin`, `roles/datastore.owner`, `roles/editor`, `roles/logging.admin`, `roles/resourcemanager.projectIamAdmin`, `roles/run.admin`, `roles/secretmanager.admin` y `roles/storage.admin`.
+
+Este es un acceso administrativo amplio y fue aplicado únicamente tras la confirmación del usuario. No se imprimieron claves ni tokens. Si en el futuro deja de ser necesario, debe revisarse y reducirse al principio de mínimo privilegio, especialmente `roles/editor`, `roles/resourcemanager.projectIamAdmin` y los roles administrativos de Secret Manager, Cloud Run y almacenamiento.
