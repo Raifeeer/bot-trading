@@ -222,7 +222,7 @@ Proyecto `polaris-options-dashboard` desplegado en `polaris-options-dashboard.ve
 
 El bundle de producción conserva la ruta de fuente `client/src/pages/Home.tsx`, pero esa fuente no está disponible en la sandbox y el repo local `Raifeeer/Polaris-Web-Studio` es el sitio comercial principal, no el dashboard de trading. No modificar ese repo como dashboard sin recuperar la fuente correcta del proyecto Vercel/Manus.
 
-Se detectó una posible corrección de presentación: el bundle formatea `riskPerTradePct.toFixed(1)` directamente, mientras el bot publica `payload.risk.risk_per_trade_pct=0.01` como fracción decimal. Por eso la interfaz muestra `0.0% del capital` aunque el valor real equivale a 1%. Recuperar `Home.tsx`, confirmar el contrato, corregir la conversión a porcentaje y añadir una prueba antes de desplegar. El texto `Gestión: esperando reglas publicadas por el bot` indica que el payload actual no publica reglas de gestión suficientes para ese panel; no inventar esos valores.
+Se confirmó y corrigió un bug de contrato: el bot publicaba `risk_per_trade_pct=0.01` y `max_positions=5` por usar defaults que no coincidían con `config.yaml` (`max_risk_per_trade_pct=5.0`, `max_open_positions=2`). La rama de auditoría ahora publica `risk_per_trade_pct=5.0`, `risk_per_trade_fraction=0.05`, `max_risk_per_trade_pct=5.0`, `max_positions=2` y `max_open_positions=2`; Telegram admite contrato nuevo y snapshots legacy. El bundle de producción formatea `riskPerTradePct` directamente, así que la siguiente validación debe confirmar que muestra 5.0%. El panel de gestión sigue sin fuente suficiente: no inventar reglas.
 
 ## 10. Historial de incidentes conocidos (para diagnóstico)
 
@@ -285,7 +285,7 @@ El incidente se rastreó el 14 de agosto de 2026 (tarde, hora AST; la revisión 
 5. **El contenedor SÍ puede escribir a Firestore.** El endpoint `/diag/fs` del health server (mismo contenedor, misma service account `173223792589-compute@developer.gserviceaccount.com`, mismas ADC) escribe correctamente: listó `["2026-08-13", "2026-08-14", "backtest"]`. Una escritura idéntica desde la sandbox con `firebase_admin` + keyfile (`/home/ubuntu/upload/gen-lang-client-0746441136-8353da1d9f65.json`, DB `polaris`) también funciona. Las credenciales no son el problema.
 6. **Tras el fix de import, FIRESTORE_ENABLED=True pero la escritura sigue sin materializarse.** Logs del 14/08 22:21 confirman `FIRESTORE_ENABLED=True (antes de write_state_snapshot)` y el tick se completó (`Tick OK`), pero el doc `polaris/2026-08-14` no se creó/actualizó. Curiosidad clave: el warning `logger.warning("Fallo al escribir estado en Firestore: %s", e)` del módulo `state/firestore_state.py` **nunca aparece en Cloud Logging** (cero apariciones en ~5000 líneas revisadas), ni siquiera el `logger.exception("Error publicando estado a Firestore")` del except de `bot.py` (línea ~558). Esto sugiere que los mensajes del logger `state.firestore` no llegan al stdout capturado por Cloud Run, o que el bloque de escritura no se ejecuta por otra ruta.
 7. **min-instances=1 reutilizaba la instancia vieja.** Cloud Run satisfacía minScale=1 con la instancia heredada de la revisión anterior, por lo que los fixes no se aplicaban aunque la revisión nueva tuviera 100% del tráfico. Solución operativa: desplegar con `--min-instances 2 --max-instances 2` para forzar una instancia de la última revisión y verificar con `gcloud run revisions list --format="table(metadata.name,status.active)"`.
-8. **La revisión 00055 volvió a bloquearse durante `write_state_snapshot`.** El primer ciclo llegó a `FIRESTORE_ENABLED=True` a las 06:15 UTC, pero `updated_at` no avanzó y no apareció `Tick OK`; `/diag/state` sí tenía el régimen actualizado. La causa más probable es que `DocumentReference.set()` no tenía timeout y quedó esperando indefinidamente en una llamada de red. Se preparó un timeout explícito de 30 s y un log root-visible de éxito en `state/firestore_state.py`; queda pendiente desplegarlo y verificar que el warning o el éxito sean observables.
+8. **La revisión 00055 se bloqueó durante `write_state_snapshot`.** El primer ciclo llegó a `FIRESTORE_ENABLED=True` a las 06:15 UTC, pero `updated_at` no avanzó y no apareció `Tick OK`; `/diag/state` sí tenía el régimen actualizado. La causa fue compatible con una RPC `DocumentReference.set()` sin timeout. El timeout explícito de 30 s y el log root-visible de éxito se desplegaron en `polaris-bot-00056-f48` y se verificaron: `Estado escrito en Firestore` a las 06:45:48 y `Tick OK` a las 06:46:27.
 
 ### 13.2 Evidencia de resolución
 
@@ -308,17 +308,15 @@ El probe fue retirado de `bot.py` en el commit `689286d`; la caché de feeds se 
 3. **Serialización del payload:** descartada como causa principal; la revisión 00054 publicó el snapshot completo con posiciones, riesgo y curva.
 4. **Probe:** retirado del código y eliminados `probe`/`diag` del documento del día sin borrar datos reales.
 5. **Bloqueo de escritura:** la revisión 00055 demuestra que una llamada `set()` sin timeout puede detener el tick después de que los feeds terminan. La corrección es `timeout=30.0` más logs de éxito/fallo visibles; no cambiar el perfil de riesgo.
-6. **Dashboard:** la producción muestra datos reales de Firestore y el documento `backtest` real; el bundle conserva `Home.tsx` como ruta de fuente, pero la fuente no está disponible localmente. Se detectó que `risk_per_trade_pct=0.01` puede mostrarse como `0.0%` si no se convierte a porcentaje; no corregir sin recuperar la fuente correcta.
+6. **Dashboard:** la producción muestra datos reales de Firestore y el documento `backtest` real; el bundle conserva `Home.tsx` como ruta de fuente, pero la fuente no está disponible localmente. La rama de auditoría corrigió el contrato publicado para que el bundle pueda mostrar 5.0% directamente; falta validar el frontend con la nueva escritura y recuperar la fuente antes de desplegar cambios de UI.
 
 ### 13.4 Cierre y acciones pendientes inmediatas
 
-1. Ejecutar `python3 -m py_compile bot.py state/firestore_state.py data/feed.py` y las pruebas locales disponibles.
-2. Hacer commit y push del timeout de Firestore y de esta actualización documental.
-3. Construir y desplegar la imagen con timeout en `polaris-bot` sin usar `--set-env-vars` ni `--set-secrets` aislados.
-4. Verificar un ciclo completo con `FIRESTORE_ENABLED=True`, `Estado escrito en Firestore`, `Tick OK` y `updated_at` avanzando en `polaris/2026-08-15`.
-5. Confirmar que el error 409 de Telegram no reaparece con `min-instances=1 / max-instances=1`.
-6. Comparar la duración del primer tick de la revisión con caché contra 00054; la caché está desplegada en 00055 pero ese primer tick quedó bloqueado en Firestore.
-7. Recuperar la fuente real `client/src/pages/Home.tsx` del proyecto Vercel/Manus, corregir la conversión de `risk_per_trade_pct` si se confirma y añadir una prueba antes de desplegar.
+1. La revisión `00056-f48` ya verificó `FIRESTORE_ENABLED=True`, `Estado escrito en Firestore`, `Tick OK` y `updated_at` avanzando en `polaris/2026-08-15`.
+2. La caché de feeds está desplegada en `00055`, pero su duración aún debe medirse con varios ciclos limpios; el fallback de yfinance sigue siendo el cuello de botella.
+3. La rama local de auditoría contiene fixes de contrato de riesgo, circuito diario, régimen sin datos, órdenes de opciones y reconstrucción de posiciones. **No desplegarla todavía**: primero ejecutar la batería local y revisar el diff.
+4. Recuperar la fuente real `client/src/pages/Home.tsx`, validar que consume el contrato de riesgo nuevo y añadir una prueba antes de cualquier deploy de Vercel.
+5. Regenerar el backtest completo: los CSV locales no están disponibles en `/home/ubuntu/backtests/` y el documento `polaris/backtest` no debe considerarse evidencia suficiente sin reproducibilidad.
 
 No se debe modificar el perfil de riesgo, el régimen S78 ni las reglas del reto `$100 → $200` como parte de este incidente.
 
@@ -346,3 +344,48 @@ curl https://polaris-bot-173223792589.us-central1.run.app/diag/fs      # lista d
 No asumir que `gcloud run deploy` aplica el código nuevo de inmediato: verificar con `revisions list` que la nueva revisión está activa y que una instancia de ELLA arrancó (`Bot iniciado` con timestamp reciente). Si la instancia vieja sigue generando ticks, forzar min/max-instances=2. El pnpm build del dashboard falla en el entorno de desarrollo; el workaround validado es desplegar vía bundle precompilado con `vercel deploy --prebuilt`. El log del proceso del contenedor llega a Cloud Logging solo si `logging.basicConfig` corre antes; cualquier import condicional al arranque debe ir después. Las llamadas Firestore deben tener timeout explícito y log de éxito/fallo visible en el logger root/bot; no asumir que una función que captura excepciones liberará el tick si la RPC queda bloqueada.
 
 El usuario autorizó que, si una operación de Polaris en GCP devuelve `PERMISSION_DENIED`, el agente pueda autoasignarse el rol mínimo necesario dentro del proyecto `gen-lang-client-0746441136`, documentando en `AGENTS.md` el permiso otorgado, el motivo, el recurso afectado y si debe retirarse después. No pedir otra credencial si la cuenta de servicio ya tiene `roles/resourcemanager.projectIamAdmin`; verificar primero los roles actuales y evitar privilegios permanentes más amplios de lo necesario.
+
+## 14. Auditoría profunda de código — 15 de agosto de 2026
+
+**Estado:** revisión local en curso; los cambios de esta sección todavía no están desplegados en Cloud Run. La revisión productiva verificada sigue siendo `polaris-bot-00056-f48`, en modo PAPER.
+
+### 14.1 Bugs confirmados y correcciones preparadas
+
+1. **Contrato de riesgo incorrecto en Firestore.** `bot.py` publicaba `risk_per_trade_pct=0.01` y `max_positions=5` aunque `config.yaml` definía `max_risk_per_trade_pct=5.0` y `max_open_positions=2`. Se corrigió el payload para publicar `risk_per_trade_pct=5.0`, `risk_per_trade_fraction=0.05`, `max_risk_per_trade_pct=5.0`, `max_positions=2` y `max_open_positions=2`.
+2. **Telegram convertía dos veces el porcentaje.** `state/telegram_bot.py` multiplicaba por 100 un campo que ahora es porcentaje; se corrigió y se dejó compatibilidad con snapshots legacy que usaban fracción decimal.
+3. **Circuit breaker diario sin rollover.** `RiskManager` solo inicializaba `day_start_equity` al arrancar el proceso; ahora `ensure_day()` reinicia el límite diario al cambiar el día y conserva el límite total. El circuito sigue latched durante el día en que se dispara.
+4. **Universo vacío clasificado como bear.** `risk/regime.py` evaluaba `0 >= 0` y devolvía `bear` sin datos. Ahora un universo sin datos devuelve `cash`, nunca una señal bajista fabricada.
+5. **Órdenes de opciones con precio límite cero.** `bot.py` llamaba `submit_option_order()` sin precio y `execution/alpaca_executor.py` convertía `None` en `0.0`. Ahora el ejecutor rechaza límites inválidos y el bot prevalida todas las cotizaciones, usa ask para compras y bid para ventas, aplica el offset configurado y evita enviar la primera pata si falta la segunda.
+6. **Polaridad invertida al abrir spreads.** El helper temporal asignaba `sell` a una pata long y `buy` a una short; se corrigió a long→buy y short→sell, con inversión solo al cerrar.
+7. **Reconstrucción frágil de posiciones.** Las posiciones nuevas guardan símbolos y órdenes de sus patas; `vertical_spread_from()` intenta reconstruir por esos símbolos y ya no aplica el filtro `dte_min=14` al buscar posiciones envejecidas. `bot.py` usa un builder fallback si la estrategia original fue deshabilitada tras un reinicio.
+8. **Caché negativa de earnings inefectiva.** `data/earnings.py` volvía a consultar cada 24 horas dentro del mismo tick cuando no había fecha de earnings; ahora cachea también el resultado negativo.
+9. **Test de caché dependiente del directorio actual.** `tests/test_feed_cache.py` ahora añade la raíz del repositorio a `sys.path` y usa timestamps UTC con zona explícita.
+
+### 14.2 Validación local completada
+
+- `python3 -m compileall -q .`: PASS.
+- `tests/test_risk_contract.py`: 3 pruebas, PASS.
+- `tests/test_execution_contract.py`: 2 pruebas, PASS.
+- `tests/test_feed_cache.py`: PASS.
+- `tests/test_ai_assistant.py`: PASS con el proxy LLM disponible; el nombre legacy `gpt-4o-mini` no está permitido por el catálogo actual, pero el fallback real funciona.
+- `tests/test_regime_s78.py`: termina con código 0 y obtiene 8/8 tickers con yfinance, pero sigue siendo un script manual sin asserts; no debe considerarse cobertura CI suficiente.
+
+### 14.3 Riesgos y límites del motor de backtesting todavía abiertos
+
+- `loop_backtests.py` declara `S51` como benchmark `motor="hold"`, pero el motor genérico abre solo una posición y el resultado publicado `S51=92.5% / 61 trades` no es reproducible en la sandbox actual. El documento Firestore `polaris/backtest` debe tratarse como artefacto histórico hasta regenerar CSV y trades.
+- `cheap_min_net` aparece en S75/S76 pero el motor solo consume `min_net`; ese filtro puede estar inactivo y debe corregirse antes de comparar estrategias.
+- Los datos de earnings usados por producción vienen de un calendario actual de yfinance y no son point-in-time; no deben inyectarse directamente en backtests históricos.
+- `stress_test.py` conserva el hallazgo Ruff B023 sobre cierres que capturan una variable de bucle; debe corregirse antes de confiar en un barrido multi-ventana.
+- Los precios de opciones del backtest son proxies Black–Scholes con IV histórica, no un histórico point-in-time de cadenas; toda conclusión debe incluir esa limitación, slippage, comisiones y sensibilidad.
+- La fuente de `client/src/pages/Home.tsx` del dashboard no está disponible localmente; no modificar `Raifeeer/Polaris-Web-Studio` como sustituto porque es otro proyecto.
+
+### 14.4 Orden obligatorio antes de desplegar esta rama
+
+1. Completar tests unitarios del motor y corregir `S51/hold`, `cheap_min_net` y B023.
+2. Ejecutar backtests reproducibles con datos fechados, sin look-ahead, comisiones y slippage.
+3. Revisar el diff y hacer commit/push.
+4. Construir y desplegar a una revisión aislada de Cloud Run conservando todos los envs/secrets; mantener PAPER.
+5. Verificar en Cloud Logging órdenes simuladas/prevalidadas, `Estado escrito en Firestore`, `Tick OK`, Telegram y el contrato de riesgo nuevo durante al menos dos ciclos.
+6. Solo después evaluar si el dashboard consume correctamente 5.0% y 2 posiciones, sin mostrar valores mock.
+
+No convertir el backtest $100→$200 en una promesa de rentabilidad ni activar trading REAL como resultado de esta auditoría.

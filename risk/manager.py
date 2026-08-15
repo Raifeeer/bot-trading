@@ -66,12 +66,28 @@ class RiskManager:
         self.day_start_equity = 0.0
         self.halted_today = False
         self.halted_total = False
+        self._risk_day = None
 
-    def reset_day(self, equity: float):
-        self.day_start_equity = equity
+    def reset_day(self, equity: float, day=None):
+        self.day_start_equity = float(equity)
         self.halted_today = False
+        self._risk_day = day or datetime.utcnow().date()
 
-    def check_circuit_breakers(self, equity: float):
+    def ensure_day(self, equity: float, day=None) -> bool:
+        """Reset the daily breaker at UTC calendar rollover.
+
+        Returns True when a new risk day was initialized. Total drawdown state
+        is intentionally preserved across days.
+        """
+        current_day = day or datetime.utcnow().date()
+        if self._risk_day != current_day:
+            self.reset_day(equity, current_day)
+            logger.info("RISK nuevo día: equity inicial %.2f", equity)
+            return True
+        return False
+
+    def check_circuit_breakers(self, equity: float, day=None):
+        self.ensure_day(equity, day=day)
         if self.day_start_equity > 0:
             dd_daily = (self.day_start_equity - equity) / self.day_start_equity * 100
             if dd_daily >= self.cfg["max_drawdown_daily_pct"]:

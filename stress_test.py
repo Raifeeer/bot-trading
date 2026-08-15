@@ -19,7 +19,6 @@ import os
 import sys
 import time
 
-import numpy as np
 import pandas as pd
 
 TOP = os.path.dirname(os.path.abspath(__file__))
@@ -42,7 +41,6 @@ def inject_crash(base_hist: dict, crash_days, crash_mag, base_date,
     out = {}
     for sym, df in base_hist.items():
         df = df.copy()
-        last = df.index[-1]
         rows = []
         spot = float(df["close"].iloc[-1])
         hi = float(df["high"].iloc[-1])
@@ -90,7 +88,8 @@ def inject_crash(base_hist: dict, crash_days, crash_mag, base_date,
         # (yfinance devuelve 04:00 UTC para días US; el tail queda 00:00
         # UTC y el isin/sort se rompe). Usar la hora de la última barra real.
         real_hour = df.index[-1].hour
-        tail.index = tail.index.map(lambda ts: ts.replace(hour=real_hour))
+        tail.index = tail.index.map(
+            lambda ts, hour=real_hour: ts.replace(hour=hour))
         # corrección de barras incoherentes en las filas SINTÉTICAS: low
         # <= close <= high y open dentro del rango. El assign vectorial
         # global corrompía el recovery (propagaba el low mínimo de la caída
@@ -115,7 +114,7 @@ def inject_crash(base_hist: dict, crash_days, crash_mag, base_date,
 
 def run_stress(key, sc, data, desc):
     t0 = time.time()
-    equity, tdf, ecdf, dd_pct, max_eq = run_scenario(key, sc, data)
+    equity, tdf, ecdf, dd_pct, _max_eq = run_scenario(key, sc, data)
     elapsed = time.time() - t0
     wr = (tdf["pnl"].gt(0).mean() * 100) if len(tdf) else 0.0
     row = dict(desc=desc, motor=sc["motor"], equity=round(equity, 2),

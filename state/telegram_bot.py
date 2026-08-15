@@ -19,7 +19,6 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from datetime import datetime
 
 logger = logging.getLogger("polaris.tgbt")
 
@@ -148,8 +147,15 @@ def _cmd_riesgo() -> str:
     cap_ini = 100000.0
     dd = (cap_ini - equity) / cap_ini if equity else 0.0
     halted = risk.get("halted", False)
-    maxpos = risk.get("max_positions", 5)
-    per_trade = (risk.get("risk_per_trade_pct") or 0.01) * 100
+    maxpos = risk.get("max_open_positions", risk.get("max_positions", 5))
+    # Canonical Firestore field is percentage points (5.0 = 5%).
+    # Legacy snapshots used risk_per_trade_pct as a fraction (0.01 = 1%).
+    per_trade = risk.get("max_risk_per_trade_pct")
+    if per_trade is None:
+        legacy = risk.get("risk_per_trade_pct")
+        per_trade = (legacy * 100.0 if legacy is not None and legacy <= 1
+                     else legacy)
+    per_trade = float(per_trade or 0.0)
     emoji = "🛑" if halted else "🟢"
     return (f"{emoji} <b>POLARIS — riesgo</b>\n"
             f"📉 Drawdown desde inicio: {dd*100:.2f}%\n"

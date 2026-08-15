@@ -39,7 +39,7 @@ from config import get_config
 from data.feed import MarketDataFeed
 
 try:
-    from state.firestore_state import (write_state_snapshot, append_signal,
+    from state.firestore_state import (write_state_snapshot,
                                       append_equity_point)
     FIRESTORE_ENABLED = True
 except Exception:  # noqa: BLE001
@@ -73,7 +73,7 @@ except ImportError:
         return t
 from strategies.swing_trading import SwingTrend
 from options.chains import OptionFeed, SpreadBuilder
-from options.strategy import OptionsStrategy, OptionsPosition, evaluate_exit
+from options.strategy import OptionsStrategy
 from options.option_details import enrich_positions
 from risk.manager import RiskManager
 from execution.alpaca_executor import AlpacaExecutor, ExecutionError
@@ -124,6 +124,43 @@ def load_state() -> dict:
     return {"positions": [], "decisions": [], "orders": []}
 
 
+def _option_order_specs(structure, cfg, closing=False):
+    """Prepara órdenes por pata con una cotización válida y precio límite.
+
+    Alpaca no acepta limit orders de opciones a 0.0. Se prevalidan todas las
+    patas antes de enviar la primera para no dejar un spread parcialmente
+    ejecutado por una cotización ausente.
+    """
+    execution = cfg.get("execution", {}) or {}
+    order_type = execution.get("order_type", "limit")
+    offset_pct = float(execution.get("limit_offset_pct", 0.0)) / 100.0
+    specs = []
+    for leg in structure.legs:
+        side = "buy" if leg.quantity > 0 else "sell"
+        if closing:
+            side = "sell" if side == "buy" else "buy"
+        contract = leg.contract
+        quote = contract.ask if side == "buy" else contract.bid
+        if quote is None or float(quote) <= 0:
+            quote = contract.mid or contract.last
+        if order_type == "limit":
+            if quote is None or float(quote) <= 0:
+                raise ExecutionError(
+                    f"Sin cotización válida para {contract.symbol} al {side}")
+            factor = 1.0 + offset_pct if side == "buy" else 1.0 - offset_pct
+            limit_price = max(0.01, round(float(quote) * factor, 2))
+        else:
+            limit_price = None
+        specs.append({
+            "symbol": contract.symbol,
+            "side": side,
+            "qty": abs(int(leg.quantity)),
+            "order_type": order_type,
+            "limit_price": limit_price,
+        })
+    return specs
+
+
 # ---------------------------------------------------------------------------
 # Gestión de posiciones abiertas
 # ---------------------------------------------------------------------------
@@ -167,8 +204,6 @@ def _manage_open_position(feed, builder, strat, pos):
     """Evalúa si la posición abierta debe cerrarse. Devuelve (signal_type o
     None, razón). Usa evaluate_exit de options.strategy con la prima actual."""
     from options.strategy import evaluate_exit, OptionsPosition
-    from options.chains import OptionContract
-    from datetime import timedelta
     spot = feed.history([pos["symbol"]], "1d", days=2)[pos["symbol"]]["close"].iloc[-1]
     entry_premium = abs(pos["net_premium"])
     # Reconstruir la estructura con los strikes guardados en el spread
@@ -201,14 +236,16 @@ def _manage_open_position(feed, builder, strat, pos):
     return None, ""
 
 
-def strat_structure_for(pos, strat):
-    """Reconstruye la estructura de la posición desde el registro guardado."""
-    try:
-        return strat.builder.vertical_spread_from(pos)
-    except RuntimeError:
-        # fallback: re-escanear el subyacente para reconstruir strikes
-        df = strat.base.scan
-        raise
+def strat_structure_for(pos, strat=None, builder=None):
+    """Reconstruye una posición; sobrevive a reinicios/config changes.
+
+    Las patas guardadas en `pos` son preferibles. Si la estrategia original ya
+    no está habilitada, se usa el `builder` global del loop.
+    """
+    active_builder = getattr(strat, "builder", None) or builder
+    if active_builder is None:
+        raise RuntimeError(f"Sin builder para reconstruir {pos.get('symbol')}")
+    return active_builder.vertical_spread_from(pos)
 
 def options_map_cfg(cfg):
     """Parámetros de estructura del PERFIL RETO ($100→$200). Si el perfil está
@@ -423,17 +460,22 @@ def main():
                                                   [type("P", (), {"symbol": p["symbol"]})()
                                                    for p in state["positions"]])
                         if dec.decision == "APPROVED":
-                            # ejecutar las patas del spread
-                            for leg in st.legs:
-                                executor.submit_option_order(
-                                    leg.contract.symbol,
-                                    "buy" if leg.quantity > 0 else "sell",
-                                    abs(leg.quantity))
+                            # Validar TODAS las cotizaciones antes de enviar la
+                            # primera pata; evita spreads parciales y precios 0.
+                            order_specs = _option_order_specs(st, cfg)
+                            submitted = []
+                            for spec in order_specs:
+                                submitted.append(executor.submit_option_order(
+                                    spec["symbol"], spec["side"], spec["qty"],
+                                    order_type=spec["order_type"],
+                                    limit_price=spec["limit_price"]))
                             state["positions"].append({
                                 "symbol": sym, "strategy": sname,
                                 "structure": st.name,
                                 "net_premium": st.net_premium,
                                 "max_risk": st.max_risk,
+                                "legs": order_specs,
+                                "entry_orders": submitted,
                                 "entry_ts": datetime.utcnow().isoformat(),
                             })
                             state["decisions"].append(dict(
@@ -464,19 +506,20 @@ def main():
                         sig_type, reason = _manage_open_position(
                             feed, builder, strats.get(p["strategy"]), p)
                     if sig_type:
-                        # cerrar patas del spread (vender lo comprado, etc.)
-                        st = strat_structure_for(p, strats.get(p["strategy"]))
+                        # Cerrar patas solo después de validar cotizaciones;
+                        # nunca emitir una limit order de opción a 0.0.
+                        st = strat_structure_for(p, strats.get(p["strategy"]), builder)
+                        close_specs = _option_order_specs(st, cfg, closing=True)
                         closed_legs = []
-                        for leg in st.legs:
-                            r = executor.submit_option_order(
-                                leg.contract.symbol,
-                                "sell" if leg.quantity > 0 else "buy",
-                                abs(leg.quantity))
-                            closed_legs.append(r)
+                        for spec in close_specs:
+                            closed_legs.append(executor.submit_option_order(
+                                spec["symbol"], spec["side"], spec["qty"],
+                                order_type=spec["order_type"],
+                                limit_price=spec["limit_price"]))
                         entry_px = abs(p.get("net_premium") or 0.0)
                         current_net = 0.0
                         try:
-                            st_close = strat_structure_for(p, strats.get(p["strategy"]))
+                            st_close = strat_structure_for(p, strats.get(p["strategy"]), builder)
                             for leg in st_close.legs:
                                 c = leg.contract
                                 px = c.last or ((c.bid + c.ask) / 2.0 if c.bid and c.ask else None) or 0.0
@@ -530,6 +573,13 @@ def main():
                         FIRESTORE_ENABLED)
             if FIRESTORE_ENABLED:
                 try:
+                    risk_cfg = cfg.get("risk", {}) or {}
+                    max_risk_pct = float(risk_cfg.get(
+                        "max_risk_per_trade_pct",
+                        rm.cfg.get("max_risk_per_trade_pct", 1.0)))
+                    max_positions = int(risk_cfg.get(
+                        "max_open_positions",
+                        rm.cfg.get("max_open_positions", 5)))
                     write_state_snapshot({
                         "equity": equity,
                         "cash": acct.get("cash", equity),
@@ -538,8 +588,14 @@ def main():
                         "alpaca_positions": _enriched_positions(executor),
                         "orders_executed": executor.order_log[-50:] if not executor.dry_run else [],
                         "risk": {
-                            "risk_per_trade_pct": cfg["risk"].get("risk_per_trade_pct", 0.01),
-                            "max_positions": cfg["risk"].get("max_positions", 5),
+                            # Canonical display field: percentage points (5.0 = 5%).
+                            "risk_per_trade_pct": max_risk_pct,
+                            # Unambiguous machine-readable fraction for consumers
+                            # that calculate with the value (0.05 = 5%).
+                            "risk_per_trade_fraction": max_risk_pct / 100.0,
+                            "max_risk_per_trade_pct": max_risk_pct,
+                            "max_positions": max_positions,
+                            "max_open_positions": max_positions,
                             "halted": rm.is_halted(),
                             "regime": (regime or {}).get("regime", "unknown"),
                             "regime_summary": (regime or {}).get("summary", ""),

@@ -29,7 +29,7 @@ La URL pública `https://polaris-options-dashboard.vercel.app` se cargó correct
 
 El bundle conserva la ruta de fuente `client/src/pages/Home.tsx` en `data-loc`, pero esa fuente no está disponible en la sandbox ni dentro del repo local `Raifeeer/Polaris-Web-Studio`; dicho repositorio es el sitio comercial principal. No modificarlo como dashboard de trading sin recuperar la fuente correcta del proyecto Vercel/Manus.
 
-Se detectó una posible corrección de presentación: el bundle formatea `x.riskPerTradePct.toFixed(1)` directamente. El payload real usa `risk.risk_per_trade_pct=0.01`, por lo que la interfaz muestra `0.0% del capital` si el frontend no convierte fracción a porcentaje. Antes de corregirlo, recuperar la fuente `Home.tsx`, confirmar el contrato y añadir una prueba. El texto `Gestión: esperando reglas publicadas por el bot` también indica que el payload actual no publica reglas de gestión suficientes para ese panel; no inventar valores.
+Se confirmó un bug de contrato: el bot publicaba `risk.risk_per_trade_pct=0.01` y `risk.max_positions=5` por usar nombres/defaults que no coincidían con `config.yaml` (`max_risk_per_trade_pct=5.0`, `max_open_positions=2`). El bot ahora publica `risk_per_trade_pct` y `max_risk_per_trade_pct` en puntos porcentuales, además de `risk_per_trade_fraction` para cálculos, y conserva ambos nombres de máximo de posiciones. `state/telegram_bot.py` interpreta el contrato nuevo y snapshots legacy. El frontend debe mostrar el campo canónico directamente; antes de desplegar un cambio de UI hay que recuperar la fuente `Home.tsx` y añadir una prueba de contrato. El texto `Gestión: esperando reglas publicadas por el bot` indica que el payload actual no publica reglas de gestión suficientes; no inventar valores.
 
 ## 2. Telegram — alerta + conversación
 
@@ -52,7 +52,9 @@ El bot de Telegram corre **dentro del mismo contenedor** de Cloud Run (hilo de p
     "equity": 99719.50, "cash": ..., "buying_power": ...,
     "positions": [], "alpaca_positions": [{...legs...}],
     "orders_executed": [], "decisions_today": [],
-    "risk": {"risk_per_trade_pct": 5.0, "max_positions": 2, "halted": false},
+    "risk": {"risk_per_trade_pct": 5.0, "risk_per_trade_fraction": 0.05,
+              "max_risk_per_trade_pct": 5.0, "max_positions": 2,
+              "max_open_positions": 2, "halted": false},
     "regime": "bull", "trading_mode": "PAPER",
     "strategies": [...], "universe": {...}
   },
@@ -60,7 +62,7 @@ El bot de Telegram corre **dentro del mismo contenedor** de Cloud Run (hilo de p
 }
 ```
 
-`payload.regime` es string (`"bull"`/`"bear"`); cualquier nuevo valor requiere actualizar el frontend simultáneamente. El campo `payload.risk.risk_per_trade_pct` se publica como fracción decimal en el bot actual (por ejemplo, `0.01` = 1%); el frontend debe convertirlo a porcentaje antes de mostrarlo. El doc se escribe con **merge** (no overwrite) una vez por tick; el dashboard se actualiza solo.
+`payload.regime` es string (`"bull"`/`"bear"`/`"cash"`); cualquier nuevo valor requiere actualizar el frontend simultáneamente. El campo canónico `payload.risk.risk_per_trade_pct` se publica en puntos porcentuales (por ejemplo, `5.0` = 5%), mientras `risk_per_trade_fraction` sirve para cálculos (0.05 = 5%). `max_open_positions` es el nombre canónico del límite; `max_positions` se conserva por compatibilidad. El doc se escribe con **merge** (no overwrite) una vez por tick; el dashboard se actualiza solo.
 
 ## 4. Mobile y UX (decisiones de diseño)
 

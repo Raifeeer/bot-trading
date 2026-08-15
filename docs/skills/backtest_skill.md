@@ -1,6 +1,6 @@
 # Skill: Backtesting y calibración de estrategias
 
-**Archivos de referencia:** `loop_backtests.py` (motor S1–S89), `backtest_retos.py` (precios Black-Scholes), `stress_test.py` (crashes sintéticos, hallazgo 17), `stress_intraday.py` (stops intradiarios, hallazgo 18), y los informes `/home/ubuntu/backtests/hallazgo1.md..18.md`.
+**Archivos de referencia:** `loop_backtests.py` (motor S1–S89), `backtest_retos.py` (precios Black-Scholes), `stress_test.py` (crashes sintéticos, hallazgo 17), `stress_intraday.py` (stops intradiarios, hallazgo 18), y los informes `/home/ubuntu/backtests/hallazgo1.md..18.md`. En esta sandbox, `/home/ubuntu/backtests/` está vacío al iniciar una sesión nueva: los CSV deben regenerarse y conservarse como artefactos versionados o en almacenamiento persistente.
 
 ## 1. Herramientas y qué mide cada una
 
@@ -28,15 +28,15 @@ Los backtests usan cuatro ventanas con comportamientos de régimen distintos, y 
 
 | Estrategia | Perfil | Resultado clave |
 |---|---|---|
-| **S51** (hold semanal equally weighted, universo reto) | Bull | +92% en 90 días (vs S36 +53%) |
+| **S51** (hold semanal equally weighted, universo reto) | Bull | Resultado histórico publicado +92%, pendiente de regenerar; el motor ahora usa explícitamente `hold_weekly` y ya no el benchmark legacy de una sola posición. |
 | **S63** (put spread 0.30/0.10, DTE 21, trigger CHoCH pragmático) | CHoCH bear | +20.8% en selloff ene–abr 2026 (única positiva; con comisiones +2.6%) |
 | **S36** (call spread 0.30/0.10, DTE 21, RSI<25 + precio>SMA100) | Rebote | +53–60%, win rate 71–75%, budget 15% |
 | **S55** (cash en lateral) | Lateral | S36: 0 trades, capital intacto vs hold -96% |
 | **S67** (DTE 7–10 OTM) | — | -48%: el theta de los últimos días destruye |
-| **S75/S76** (defensivas en bear suave HTF) | Bear suave | -32.9% / -6.6%: RV alta encarece los puts |
+| **S75/S76** (defensivas en bear suave HTF) | Bear suave | El filtro `cheap_min_net=28` estaba declarado pero ignorado; ya está conectado al motor y los resultados deben regenerarse. |
 | **S78** (bull→hold, bear→cash) | Régimen-aware | **+26.7% en ventana reciente (ganador)**; dd -28.0% con crash_event 3% |
 
-La regla de oro que emerge: con $100 de capital, un put spread delta 0.30/0.10 DTE 21 cuesta $25–45 en tickers baratos y $150–1,700 en PLTR/TSLA/TQQQ/AMD; **solo BB, NOK, F, SOFI son operables** dentro del presupuesto. LCID y MARA se excluyen (vol. ~150% genera spreads degenerados y destruye primas sin stop).
+La regla de oro histórica debe tratarse como hipótesis hasta regenerar los escenarios con el motor corregido. Las primas del backtest siguen siendo proxies Black–Scholes con IV histórica, no cadenas point-in-time. Con $100 de capital, slippage, comisiones y disponibilidad real de contratos pueden cambiar completamente la operabilidad; no asumir que un ticker es operable solo por su prima simulada.
 
 ## 4. Prueba de estrés de crash (hallazgo 17, `stress_test.py`)
 
@@ -62,8 +62,8 @@ Umbrales probados sobre `(1-ith)×close_prev` del subyacente, medibles en produc
 | E3c rebal día 1 + shock | $97.3 (dd -2.7%) | **$100.5 (+0.5%, dd 0%)** | $98.6 | $97.6 | $97.4 |
 | Real abr–ago 2026 | $128.9 (dd -7.3%) | **$132.5 (+32.5%, dd -4.8%)** | $130.6 | $129.0 | $128.9 |
 
-Conclusión: **4% es el umbral óptimo** — mejora flash, catastrófico y peor caso de timing sin degradar nunca; ≥6% se dispara tarde y destruye hasta +15 puntos en selloffs con rebote. El gap de apertura no se detiene (ya consumado antes del stream): el stop solo acorta el resto del día. Defensa adoptada: `crash_event` 3% (cierre) + `intraday_stop` 4% + trailing de prima 30–40%.
+Conclusión histórica: **4% fue el umbral óptimo en esos escenarios sintéticos**, no una garantía fuera de muestra. El gap de apertura no se detiene (ya consumado antes del stream): el stop solo acorta el resto del día. Defensa adoptada para PAPER: `crash_event` 3% (cierre) + `intraday_stop` 4% + trailing de prima 30–40%, sujeto a nueva validación tras corregir el motor.
 
 ## 6. Reglas para el agente orquestador
 
-Ningún cambio de parámetro de estrategia entra en producción sin: (1) pasar por las cuatro ventanas de backtest; (2) pasar por los escenarios de estrés E1–E4 (y E3c si toca los stops); (3) validarse en la ventana real más reciente; (4) documentar el informe tipo `hallazgoN.md` con la tabla de resultados. La estrategia adoptada puede cambiar con los datos — los backtests son un loop continuo, no un entregable único: se recalibra con datos recientes cada vez que el usuario lo pida. No confiar en una única ventana: el error más caro del proyecto fue asumir que el motor ganador en bull (S51) funcionaba siempre.
+Ningún cambio de parámetro de estrategia entra en producción sin: (1) pasar por las cuatro ventanas de backtest; (2) pasar por E1–E4 y E3c si toca los stops; (3) validarse en la ventana más reciente; (4) documentar el informe con resultados reproducibles. Cada ronda debe incluir anti-look-ahead, fecha de decisión, comisiones, slippage y sensibilidad. El filtro anti-earnings de producción usa un calendario actual de yfinance y no es point-in-time; no inyectarlo sin más en historia. Los cierres o lambdas dentro de barridos deben evitar capturas tardías de variables (B023). La estrategia puede cambiar con los datos, pero no se debe perseguir $100→$200 mediante sobreajuste ni presentar una meta como rentabilidad esperada.

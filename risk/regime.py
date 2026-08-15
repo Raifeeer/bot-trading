@@ -13,7 +13,7 @@ El régimen y el lock de crash se persisten en bot_state.json (crash_lock:
 fecha) para sobrevivir reinicios de Cloud Run.
 """
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import pandas as pd
 import ta
@@ -104,7 +104,6 @@ def classify_regime(data_1d: dict, tickers: list,
               "summary": str}.
     """
     cfg = {**DEFAULT_REGIME_CFG, **(cfg or {})}
-    today = pd.Timestamp(datetime.utcnow()).normalize()
     if not cfg.get("regime_enabled"):
         return {"regime": "cash", "bull_count": 0, "bear_count": 0, "n": 0,
                 "crash_event": False, "crash_active": False,
@@ -152,7 +151,9 @@ def classify_regime(data_1d: dict, tickers: list,
         cfg["bear_threshold"]))  # mismo % que el bear: >=30%
     bear_count = sum(1 for s in ticker_status.values() if s["bear_choch"])
 
-    if bear_count >= n * cfg["bear_threshold"] or crash_event:
+    # Con n=0 no hay evidencia: permanecer en cash, nunca fabricar un
+    # régimen bear mediante la comparación 0 >= 0.
+    if n > 0 and (bear_count >= n * cfg["bear_threshold"] or crash_event):
         regime = "bear"
     elif n > 0 and bull_count >= n * cfg["bull_threshold"]:
         regime = "bull"

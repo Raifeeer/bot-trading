@@ -91,9 +91,12 @@ class AlpacaExecutor:
             req = MarketOrderRequest(symbol=symbol, qty=qty,
                                      side=OrderSide(side), time_in_force=tif)
         else:
+            if limit_price is None or float(limit_price) <= 0:
+                raise ExecutionError(
+                    f"Precio límite inválido para {symbol}: {limit_price!r}")
             req = LimitOrderRequest(symbol=symbol, qty=qty,
                                     side=OrderSide(side), time_in_force=tif,
-                                    limit_price=limit_price or 0.0)
+                                    limit_price=float(limit_price))
         order = self.trading.submit_order(req)
         rec = dict(ts=datetime.utcnow().isoformat(), type="stock", symbol=symbol,
                    side=side, qty=qty, order_type=order_type, status=order.status)
@@ -110,7 +113,6 @@ class AlpacaExecutor:
         """
         from alpaca.trading.requests import MarketOrderRequest, LimitOrderRequest
         from alpaca.trading.enums import OrderSide, TimeInForce, AssetClass
-        from alpaca.common.enums import BaseURL
         tif = TimeInForce.DAY if time_in_force == "day" else TimeInForce.GTC
         if self.dry_run:
             rec = dict(ts=datetime.utcnow().isoformat(), type="option", symbol=contract_symbol,
@@ -125,9 +127,12 @@ class AlpacaExecutor:
                                      side=OrderSide(side), time_in_force=tif,
                                      asset_class=AssetClass.OPTION)
         else:
+            if limit_price is None or float(limit_price) <= 0:
+                raise ExecutionError(
+                    f"Precio límite inválido para {contract_symbol}: {limit_price!r}")
             req = LimitOrderRequest(symbol=contract_symbol, qty=qty,
                                     side=OrderSide(side), time_in_force=tif,
-                                    limit_price=limit_price or 0.0,
+                                    limit_price=float(limit_price),
                                     asset_class=AssetClass.OPTION)
         order = self.trading.submit_order(req)
         rec = dict(ts=datetime.utcnow().isoformat(), type="option", symbol=contract_symbol,
@@ -140,17 +145,11 @@ class AlpacaExecutor:
         """Orden multi-leg (spread) con precio límite neto.
         legs: lista de (contract_symbol, side[buy|sell], ratio).
         """
-        from alpaca.trading.requests import OptionLegRequest
-        from alpaca.trading.enums import OrderSide, TimeInForce
-        from alpaca.trading.enums import OptionTradeConfirmationEmail
-        tif = TimeInForce.DAY if time_in_force == "day" else TimeInForce.GTC
         if self.dry_run:
             rec = dict(ts=datetime.utcnow().isoformat(), type="spread", legs=legs,
                        status="DRY_RUN")
             self.order_log.append(rec)
             return rec
-        ol = [OptionLegRequest(symbol=s, side=OrderSide(side), ratio=ratio)
-              for s, side, ratio in legs]
         # Nota: Alpaca soporta órdenes legged vía endpoint de opciones; el SDK
         # expone submit_order para cada pata individualmente. Para ejecución
         # sincronizada del spread se recomienda enviar ambas patas y verificar

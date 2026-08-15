@@ -312,7 +312,7 @@ class OptionFeed:
         ante límites de velocidad de la API de Alpaca)."""
         import time
         from alpaca.trading.requests import GetOptionContractsRequest
-        from alpaca.trading.enums import ContractType, ExerciseStyle
+        from alpaca.trading.enums import ContractType
         req = GetOptionContractsRequest(
             underlying_symbols=[underlying],
             type=ContractType(otype.value) if otype else None,
@@ -534,9 +534,29 @@ class SpreadBuilder:
         otype = OptionType.CALL if "call" in name else OptionType.PUT
         direction = "bull" if "call" in name else "bear"
         try:
-            chain, spot = self._chain(sym, otype)
-        except RuntimeError:
-            raise RuntimeError(f"No se pudo reconstruir cadena de {sym}")
+            # No aplicar dte_min=14 al reconstruir: una posición viva puede
+            # haber envejecido por debajo de ese umbral.
+            chain, spot = self._chain(sym, otype, dte_min=0, dte_max=365)
+        except RuntimeError as err:
+            raise RuntimeError(f"No se pudo reconstruir cadena de {sym}") from err
+
+        persisted = pos.get("legs") or []
+        if persisted:
+            by_symbol = {c.symbol: c for c in chain}
+            legs = []
+            for spec in persisted:
+                c = by_symbol.get(spec.get("symbol"))
+                if c is None:
+                    break
+                side = spec.get("side", "buy")
+                legs.append(Leg(c, +1 if side == "buy" else -1))
+            if len(legs) == len(persisted):
+                net = sum(l.contract.mid * l.quantity for l in legs)
+                return OptionStructure(
+                    name, legs, sym,
+                    rationale="reconstruida por símbolos persistidos",
+                    max_risk=abs(net) * 100)
+
         if len(strikes) == 2:
             legs = []
             for s in strikes:

@@ -29,7 +29,6 @@ warnings.filterwarnings("ignore")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from data.feed import MarketDataFeed
-from config import get_config
 from options.chains import black_scholes_price, OptionType
 from strategies.smc import (SMCStrategy, detect_choch,
                               fractal_swing_points)
@@ -64,7 +63,7 @@ def earn_dates_for(sym, df):
     try:
         ret = np.log(df["close"] / df["close"].shift(1)).abs().reindex(df.index)
         out = []
-        for qname, grp in df.groupby(df.index.to_period("Q")):
+        for _qname, grp in df.groupby(df.index.to_period("Q")):
             if len(grp) < 20:
                 continue
             sub = ret.loc[grp.index].dropna()
@@ -483,7 +482,7 @@ SCENARIOS = {
                 tickers=UNI_RETO, risk_pct=0.15, max_pos=3, dte=21,
                 delta_l=0.30, delta_s=0.10, tp=1.5, sl=0.5,
                 max_rv=None, anti_earnings=True, comision=0.65),
-    "S51": dict(name="Benchmark hold tickers", motor="hold", window_days=90,
+    "S51": dict(name="Benchmark hold tickers semanal", motor="hold_weekly", window_days=90,
                 tickers=UNI_RETO, risk_pct=0.25, max_pos=8, dte=21,
                 delta_l=0.30, delta_s=0.10, tp=1.5, sl=0.5,
                 max_rv=None, anti_earnings=False),
@@ -768,7 +767,11 @@ def run_scenario(key: str, sc: dict, data: dict):
                 spread = build_spread(spot, sigma, d, sc, side=side)
                 if spread is None:
                     continue
-                if sc.get("min_net") and spread["net"] < sc["min_net"]:
+                # `net` está en USD por contrato (incluye multiplicador y
+                # margen). cheap_min_net evita spreads degenerados de prima
+                # casi cero en los universos de tickers baratos.
+                min_net = sc.get("min_net", sc.get("cheap_min_net"))
+                if min_net is not None and spread["net"] < min_net:
                     continue
                 risk_budget = equity * sc["risk_pct"]
                 if spread["net"] > min(risk_budget, equity * 0.5):
@@ -859,7 +862,6 @@ def run_scenario(key: str, sc: dict, data: dict):
                 if len(sub) < 110:
                     continue
                 sub_all[sym] = sub
-                smc_r = SMCStrategy()
                 r = rsi(sub["close"])
                 s200 = sma(sub["close"], 200)
                 is_bull = (pd.notna(r.iloc[-1]) and r.iloc[-1] > 50
@@ -1041,7 +1043,6 @@ def run_scenario(key: str, sc: dict, data: dict):
                     close_today = float(sub["close"].iloc[-1])
                     close_2d = float(sub["close"].iloc[-3]) if len(sub) >= 3 \
                         else close_today
-                    hi6_prev = float(sub["high"].iloc[-7:-1].max())
                     n_eval += 1
                     # velocidad de caída 2 días (pánico intradiario)
                     fast = close_2d > 0 and close_today / close_2d - 1 \
@@ -1399,7 +1400,6 @@ def main():
     parser.add_argument("--all", action="store_true")
     args = parser.parse_args()
 
-    cfg = get_config()
     feed = MarketDataFeed(os.environ.get("DATA_PROVIDER", "yfinance"))
     all_tickers = sorted({t for s in SCENARIOS.values() for t in s["tickers"]})
     print(f"Descargando {N_DIAS_HIST}d para {len(all_tickers)} tickers...")

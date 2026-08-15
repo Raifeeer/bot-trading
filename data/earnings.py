@@ -45,7 +45,7 @@ def get_earnings(symbol: str) -> dict:
     caché de 24 h."""
     now = time.time()
     entry = _cache.get(symbol)
-    if entry and (now - entry[0]) < 86400 and entry[1].get("earnings_date"):
+    if entry and (now - entry[0]) < 86400:
         return entry[1]
     info = _fetch(symbol)
     _cache[symbol] = (now, info)

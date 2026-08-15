@@ -1,7 +1,11 @@
+import sys
 import unittest
-from datetime import datetime
+from datetime import datetime, timezone
+from pathlib import Path
 
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from data.feed import MarketDataFeed
 
@@ -10,7 +14,7 @@ class TestMarketDataFeedCache(unittest.TestCase):
     def test_superset_history_is_reused_and_trimmed(self):
         feed = MarketDataFeed("alpaca")
         calls = []
-        base_end = pd.Timestamp(datetime.utcnow(), tz="UTC").floor("D")
+        base_end = pd.Timestamp(datetime.now(timezone.utc)).floor("D")
         frame = pd.DataFrame(
             {
                 "open": range(500),
