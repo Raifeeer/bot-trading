@@ -211,7 +211,14 @@ def _handle_message(text: str) -> None:
     elif txt in ("/start",):
         resp = HELP_TEXT
     else:
-        # Fallback conversacional con IA si está configurada
+        # Fallback conversacional con IA si está configurada. Este camino
+        # puede tardar 30-60s (fundamentales + análisis técnico + LLM), así
+        # que se avisa de inmediato para que no parezca que el bot no
+        # recibió el mensaje.
+        try:
+            _send("🤖 Dame unos segundos, estoy analizando…")
+        except Exception:  # noqa: BLE001
+            logger.exception("Fallo enviando aviso de 'analizando'")
         resp = None
         ai_resp = _ai_answer_with_timeout(text)
         if ai_resp:

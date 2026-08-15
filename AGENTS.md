@@ -892,3 +892,18 @@ Test de regresión en `tests/test_technical_snapshot.py` (datos OHLCV sintético
 yfinance no es alcanzable desde este sandbox): señal real devuelta, historial insuficiente
 devuelve vacío sin fallar, y un DataFrame malformado nunca lanza excepción. Suite completa:
 18/18.
+
+## 29. Aviso inmediato en Telegram mientras responde el asistente — 15 de agosto de 2026
+
+El usuario notó que el camino conversacional (fundamentales + análisis técnico + LLM, §28)
+tarda 30-60s, y durante ese tiempo Telegram no da ninguna señal de que el mensaje llegó.
+`_handle_message` ahora envía un aviso inmediato (`"🤖 Dame unos segundos, estoy
+analizando…"`) justo antes de `_ai_answer_with_timeout`, solo en el camino lento (los
+comandos fijos, que responden al instante, no lo necesitan y no lo envían).
+
+Test de regresión en `tests/test_telegram_ack_message.py`: mockea `_send` y
+`_ai_answer_with_timeout` para verificar el orden (aviso antes de la llamada lenta) y que
+los comandos conocidos no disparan el aviso. Suite completa: 20/20.
+
+Desplegado junto con §28 en `polaris-bot-00061-qgn` (§28) y la revisión siguiente (§29,
+pendiente de confirmar el número exacto al cerrar esta sección).
