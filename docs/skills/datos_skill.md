@@ -6,6 +6,8 @@
 
 El feed es multi-proveedor con degradación automática por ticker: Alpaca data API como principal configurado (`data.provider: alpaca`), yfinance como respaldo universal. El motivo histórico: el **plan free de datos de Alpaca rechaza el stream SIP reciente** con el error `"subscription does not permit querying recent SIP data"`, así que en la práctica yfinance es el proveedor que más se usa y Alpaca queda para órdenes y snapshot de cuenta.
 
+`MarketDataFeed` mantiene una caché en memoria por `(símbolo, timeframe)` y reutiliza un histórico superset fresco, recortándolo a la ventana solicitada. Los TTL conservadores son `1d=900s`, `15min=600s`, `5min=240s` y `1min=45s`; se pueden sobreescribir para pruebas con `FEED_CACHE_TTL_SECONDS`. La caché se pierde al reiniciar el contenedor y no sustituye a un stream de mercado: solo evita descargas repetidas durante ticks cercanos.
+
 | Tiempo | Uso en el bot | Ventana descargada por tick |
 |---|---|---|
 | `1d` | Swing + régimen S78 (SMA200, ATR, CHoCH estructural) | 100 días (para 1d bastan; el régimen pide 400 días en su ruta propia) |
@@ -19,9 +21,9 @@ La fuente de inestabilidad nº1 del sistema es el market data de Yahoo. Tres cap
 
 1. **Socket timeout por ticker:** `fetch_yfinance` fuerza `socket.setdefaulttimeout(45)` durante la descarga de cada ticker y lo restaura después. Yahoo puede colgarse sin lanzar excepción; sin esto, un solo ticker congelado paraliza el tick.
 2. **Tolerancia por timeframe:** si un timeframe no devuelve datos, el tick **continúa** con los demás timeframes y reintenta el fallido en el siguiente ciclo. Nunca se mata un tick completo por un proveedor lento.
-3. **Watchdog de 12 minutos:** un hilo fuerza `sys.exit(1)` si no hay un tick completo en 12 minutos; Cloud Run recrea el contenedor (minScale=1). Existe precisamente porque yfinance puede colgarse silenciosamente.
+3. **Watchdog de 25 minutos:** un hilo fuerza `sys.exit(1)` si no hay un tick completo en 25 minutos; Cloud Run recrea el contenedor (minScale=1). Existe precisamente porque yfinance puede colgarse silenciosamente. Los ticks regulares con caché deben ser más cortos, pero el primer tick en frío puede acercarse al límite.
 
-La consecuencia operativa: un tick completo dura típicamente **10–12 minutos** (las descargas de 1d para el régimen dominan), dentro de la ventana de 25 minutos del watchdog. Es normal; no alarmarse si los ticks no salen cada 5 minutos exactos.
+La consecuencia operativa: antes de la caché un tick completo duraba típicamente **10–12 minutos** (las descargas de 1d para el régimen dominaban), dentro de la ventana de 25 minutos del watchdog. La prueba aislada de caché confirma que la consulta de 100 días reutiliza el histórico de 400 días sin una segunda descarga. Medir Cloud Logging antes de reducir TTL o cambiar el proveedor.
 
 ## 3. El snapshot de cuenta de Alpaca
 

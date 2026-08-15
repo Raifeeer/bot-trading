@@ -9,6 +9,7 @@ Todos los datos se normalizan a un DataFrame con columnas:
 """
 import logging
 import os
+import threading
 from datetime import datetime, timedelta
 
 import pandas as pd
@@ -160,6 +161,55 @@ class MarketDataFeed:
         # querying recent SIP data"). Alpaca se usa para órdenes y cuenta.
         self.provider = provider or os.environ.get("DATA_PROVIDER", "yfinance")
         self._cache = {}
+        self._history_cache = {}
+        self._history_lock = threading.Lock()
+        self._cache_ttl_override = os.environ.get("FEED_CACHE_TTL_SECONDS")
+
+    def _history_ttl(self, timeframe: str) -> float:
+        """TTL por timeframe; se puede sobreescribir para pruebas/producción."""
+        if self._cache_ttl_override:
+            try:
+                return max(0.0, float(self._cache_ttl_override))
+            except ValueError:
+                logger.warning("FEED_CACHE_TTL_SECONDS inválido: %s",
+                               self._cache_ttl_override)
+        return {"1min": 45.0, "5min": 240.0,
+                "15min": 600.0, "1d": 900.0,
+                "1day": 900.0}.get(timeframe, 300.0)
+
+    @staticmethod
+    def _utc(value):
+        ts = pd.Timestamp(value)
+        return ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
+
+    def _history_cached(self, symbol: str, timeframe: str,
+                        start: str, end: str, days: int):
+        """Devuelve una ventana reciente si hay un histórico superset fresco."""
+        key = (symbol, timeframe)
+        now = datetime.utcnow().timestamp()
+        with self._history_lock:
+            entry = self._history_cache.get(key)
+            if not entry or now - entry["fetched_at"] > self._history_ttl(timeframe):
+                return None
+            if entry["days"] < days:
+                return None
+            df = entry["df"]
+        start_ts = self._utc(start)
+        end_ts = self._utc(end or datetime.utcnow())
+        return df.loc[(df.index >= start_ts) & (df.index <= end_ts)].copy()
+
+    def _history_store(self, symbol: str, timeframe: str,
+                       days: int, df: pd.DataFrame):
+        key = (symbol, timeframe)
+        with self._history_lock:
+            previous = self._history_cache.get(key)
+            if previous and previous["days"] > days:
+                return
+            self._history_cache[key] = {
+                "days": days,
+                "fetched_at": datetime.utcnow().timestamp(),
+                "df": df.copy(),
+            }
 
     def _segmented(self, symbol: str, timeframe: str, start: str,
                    end: str = None) -> pd.DataFrame:
@@ -232,12 +282,22 @@ class MarketDataFeed:
 
         def _one(s):
             try:
-                return s, self.bars(s, timeframe, start, end.isoformat())
+                cached = self._history_cached(s, timeframe, start,
+                                              end.isoformat(), days)
+                if cached is not None and not cached.empty:
+                    logger.debug("Cache hit %s %s (%d barras)",
+                                 s, timeframe, len(cached))
+                    return s, cached
+                df = self.bars(s, timeframe, start, end.isoformat())
+                self._history_store(s, timeframe, days, df)
+                return s, df
             except Exception as e:  # noqa: BLE001
                 if self.provider != "yfinance":
                     logger.warning("%s: %s (%s) — reintento con yfinance", s, type(e).__name__, e)
                     try:
-                        return s, fetch_yfinance(s, timeframe, start, end.isoformat())
+                        df = fetch_yfinance(s, timeframe, start, end.isoformat())
+                        self._history_store(s, timeframe, days, df)
+                        return s, df
                     except Exception as e2:  # noqa: BLE001
                         logger.error("%s sin datos (ningún proveedor): %s", s, e2)
                 else:

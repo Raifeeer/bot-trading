@@ -136,7 +136,7 @@ Base de datos Native `polaris` en `gen-lang-client-0746441136`. El bot escribe c
 }
 ```
 
-Las reglas de seguridad permiten lectura pública con la API key del dashboard (Firebase web config en `client/src/lib/firestore.ts` del repo `polaris-options-dashboard`). El dashboard tiene un fallback de datos demo que se muestra solo mientras no exista el documento del día.
+Las reglas de seguridad permiten lectura pública con la API key del dashboard (Firebase web config en `client/src/lib/firestore.ts` del repo `polaris-options-dashboard`). Si no existe el documento del día, el dashboard debe mostrar estado vacío explícito (`—`) y nunca datos demo o inventados.
 
 ## 7. Configuración del objetivo actual (reto $100 → $200)
 
@@ -224,7 +224,7 @@ Proyecto `polaris-options-dashboard` desplegado en `polaris-options-dashboard.ve
 
 | Síntoma | Causa raíz | Solución aplicada |
 |---|---|---|
-| El bot se congela cada ~50 min sin morir ni loguear | `yfinance` sin timeout se cuelga en descargas Yahoo | Socket timeout 45 s por ticker + watchdog de 12 min que reinicia el proceso |
+| El bot se congela cada ~50 min sin morir ni loguear | `yfinance` sin timeout se cuelga en descargas Yahoo | Socket timeout 45 s por ticker + watchdog de 25 min que reinicia el proceso |
 | `AttributeError: 'DayMomentum' object has no attribute 'cfg'` | El loop accedía a `strat.base.cfg` inexistente | Usar `strat.timeframe` / `strat.base.timeframe` |
 | `NameError: threading` al arrancar | Watchdog usa `threading.Thread` sin import | `import threading` en `bot.py` |
 | `UnboundLocalError: skip_tick` | Variable usada fuera de scope tras reordenar el loop | Calcular `skip_tick` antes de usarla |
@@ -240,6 +240,10 @@ Proyecto `polaris-options-dashboard` desplegado en `polaris-options-dashboard.ve
 | LCID/MARA producían spreads degenerados en el simulador | Vol. histórica ~150% empuja strikes muy OTM (46%) y el spread net cae a ~0 | `max_vol_pct: 100` y exclusión explícita de LCID/MARA del universo reto |
 | Comisiones de $0.65/pata comen el edge en spreads baratos | $2.60 por spread (entr+sal × 2 patas) = 6-33% del capital | Modeladas en S50/S56/S69; puts con comisiones solo break-even (+2.6%) |
 
+### 10.1 Mejora de feeds preparada el 15 ago 2026
+
+`data/feed.py` incorpora una caché en memoria por símbolo/timeframe con TTL por defecto de 900 s para `1d`, 600 s para `15min`, 240 s para `5min` y 45 s para `1min`. Un histórico superset de 400 días reutiliza la misma descarga para el régimen y la consulta de 100 días de swing; una prueba aislada confirmó una sola descarga y un recorte correcto. La caché se pierde al reiniciar el contenedor, no modifica señales ni riesgo y todavía no está desplegada en Cloud Run: primero deben completarse los dos ticks limpios de la revisión 00054 y una revisión de latencia con Cloud Logging.
+
 ## 11. Skills detalladas (para orquestación por otro agente)
 
 El directorio **`docs/skills/`** contiene la documentación exhaustiva de cada criterio, estrategia y mecanismo del sistema, pensada para que un agente futuro pueda operar, diagnosticar o extender el bot sin perder contexto:
@@ -251,10 +255,10 @@ El directorio **`docs/skills/`** contiene la documentación exhaustiva de cada c
 | `docs/skills/regime_s78_skill.md` | Régimen S78, crash_event 3% + cool-down 5d, stop intradiario 4%, guarda de piso $99,900 |
 | `docs/skills/riesgo_skill.md` | RiskManager: circuit breakers, sizing 5%, TP/SL de prima, anti-earnings |
 | `docs/skills/backtest_skill.md` | Metodología de ventanas, resultados S1–S89, estrés E1–E4, umbrales 4/6/8/10% |
-| `docs/skills/datos_skill.md` | Feed yfinance/Alpaca, timeouts, watchdog, decisiones deliberadas (sin TradingView) |
+| `docs/skills/datos_skill.md` | Feed yfinance/Alpaca, caché TTL por timeframe, timeouts, watchdog, decisiones deliberadas (sin TradingView) |
 | `docs/skills/infra_skill.md` | Build/deploy Cloud Run, traps de envs, deploy estático de Vercel, credenciales |
 | `docs/skills/dashboard_telegram_skill.md` | Contrato Firestore ↔ dashboard, comandos Telegram, asistente IA con fallbacks |
-| `docs/skills/estado_operativo_skill.md` | **PUNTO DE ENTRADA para agentes nuevos**: mapa del sistema, incidente Firestore activo (14 ago 2026) y plan de reanudación |
+| `docs/skills/estado_operativo_skill.md` | **PUNTO DE ENTRADA para agentes nuevos**: mapa del sistema, incidente Firestore resuelto (14–15 ago 2026), limpieza pendiente y plan de reanudación |
 
 ## 12. Cómo operar este sistema un nuevo agente
 
