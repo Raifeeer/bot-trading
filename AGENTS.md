@@ -540,7 +540,7 @@ Logging que el mensaje "Reconciliación al arrancar: N posición(es) reconstruid
 en el primer tick tras el despliegue, y que el spread de TQQQ ya detectado pasa a aparecer
 en `state["positions"]` (verificable en `/diag/state` o en el próximo snapshot de
 Firestore).
-## 19. Pendiente prioritario: evaluar TradingAgents frente a Polaris — plan para otro agente
+## 21. Pendiente prioritario: evaluar TradingAgents frente a Polaris — plan para otro agente
 
 **Estado:** pendiente; no iniciar automáticamente el despliegue ni modificar la estrategia productiva. El objetivo es comprobar con datos reproducibles si TradingAgents aporta valor incremental sobre Polaris, no asumir que una arquitectura multiagente implica rentabilidad.
 
@@ -611,3 +611,61 @@ Repetir B0 con varias réplicas del mismo snapshot o con temperatura/configuraci
 [TA1]: https://github.com/TauricResearch/TradingAgents "Repositorio y README oficial de TradingAgents"
 [TA2]: https://arxiv.org/abs/2412.20138 "Paper original: TradingAgents: Multi-Agents LLM Financial Trading Framework"
 [TA3]: https://github.com/TauricResearch/TradingAgents/blob/main/CHANGELOG.md "Changelog y versiones del framework"
+
+## 22. Fix desplegado y segundo bug descubierto en el primer tick real — 15 de agosto de 2026
+
+La revisión `polaris-bot-00057-hgt` (fix de §20) se construyó vía `gcloud builds submit
+--config cloudbuild.yaml .` (el build local con `docker build` falla en este sandbox: el
+contenedor no confía en el certificado de la intercepción de red del entorno) y se desplegó
+con `gcloud run services update`. Verificado en Cloud Logging: instancia nueva arrancada
+por `min-instances`, Alpaca conectado, y el log esperado apareció:
+
+```
+Reconciliación al arrancar: 1 posición(es) reconstruida(s) desde Alpaca que no estaban en el estado local
+Reconciliación: reconstruida posición TQQQ (call_spread_TQQQ_85.0_100.0) desde Alpaca
+```
+
+El fix de §20 funciona. Pero al gestionar por primera vez esa posición real, el tick se
+cayó con un error nuevo, nunca antes visto en producción porque `state["positions"]` había
+estado vacío desde siempre:
+
+```
+bot ERROR Error gestionando posición TQQQ: 'MarketDataFeed' object has no attribute 'snapshots'
+```
+
+**Causa:** `_manage_open_position(feed, builder, strat, pos)` en `bot.py` llamaba
+`feed.snapshots(contracts, spot)` sobre `feed`, que es el `MarketDataFeed` (datos de
+acciones, solo expone `history()`). `snapshots()` es un método de `OptionFeed` (cadenas de
+opciones), accesible como `builder.feed` (`SpreadBuilder.__init__` guarda `self.feed =
+feed` con el `OptionFeed`). Corregido a `builder.feed.snapshots(contracts, spot)`.
+
+**Segundo bug encontrado al escribir el test de regresión, sin ejecutar ni desplegar
+todavía cuando se detectó:** la línea siguiente, `net = abs(net) * (-1 if st.direction ==
+"bear" and st.kind == "vertical" else 1)`, referencia `st.direction` y `st.kind`, atributos
+que **no existen** en la dataclass `OptionStructure` (`options/chains.py`, campos reales:
+`name, legs, underlying, rationale, max_risk, max_profit, breakevens`). Esta línea habría
+lanzado `AttributeError` para *cualquier* posición gestionada, reconciliada o no — es
+anterior al bug de §20 y nunca se había ejecutado en producción por la misma razón: nunca
+hubo una posición real en `state["positions"]` para gestionar. El valor `net` que computaba
+el bucle previo tampoco se usaba después: `evaluate_exit()` recalcula la prima actual
+internamente desde `current_structure.net_premium` (property de `OptionStructure`, ya
+actualizada por el `snapshots()` recién corregido). Se eliminó la línea rota y se conservó
+solo la guarda útil del bucle (no evaluar salida si alguna pata no tiene cotización válida
+— `OptionContract.mid` cae a `0.0` sin bid/ask/last, lo que dispararía un TP/SL falso).
+
+**Conclusión: la gestión de TP/SL/DTE de posiciones de opciones nunca había funcionado en
+producción**, para ninguna posición, desde que existe este código — no por el bug de estado
+efímero (§20) sino porque el propio `_manage_open_position` crasheaba en la primera llamada
+real. Los dos bugs se enmascaraban mutuamente: sin §20 nunca se llamaba a la función; con
+§20 arreglado pero sin este segundo fix, se habría descubierto en cuanto hubiera una
+posición gestionable, real o reconciliada.
+
+Test de regresión en `tests/test_manage_open_position.py`: un doble de `MarketDataFeed` sin
+método `snapshots()` (para que el primer bug reviente si reaparece) contra un doble de
+`SpreadBuilder`/`OptionFeed` que sí lo tiene, verificando que la llamada completa sin
+lanzar excepción. Suite completa: 11/11 (`test_regime_s78.py` sigue excluido por el
+`SyntaxError` preexistente de §14.2, no relacionado).
+
+**Pendiente inmediato:** desplegar este segundo fix (aún no construido ni desplegado al
+cerrar esta sección) y verificar en Cloud Logging que la posición TQQQ reconciliada se
+gestiona sin error en el próximo tick.

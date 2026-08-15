@@ -300,17 +300,14 @@ def _manage_open_position(feed, builder, strat, pos):
     # Reconstruir la estructura con los strikes guardados en el spread
     st = builder.vertical_spread_from(pos)
     contracts = [leg.contract for leg in st.legs]
-    contracts = feed.snapshots(contracts, spot)
-    # Recalcular prima neta actual del spread
-    net = 0.0
+    contracts = builder.feed.snapshots(contracts, spot)
+    # Guarda: si alguna pata no tiene cotización válida, no evaluar salida
+    # con datos ausentes (evaluate_exit usa st.net_premium, que cae a 0.0
+    # sin bid/ask/last y dispararía un TP/SL falso).
     for leg in st.legs:
         c = leg.contract
-        px = c.last or ((c.bid + c.ask) / 2.0 if c.bid and c.ask else None)
-        if px is None:
+        if c.last is None and (c.bid is None or c.ask is None):
             return None, ""
-        sign = 1 if leg.quantity > 0 else -1
-        net += sign * px
-    net = abs(net) * (-1 if st.direction == "bear" and st.kind == "vertical" else 1)
     if entry_premium <= 0:
         entry_premium = 1e-9
     # Recalcular días al vencimiento (usar la expiración de la pata short/lejana)
