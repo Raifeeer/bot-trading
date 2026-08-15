@@ -101,11 +101,13 @@ su etiqueta declara, y que nadie propondría operar.
 Respaldo del documento anterior tomado antes de sobrescribir. S51 ya no aparece en la lista
 (con +3.6% queda fuera del top 30).
 
-**Cautela pendiente:** la lista sigue ordenada por retorno descendente, así que su primer
-elemento es ahora S16 (+101.7%, 3 trades). El problema del ruido no desaparece: se movió
-del campo `best` a la cabecera de la lista. Conviene evaluar un filtro de muestra mínima
-(p. ej. descartar escenarios con menos de 10 operaciones) antes de que el dashboard lo
-muestre como si fuera un resultado destacable.
+**Cautela cerrada (segunda pasada, 2026-08-15T14:15:14Z):** el primer republicado dejaba la
+lista `scenarios` ordenada por retorno con S16 (+101.7%, 3 trades) a la cabeza — el ruido no
+había desaparecido, solo se había movido del campo `best` al tope de la lista. Se añadió un
+filtro de muestra mínima (`trades >= 10`) antes del `nlargest`, documentado en el campo
+`nota`. Resultado: la lista pasa de 30 a **25 elementos** (89 → 25, tras excluir los que no
+llegan al mínimo) y su cabecera es ahora **S30 (+80.5%, 49 trades, dd −42.7%)** — un retorno
+igual de alto, pero respaldado por muestra real en vez de tres operaciones sueltas.
 
 ## 6. Qué NO cambia este hallazgo
 

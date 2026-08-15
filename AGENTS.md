@@ -488,10 +488,10 @@ alterar el renderizado, y se añadieron dos campos nuevos: `corpus` (mediana 0.0
 +13.3%, 41/89 positivos, 28 sin operar) y `nota` con la advertencia de proxies
 Black–Scholes. Respaldo del documento previo tomado antes de sobrescribir.
 
-**Cautela abierta:** la lista sigue ordenada por retorno descendente, así que su cabecera es
-ahora S16 (+101.7%, 3 trades). El ruido no desapareció, se movió de `best` a la cabecera de
-la lista; evaluar un filtro de muestra mínima (p. ej. ≥10 operaciones) antes de darlo por
-cerrado.
+**Cautela cerrada (segunda pasada):** el republicado inicial dejaba S16 (+101.7%, 3 trades)
+a la cabeza de `scenarios` — el ruido solo se había movido de `best` a la lista. Se añadió
+un filtro `trades >= 10` antes de seleccionar el top; la lista bajó de 30 a 25 elementos y
+su cabecera pasó a **S30 (+80.5%, 49 trades, dd −42.7%)**, con muestra real.
 
 **Lo que este hallazgo NO levanta:** siguen vigentes todas las advertencias de §14.3 y §16
 — primas Black–Scholes en vez de cadenas point-in-time, earnings no point-in-time, ausencia
