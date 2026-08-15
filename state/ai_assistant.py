@@ -276,10 +276,11 @@ def _build_context() -> str:
 
 
 def _fundamentals(text: str) -> str:
-    """Contexto fundamental on-demand con límite de tiempo. El cuerpo lento
-    (_fundamentals_slow) corre en un thread; si tarda >15 s se aborta y se
-    devuelve un aviso breve, protegiendo el presupuesto de tiempo del hilo
-    de Telegram (45 s en total)."""
+    """Contexto de mercado on-demand (fundamentales + técnico real del
+    motor) con límite de tiempo. El cuerpo lento (_fundamentals_slow) corre
+    en un thread; si tarda >15 s se aborta y se devuelve un aviso breve,
+    protegiendo el presupuesto de tiempo del hilo de Telegram (45 s en
+    total)."""
     import threading as _th
     box = [None]
     def _worker():
@@ -292,13 +293,66 @@ def _fundamentals(text: str) -> str:
     tw.join(15)
     if tw.is_alive():
         logger.warning("_fundamentals tardó >15s; se omite para %r", text[:40])
-        return "DATOS FUNDAMENTALES: sin datos (consulta omitida por tiempo)."
+        return "DATOS DE MERCADO: sin datos (consulta omitida por tiempo)."
     return box[0] or ""
 
 
+def _technical_snapshot(sym: str, hist) -> str:
+    """Señal técnica real del motor para `sym`, reutilizando el mismo
+    código que decide operaciones en vivo (nunca un análisis aparte
+    inventado para el chat): SwingTrend.scan() (strategies/swing_trading.py,
+    la estrategia 'swing_trend' que corre en producción) y detect_choch()
+    (strategies/smc.py, usado por risk/regime.py para clasificar el
+    régimen). `hist` es el DataFrame OHLCV de 1y ya descargado por
+    _fundamentals_slow — no se hace una segunda descarga."""
+    from strategies.base import SignalType
+    from strategies.swing_trading import SwingTrend
+    from strategies.smc import detect_choch
+
+    try:
+        df = hist.rename(columns=str.lower)[["open", "high", "low", "close", "volume"]].dropna()
+    except Exception:  # noqa: BLE001
+        return ""
+    if len(df) < 60:
+        return ""
+
+    rsi14 = None
+    try:
+        import ta
+        rsi14 = float(ta.momentum.RSIIndicator(df["close"], 14).rsi().iloc[-1])
+    except Exception:  # noqa: BLE001
+        pass
+
+    choch = "sin datos suficientes"
+    try:
+        choch = detect_choch(df) or "sin CHoCH reciente"
+    except Exception:  # noqa: BLE001
+        pass
+
+    sig_line = "sin señal (menos de 205 velas de historia)"
+    try:
+        strat = SwingTrend({})
+        sig = strat.scan(df, symbol=sym)
+        if sig.signal_type != SignalType.NONE:
+            sig_line = f"{sig.signal_type.value} — {sig.reason}"
+        else:
+            sig_line = "NONE — no cumple las condiciones de entrada ahora mismo"
+    except Exception:  # noqa: BLE001
+        logger.exception("Fallo evaluando SwingTrend para %s", sym)
+
+    return (
+        "ANÁLISIS TÉCNICO (mismo código que usa el motor para decidir, "
+        "NO una opinión aparte del chat):\n"
+        f"- {sym}: señal swing_trend actual: {sig_line}\n"
+        f"- estructura (CHoCH): {choch}\n"
+        + (f"- RSI14: {rsi14:.1f}\n" if rsi14 is not None else "")
+    )
+
+
 def _fundamentals_slow(text: str) -> str:
-    """Cuerpo lento de la consulta fundamental: yfinance (P/E, SMA200,
-    earnings) para el primer ticker candidato válido del texto."""
+    """Cuerpo lento de la consulta de mercado: yfinance (P/E, SMA200,
+    earnings) + análisis técnico real del motor (_technical_snapshot) para
+    el primer ticker candidato válido del texto."""
     import re
     from data.earnings import get_earnings
 
@@ -327,12 +381,13 @@ def _fundamentals_slow(text: str) -> str:
             px = getattr(fi, "last_price", None)
             if px is None or px <= 0:
                 continue  # palabra falsa o símbolo inexistente
-            hist = None
+            hist_full = None
             sma200 = None
             try:
-                hist = t.history(period="1y")["Close"]
-                if len(hist) >= 200:
-                    sma200 = float(hist.iloc[-200:].mean())
+                hist_full = t.history(period="1y")
+                close = hist_full["Close"]
+                if len(close) >= 200:
+                    sma200 = float(close.iloc[-200:].mean())
             except Exception:  # noqa: BLE001
                 pass
             pe = getattr(fi, "trailing_pe", None)
@@ -346,6 +401,8 @@ def _fundamentals_slow(text: str) -> str:
                           f" · P/E trailing: {round(pe, 2)}" if pe else "") + (
                           f" · Próximo earnings: {earnings['earnings_date']}"
                           if earnings.get("earnings_date") else "")
+            if hist_full is not None and not hist_full.empty:
+                result += "\n" + _technical_snapshot(sym.upper(), hist_full)
             _fund_cache[norm] = (time.time(), result)
             return result
         except Exception:  # noqa: BLE001

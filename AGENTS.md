@@ -855,3 +855,40 @@ le otorgue `roles/secretmanager.secretAccessor` a la service account del bot
 (`173223792589-compute@developer.gserviceaccount.com`) sobre esos dos secretos específicos,
 si el usuario quiere que esos fallbacks funcionen de verdad. DeepSeek (la clave primaria,
 vía variable de entorno directa) no depende de Secret Manager y no se ve afectado.
+
+## 28. Asistente de Telegram: análisis técnico real, no solo fundamentales — 15 de agosto de 2026
+
+Tras diagnosticar el retraso de §27, el usuario preguntó honestamente qué usa hoy el bot
+para contexto general/fundamentos/noticias al operar y al responder por Telegram. Respuesta
+verificada en código, no supuesta: **para decidir operaciones reales, el motor es 100%
+análisis técnico de precio** (SMC/CHoCH, cruces de medias, RSI, ATR, Donchian, volumen); el
+único filtro no técnico es la *fecha* del próximo earnings (`data/earnings.py`, vía
+yfinance), nunca su contenido. **No hay noticias, fundamentales de negocio ni sentimiento
+en el loop de trading en ningún punto.**
+
+El asistente de Telegram (`state/ai_assistant.py::answer()`) solo agregaba, si detectaba un
+ticker en el mensaje, una consulta puntual a yfinance (precio, SMA200, P/E trailing, fecha
+de earnings) vía `_fundamentals()`/`_fundamentals_slow()` — sin análisis técnico real ni
+señal del motor.
+
+**Ampliación pedida por el usuario (alcance elegido: "ampliar lo que ya hay", sin costo
+extra — sigue siendo yfinance + DeepSeek, ningún proveedor nuevo):** nueva función
+`_technical_snapshot(sym, hist)` que reutiliza literalmente el mismo código que decide
+operaciones en producción — `SwingTrend.scan()` (`strategies/swing_trading.py`, la
+estrategia `swing_trend` real) y `detect_choch()` (`strategies/smc.py`, el mismo usado por
+`risk/regime.py` para clasificar el régimen) — sobre los datos OHLCV de 1 año que
+`_fundamentals_slow` ya descarga (sin segunda descarga, sin costo de red adicional).
+Devuelve la señal real (LONG/EXIT/NONE con su razón), el estado de CHoCH y el RSI14. El
+prompt al LLM lo etiqueta explícitamente como "mismo código que usa el motor para decidir,
+NO una opinión aparte del chat", para que el LLM no lo trate como un análisis
+independiente inventado.
+
+No se implementaron noticias reales ni búsqueda web (opciones descartadas por el usuario en
+esta ronda por requerir suscripción externa y mayor riesgo de alucinación): siguen sin
+existir en el bot. Si se quieren en el futuro, requieren una API de noticias de pago y
+presupuesto de tokens adicional por resumen.
+
+Test de regresión en `tests/test_technical_snapshot.py` (datos OHLCV sintéticos, ya que
+yfinance no es alcanzable desde este sandbox): señal real devuelta, historial insuficiente
+devuelve vacío sin fallar, y un DataFrame malformado nunca lanza excepción. Suite completa:
+18/18.
