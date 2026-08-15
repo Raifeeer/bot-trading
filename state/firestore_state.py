@@ -49,7 +49,9 @@ def write_state_snapshot(payload: dict) -> None:
             "updated_at": datetime.now(timezone.utc).isoformat(),
             "payload": payload,
         }
-        db.collection("polaris").document(day).set(doc, merge=True)
+        db.collection("polaris").document(day).set(
+            doc, merge=True, timeout=30.0)
+        logger.info("Estado escrito en Firestore: polaris/%s", day)
     except Exception as e:  # nunca bloquear el bot por el estado
         logger.warning("Fallo al escribir estado en Firestore: %s", e)
 
