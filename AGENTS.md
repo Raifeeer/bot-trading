@@ -764,3 +764,60 @@ Suite completa: 13/13.
 Logging que un tick realmente colgado (o uno simulado) termina con la instancia
 reiniciándose de verdad (nueva entrada "Starting new instance" en el log del servicio, no
 solo el mensaje CRITICAL).
+
+## 26. Cierre manual de la posición legacy de TQQQ — 15 de agosto de 2026
+
+Con los tres fixes de §20/§22/§24 desplegados y verificados, el usuario preguntó por el
+estado operativo real: equity $99,689.15, por debajo del **piso de $99,900** que
+`risk/floor.py` ya protege correctamente (bloquea nuevas entradas mientras `equity <
+floor`, verificado en `bot.py:540`). La causa era el spread de TQQQ (long 10x
+`TQQQ260918C00085000` @2.32 / short 10x `TQQQ260918C00100000` @0.35, prima neta ~$1,970)
+con -$310 no realizado.
+
+**Diagnóstico: esa posición no puede haberla abierto el código actual.** `_option_order_specs`
+en `bot.py` construye `qty: abs(int(leg.quantity))`, y `SpreadBuilder.vertical_spread` crea
+`Leg(l, +1)` / `Leg(s, -1)` — cantidad fija ±1 por pata. El código de hoy nunca puede pedir
+10 contratos. Es un resto de una versión anterior de `bot.py` (previa a la calibración del
+perfil `options_reto`), que quedó abierta en la cuenta paper y que la reconciliación de §20
+detectó y empezó a gestionar por primera vez.
+
+**Acción, autorizada explícitamente por el usuario:** cerrar la posición para restablecer
+el equity y liberar el piso. Con el mercado cerrado (próxima apertura 2026-08-17 09:30 ET),
+se intentó primero con dos órdenes limit independientes (`sell_to_close` 85C, luego
+`buy_to_close` 100C) — **ambas rechazadas por Alpaca con
+`account not eligible to trade uncovered option contracts`**: cerrar una pata del spread
+por separado deja la otra momentáneamente descubierta (naked), y el nivel de opciones de
+esta cuenta paper no lo permite, incluso como orden de cierre. La solución fue una **orden
+multi-pata** (`order_class=OrderClass.MLEG`, dos `OptionLegRequest` con `position_intent`
+`sell_to_close`/`buy_to_close`), que cierra ambas patas atómicamente:
+
+```
+multi-leg close: 8777c641-b53e-47c3-ad1c-d884e9dee3b7 · ACCEPTED
+  leg TQQQ260918C00085000 SELL qty=10
+  leg TQQQ260918C00100000 BUY  qty=10
+limit_price neto: $1.66/contrato (recupera ~$1,660 de los $2,010 comprometidos)
+time_in_force: GTC (mercado cerrado; se ejecutará en la apertura del lunes si el precio
+  se mantiene cerca del actual)
+```
+
+**Nota técnica para futuras órdenes manuales de cierre de spreads en esta cuenta:** nunca
+enviar las dos patas como órdenes `simple` independientes — Alpaca las evalúa contra el
+nivel de opciones aprobado de forma individual y rechaza la que, vista aislada, dejaría una
+pata sin cobertura. Usar siempre `OrderClass.MLEG` con ambas patas en la misma request.
+
+**Pendiente de verificar el lunes 17 de agosto tras la apertura:**
+1. Que la orden `8777c641-...` se ejecute (o ajustar/cancelar si el precio se movió mucho
+   durante el fin de semana).
+2. Que el equity vuelva a estar por encima de $99,900 y el piso se libere
+   (`regime.floor.below_floor = false`, notificación "PISO RECUPERADO" por Telegram).
+3. **Posible duplicado a vigilar:** el estado local del bot (`state["positions"]`) sigue
+   teniendo esta posición reconciliada desde §20. Si el tick del lunes evalúa su TP/SL
+   antes de que el cierre manual se refleje, `_manage_open_position` podría intentar cerrar
+   la misma posición otra vez. No es grave (Alpaca rechazaría una orden de cierre sin
+   posición viva, y el except de `bot.py` ya captura y loguea sin tumbar el tick), pero
+   conviene revisar los logs del primer tick del lunes para confirmarlo.
+4. La notificación "PISO ROTADO" de `risk/floor.py` depende de `state["_floor_below"]`
+   persistido en `data/bot_state.json` (filesystem efímero, mismo problema estructural que
+   §20): cada redeploy con equity ya bajo el piso puede volver a disparar la notificación
+   de "cruce" en falso. No se corrigió en esta sesión; queda como hallazgo menor para
+   revisión futura.
