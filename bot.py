@@ -431,15 +431,23 @@ def main():
     # descargas con fallback a yfinance por ticker). Los ticks regulares con
     # cache terminan en 5-7 min; si un tick excede 25 min el proceso está de
     # verdad colgado y el watchdog lo reinicia.
-    import sys as _sys
     _hb = {"ts": [time.time()]}
     def _watchdog():
+        # Usar SIEMPRE os._exit(), nunca el exit() del módulo sys: el
+        # watchdog corre en un hilo daemon secundario, y el exit() de sys
+        # lanza SystemExit, que el excepthook por defecto de threading
+        # ignora en silencio fuera del hilo principal (no termina el
+        # proceso ni los demás hilos); comprobado en vivo el
+        # 15 ago 2026: el bot quedó colgado 37s después del log CRITICAL de
+        # "reiniciando el proceso", que en realidad no reiniciaba nada. Solo
+        # os._exit() mata el proceso completo a nivel de SO sin importar qué
+        # hilo lo invoque.
         while True:
             time.sleep(60)
             if time.time() - _hb["ts"][-1] > 1500:
                 logger.critical("Watchdog: sin ticks completos en 25 min; "
                                 "reiniciando el proceso")
-                _sys.exit(1)
+                os._exit(1)
             # Hilo de Telegram: si no actualiza su heartbeat en 10 min
             # (p.ej. socket colgado esperando a DeepSeek), reiniciar el
             # proceso para recrear el hilo TG fresco.
@@ -450,7 +458,7 @@ def main():
                     logger.critical("Watchdog TG: hilo de Telegram congelado "
                                     "más de %.0f s; reiniciando el proceso",
                                     TG_HB_TIMEOUT_S)
-                    _sys.exit(1)
+                    os._exit(1)
             except Exception:  # noqa: BLE001
                 pass
     threading.Thread(target=_watchdog, daemon=True, name="watchdog").start()

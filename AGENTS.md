@@ -670,8 +670,7 @@ lanzar excepción. Suite completa: 11/11 (`test_regime_s78.py` sigue excluido po
 cerrar esta sección) y verificar en Cloud Logging que la posición TQQQ reconciliada se
 gestiona sin error en el próximo tick.
 
-
-## 20. Auditoría de procedencia del dashboard Polaris — 15 de agosto de 2026
+## 23. Auditoría de procedencia del dashboard Polaris — 15 de agosto de 2026
 
 **Estado:** el código fuente original del dashboard no fue localizado en la sandbox, GitHub ni en la configuración del proyecto Vercel. No crear un falso repositorio a partir de un bundle minificado; conservar el bundle solo como evidencia temporal hasta recuperar la fuente real.
 
@@ -709,3 +708,59 @@ No se debe mostrar ningún sufijo de API key en el dashboard. El panel debe most
 ### 20.5 Evidencia guardada localmente
 
 La auditoría del bundle está en `/tmp/polaris-dashboard-audit/` durante esta sesión y contiene `index.html`, los assets JS descargados, fragmentos de `Home.tsx`, `Config.tsx`, Firestore y el análisis de riesgo. Es evidencia de producción, no fuente mantenible. Si se necesita conservarla entre sesiones, copiar solo una versión sanitizada a `docs/audits/` sin incluir tokens, datos personales ni credenciales.
+
+## 24. El watchdog nunca funcionó: `sys.exit(1)` en hilo daemon no mata el proceso — 15 de agosto de 2026
+
+Los fixes de §20/§22 se construyeron y desplegaron (`polaris-bot-00058-272`, vía `gcloud
+builds submit` + `gcloud run services update`). Verificado en Cloud Logging: la posición
+TQQQ reconciliada se gestionó **sin errores** hasta `FIRESTORE_ENABLED=True (antes de
+write_state_snapshot)` — ambos bugs de §20/§22 confirmados resueltos en producción.
+
+Pero ese mismo tick se colgó justo después: Alpaca rechazó el rango reciente de TQQQ por
+SIP, cayó a yfinance para el spot price dentro de `_manage_open_position`, y yfinance se
+quedó colgado sin lanzar excepción — el problema histórico ya documentado en §3/§10. A los
+25 minutos el watchdog disparó:
+
+```
+bot CRITICAL Watchdog: sin ticks completos en 25 min; reiniciando el proceso
+```
+
+**37 segundos después**, sin embargo, apareció:
+
+```
+state.firestore INFO Estado escrito en Firestore: polaris/2026-08-15
+```
+
+Es decir, el tick colgado terminó solo, *después* de que el watchdog dijera que reiniciaba
+el proceso. Eso reveló que **el watchdog nunca reinicia nada**: `_watchdog()` corre en un
+`threading.Thread(daemon=True)` y llamaba `sys.exit(1)`. En CPython, `sys.exit()` lanza
+`SystemExit`; el `threading.excepthook` por defecto **ignora silenciosamente** `SystemExit`
+en cualquier hilo que no sea el principal — no termina el proceso ni los demás hilos, solo
+el propio hilo watchdog muere en silencio. Confirmado con un repro aislado de 10 líneas
+(`sys.exit(1)` en un hilo daemon; el hilo principal sigue vivo y termina normalmente).
+
+**Consecuencia real:** toda la protección contra cuelgues descrita en `AGENTS.md` §3 desde
+el principio de este documento — "Cloud Run recrea la instancia automáticamente al morir el
+proceso" — depende de un mecanismo que jamás mató al proceso. Además, como el hilo watchdog
+muere la primera vez que dispara (`sys.exit` termina su propio bucle `while True`), después
+del primer disparo **deja de vigilar por completo** por el resto de la vida del proceso. La
+única razón por la que el bot se recuperaba antes de yfinance colgado era pura suerte: que
+la llamada bloqueada resolviera sola, no que el watchdog interviniera.
+
+**Fix:** las dos llamadas del watchdog cambiaron de `sys.exit(1)` a `os._exit(1)`, que
+termina el proceso completo a nivel de sistema operativo sin importar qué hilo lo invoque
+(no ejecuta cleanup handlers, lo cual es exactamente lo que se quiere para un proceso
+que se asume irrecuperablemente colgado). Se eliminó el `import sys as _sys` que quedó sin
+uso.
+
+Test de regresión en `tests/test_watchdog.py`: un test de control que reproduce el bug real
+(`sys.exit(1)` en hilo daemon no mata el proceso — con el warning esperado de pytest sobre
+la excepción no capturada) y un test que verifica por inspección de fuente
+(`inspect.getsource`) que `_watchdog()` usa `os._exit(` y no `sys.exit(`/`_sys.exit(` — no
+se invoca el watchdog real en el test porque `os._exit()` mataría el proceso de pytest.
+Suite completa: 13/13.
+
+**Pendiente inmediato:** construir y desplegar este tercer fix, y verificar en Cloud
+Logging que un tick realmente colgado (o uno simulado) termina con la instancia
+reiniciándose de verdad (nueva entrada "Starting new instance" en el log del servicio, no
+solo el mensaje CRITICAL).
