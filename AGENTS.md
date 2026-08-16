@@ -992,3 +992,35 @@ que el valor real sigue devolviéndose cuando no hay cuelgue. Suite completa: 25
 Pendiente: build + deploy + monitoreo en producción de esta revisión, para confirmar que el
 cuelgue post-`FIRESTORE_ENABLED` deja de repetirse en los próximos ticks con la posición TQQQ
 abierta.
+
+## 33. Credenciales GCP perdidas entre sesiones — causa raíz y procedimiento estándar — 16 de agosto de 2026
+
+Cada sesión de Claude Code en este entorno corre en un contenedor **efímero**: se crea nuevo
+al empezar la sesión y se destruye al terminarla. Todo lo que viva solo en el filesystem del
+contenedor (una keyfile subida a mano, un `gcloud auth login` interactivo, config de shell no
+persistida) desaparece entre sesiones. Lo que sí persiste: el código en GitHub, los secretos
+en GCP Secret Manager, y la configuración propia del **Environment** de Claude Code (variables
+de entorno / secrets / script de configuración), que se reaplica automáticamente en cada
+contenedor nuevo.
+
+Esto causó, el 16 de agosto de 2026, que una sesión nueva no tuviera credenciales para
+`gcloud builds submit` pese a que la sesión anterior sí las tenía — la keyfile de
+`claude-trading-bot@gen-lang-client-0746441136.iam.gserviceaccount.com` solo se había subido
+al chat, nunca se guardó en un lugar persistente.
+
+**Procedimiento estándar para que no se repita**: `docs/setup_environment.sh` (nuevo, en este
+commit) es el script pensado para pegarse en el campo "Script de configuración" del Environment
+en claude.ai/code. Lee una variable de entorno `GCP_SA_KEY_JSON` (que debe configurarse una
+sola vez, como secret del Environment, con el JSON completo de la cuenta de servicio) y hace
+`gcloud auth activate-service-account` automáticamente al arrancar cada contenedor nuevo —
+también instala `requirements.txt`, evitando el otro problema visto ese mismo día
+(`ModuleNotFoundError: No module named 'pandas'` en un contenedor limpio).
+
+Importante: nótese `unset CLOUDSDK_AUTH_ACCESS_TOKEN` — el proxy de la sesión inyecta esa
+variable con el valor `proxy-injected`, y si no se limpia, `gcloud` la usa en vez de las
+credenciales de la cuenta de servicio recién activada, fallando con
+`ACCESS_TOKEN_TYPE_UNSUPPORTED` incluso después de un `activate-service-account` exitoso.
+
+Este archivo (`docs/setup_environment.sh`) queda versionado en el repo como referencia, pero
+activarlo requiere que el usuario configure `GCP_SA_KEY_JSON` en la pantalla de configuración
+del Environment — eso no lo puede hacer un agente desde dentro de una sesión.
