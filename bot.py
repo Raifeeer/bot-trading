@@ -674,6 +674,7 @@ def main():
                 "buying_power": equity * 4}
             logger.info("FIRESTORE_ENABLED=%s (antes de write_state_snapshot)",
                         FIRESTORE_ENABLED)
+            enriched_positions = _enriched_positions(executor)
             if FIRESTORE_ENABLED:
                 try:
                     risk_cfg = cfg.get("risk", {}) or {}
@@ -688,7 +689,7 @@ def main():
                         "cash": acct.get("cash", equity),
                         "buying_power": acct.get("buying_power", None),
                         "positions": state["positions"],
-                        "alpaca_positions": _enriched_positions(executor),
+                        "alpaca_positions": enriched_positions,
                         "orders_executed": executor.order_log[-50:] if not executor.dry_run else [],
                         "risk": {
                             # Canonical display field: percentage points (5.0 = 5%).
@@ -722,7 +723,7 @@ def main():
                      "dry_run": args.dry_run,
                      "buying_power": acct.get("buying_power"),
                      "positions": state["positions"],
-                     "alpaca_positions": _enriched_positions(executor),
+                     "alpaca_positions": enriched_positions,
                      "risk": {"halted": rm.is_halted(),
                                 "regime": (regime or {}).get("regime", "unknown"),
                                 "regime_summary": (regime or {}).get("summary", "")},

@@ -12,6 +12,7 @@ básicos (strike/tipo/vencimiento/DTE) sin greeks.
 """
 import logging
 import re
+import threading
 from datetime import datetime, date
 from math import log, sqrt, exp
 
@@ -96,19 +97,38 @@ def _iv_from_series(close: pd.Series) -> float | None:
     return sqrt(var) * sqrt(252)
 
 
+_SPOT_IV_TIMEOUT_S = 20.0
+
+
 def spot_iv_from_feed(feed, underlying: str, days: int = 60):
-    """Devuelve (spot, iv) del subyacente desde el feed del bot o (None, None)."""
-    try:
-        data = feed.history([underlying], "1d", days=days) or {}
-        df = data.get(underlying)
-        if df is None or not hasattr(df, "__len__") or len(df) < 15:
-            return None, None
-        spot = float(df["close"].astype(float).dropna().iloc[-1])
-        iv = _iv_from_series(df["close"])
-        return spot, iv
-    except Exception:  # noqa: BLE001
-        logger.exception("Fallo estimando spot/IV de %s", underlying)
+    """Devuelve (spot, iv) del subyacente desde el feed del bot o (None, None).
+
+    yfinance puede colgarse sin lanzar excepción (no solo fallar), así que la
+    llamada corre en un hilo daemon con timeout: si no vuelve a tiempo se
+    abandona (el hilo puede quedar corriendo en background) y se sigue el
+    tick sin bloquear el proceso principal.
+    """
+    result: dict = {}
+
+    def _fetch():
+        try:
+            data = feed.history([underlying], "1d", days=days) or {}
+            df = data.get(underlying)
+            if df is None or not hasattr(df, "__len__") or len(df) < 15:
+                return
+            result["spot"] = float(df["close"].astype(float).dropna().iloc[-1])
+            result["iv"] = _iv_from_series(df["close"])
+        except Exception:  # noqa: BLE001
+            logger.exception("Fallo estimando spot/IV de %s", underlying)
+
+    t = threading.Thread(target=_fetch, daemon=True)
+    t.start()
+    t.join(_SPOT_IV_TIMEOUT_S)
+    if t.is_alive():
+        logger.warning("spot_iv_from_feed(%s) excedió %.0fs, se omite este tick",
+                        underlying, _SPOT_IV_TIMEOUT_S)
         return None, None
+    return result.get("spot"), result.get("iv")
 
 
 def enrich_leg(leg: dict, spot_map: dict | None = None,

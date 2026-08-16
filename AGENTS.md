@@ -954,3 +954,41 @@ Antes del fix de §25, ese log CRITICAL no reiniciaba nada — confirmado en viv
 Cloud Run) y una instancia nueva arrancó en segundos. Es la primera vez, en toda la historia
 documentada de este bot, que el mecanismo de recuperación automática ante cuelgues funciona
 como siempre se supuso que funcionaba.
+
+## 32. Root-cause del cuelgue post-`FIRESTORE_ENABLED=True`: `feed.history()` sin timeout — 16 de agosto de 2026
+
+El cuelgue de §31 se repitió dos veces seguidas en `polaris-bot-00063-4b9`, siempre en el
+mismo punto exacto: justo después de `FIRESTORE_ENABLED=True (antes de write_state_snapshot)`
+y antes de `Tick OK`. El watchdog (§25/§31) recuperaba el proceso correctamente las dos
+veces, pero la causa del cuelgue en sí seguía sin arreglarse — iba a repetirse en cada tick
+mientras hubiera una posición abierta.
+
+Causa raíz: `_enriched_positions(executor)` (llamada **dos veces** por tick — una para el
+snapshot de Firestore, otra para la actualización de Telegram) → `enrich_positions()` →
+`spot_iv_from_feed(feed, "TQQQ")` (subyacente de la posición reconciliada de §20) →
+`feed.history(["TQQQ"], "1d", days=60)`, una llamada de red respaldada por yfinance. Esta
+llamada estaba envuelta en `try/except Exception`, que protege contra errores pero no contra
+un **cuelgue** (una llamada que nunca retorna ni lanza excepción) — el modo de fallo
+documentado de yfinance en todo este repo (p. ej. el watchdog de 25 min y el timeout de 45s
+por ticker en el feed existen precisamente por esto).
+
+Fix en `options/option_details.py::spot_iv_from_feed`: la llamada a `feed.history()` ahora
+corre en un hilo daemon con `t.join(_SPOT_IV_TIMEOUT_S=20.0)`; si no vuelve a tiempo, se
+abandona el hilo (puede seguir corriendo en segundo plano, pero ya no bloquea el tick) y se
+retorna `(None, None)`, igual que ante cualquier otro fallo de datos. Mismo patrón ya usado
+en `telegram_bot._ai_answer_with_timeout` y `ai_assistant._fundamentals`.
+
+Además, `bot.py` calculaba `_enriched_positions(executor)` dos veces por tick (Firestore y
+Telegram) — duplicando innecesariamente el costo/riesgo de esta llamada. Ahora se calcula
+una sola vez (`enriched_positions = _enriched_positions(executor)`, justo después del log de
+`FIRESTORE_ENABLED`) y se reutiliza en ambos bloques.
+
+Test de regresión en `tests/test_spot_iv_timeout.py`: un feed falso cuyo `history()` duerme
+1 hora confirma que `spot_iv_from_feed` retorna `(None, None)` en menos de 2s (con
+`_SPOT_IV_TIMEOUT_S` parcheado a 0.2s para no alargar la suite), y un feed rápido confirma
+que el valor real sigue devolviéndose cuando no hay cuelgue. Suite completa: 25/25 (excluyendo
+`test_regime_s78.py`, con un `SyntaxError` preexistente y no relacionado).
+
+Pendiente: build + deploy + monitoreo en producción de esta revisión, para confirmar que el
+cuelgue post-`FIRESTORE_ENABLED` deja de repetirse en los próximos ticks con la posición TQQQ
+abierta.
