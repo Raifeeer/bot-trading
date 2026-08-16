@@ -309,3 +309,10 @@ Traceback (most recent call last):
 NameError: name 'args' is not defined
 2026-08-13 21:36:36,969 bot INFO Tick OK — equity=100000.00 posiciones=0
 2026-08-13 21:36:38,090 polaris.tgbt ERROR Telegram poll falla: HTTP Error 404: Not Found
+2026-08-16 00:10:49,957 bot WARNING Reconciliación: reconstruida posición TQQQ (call_spread_TQQQ_85.0_100.0) desde Alpaca; no estaba en el estado local del bot
+2026-08-16 00:10:49,957 bot WARNING Reconciliación: TQQQ 2026-09-18 CALL no forma un vertical de 2 patas (1 patas encontradas); no se reconstruye automáticamente
+2026-08-16 00:10:49,958 risk CRITICAL CIRCUIT BREAKER DIARIO: drawdown 6.00% (límite 5.00%)
+2026-08-16 00:10:49,958 risk INFO RISK nuevo día: equity inicial 100.00
+2026-08-16 00:10:50,160 option_details WARNING spot_iv_from_feed(TQQQ) excedió 0s, se omite este tick
+2026-08-16 00:10:50,174 polaris.tgbt INFO TG response sent=True para '/estado'
+2026-08-16 00:10:50,174 polaris.tgbt INFO TG response sent=True para 'qué opinas de AAPL'
