@@ -1024,3 +1024,24 @@ credenciales de la cuenta de servicio recién activada, fallando con
 Este archivo (`docs/setup_environment.sh`) queda versionado en el repo como referencia, pero
 activarlo requiere que el usuario configure `GCP_SA_KEY_JSON` en la pantalla de configuración
 del Environment — eso no lo puede hacer un agente desde dentro de una sesión.
+
+## 34. Fix del cuelgue post-`FIRESTORE_ENABLED` confirmado en producción — 16 de agosto de 2026
+
+Con la keyfile reactivada (§33), se compiló y desplegó §32 en `polaris-bot-00064-k5t`
+(`gcloud builds submit` → build `1258fd45` → `gcloud run services update`). Log del primer
+tick completo tras el deploy, con la posición TQQQ reconciliada abierta (la orden multi-leg
+de cierre de §26 sigue pendiente de ejecutarse al abrir el mercado):
+
+```
+00:57:08  FIRESTORE_ENABLED=True (antes de write_state_snapshot)
+00:57:12  feed WARNING TQQQ: APIError (subscription...) — reintento con yfinance
+00:59:57  state.firestore INFO Estado escrito en Firestore: polaris/2026-08-16
+00:59:58  bot INFO Tick OK — equity=99689.15 posiciones=1
+```
+
+Antes del fix, el tick se colgaba indefinidamente justo después de la primera línea, sin
+avanzar nunca a `Estado escrito en Firestore` (solo lo destrababa el watchdog a los 25 min,
+§31). Esta vez, con la posición TQQQ real todavía abierta (el escenario exacto que disparaba
+el cuelgue), el tick completo — incluyendo el `spot_iv_from_feed` que antes se quedaba
+colgado — tardó ~2.5 minutos y terminó en `Tick OK`. Root-cause confirmado y resuelto en
+producción, no solo en el test unitario de `tests/test_spot_iv_timeout.py`.
