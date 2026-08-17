@@ -57,7 +57,8 @@ class RiskManager:
         self.cfg = {**profile}
         # Las claves de config.yaml prevalecen sobre el perfil
         for k in ("max_risk_per_trade_pct", "max_open_positions",
-                  "max_drawdown_daily_pct", "max_drawdown_total_pct"):
+                  "max_drawdown_daily_pct", "max_drawdown_total_pct",
+                  "max_daily_loss_usd"):
             if k in config:
                 self.cfg[k] = config[k]
         self.capital = 0.0
@@ -95,6 +96,24 @@ class RiskManager:
                     logger.critical("CIRCUIT BREAKER DIARIO: drawdown %.2f%% (límite %.2f%%)",
                                     dd_daily, self.cfg["max_drawdown_daily_pct"])
                 self.halted_today = True
+
+            # Breaker diario en DÓLARES ABSOLUTOS.
+            # Los breakers porcentuales están calibrados a la cuenta completa
+            # (15% de $99,689 = $14,953), así que a la escala del reto $100
+            # son inoperantes: harían falta ~19 pérdidas totales de $777 para
+            # que salte uno. Con el tamaño de recuperación sin tope
+            # (17 ago 2026) ese hueco es justo el que importa, así que este
+            # límite absoluto es el que de verdad corta una mala racha.
+            max_usd = self.cfg.get("max_daily_loss_usd")
+            if max_usd:
+                perdida = self.day_start_equity - equity
+                if perdida >= float(max_usd):
+                    if not self.halted_today:
+                        logger.critical(
+                            "CIRCUIT BREAKER DIARIO ($): pérdida %.2f >= "
+                            "límite %.2f; sin más entradas hoy",
+                            perdida, float(max_usd))
+                    self.halted_today = True
         if equity <= 0 or equity >= self.capital > 0:
             pass  # capital aún no inicializado o creciendo
         if self.capital > 0:

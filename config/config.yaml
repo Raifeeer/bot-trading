@@ -155,6 +155,13 @@ risk:
   max_sector_weight_pct: 60.0  # concentración permitida para el reto
   max_drawdown_daily_pct: 15.0 # detiene trading del día si pierde 15% ($15)
   max_drawdown_total_pct: 30.0 # detiene el bot si el capital cae a $70
+  # Breaker diario en DOLARES ABSOLUTOS. Los porcentuales de arriba se miden
+  # sobre la cuenta completa (15% de $99,689 = $14,953), asi que a la escala
+  # del reto $100 no saltan nunca: harian falta ~19 perdidas totales de $777.
+  # Este es el que de verdad corta una mala racha con el tamano de
+  # recuperacion sin tope. Con $400, una unica entrada perdedora grande
+  # (~$777) detiene las entradas del resto del dia en vez de encadenar otra.
+  max_daily_loss_usd: 400.0
   # Gestión de prima por posición (reto): stop si la prima cae al 25% de la
   # entrada y take profit al +40%. Evita el error del backtest B donde una
   # posición de LCID perdió 93% por no tener stop de prima activo.
