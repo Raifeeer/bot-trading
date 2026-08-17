@@ -89,7 +89,7 @@ def _enriched_positions(executor: AlpacaExecutor) -> list:
     try:
         if executor.dry_run:
             return []
-        legs = executor.positions()
+        legs = _positions_with_timeout(executor)
         try:
             from data.feed import MarketDataFeed
             feed = MarketDataFeed(executor.cfg)
@@ -99,7 +99,7 @@ def _enriched_positions(executor: AlpacaExecutor) -> list:
     except Exception:  # noqa: BLE001
         logger.exception("Fallo enriqueciendo posiciones (publicando crudas)")
         try:
-            return executor.positions()
+            return _positions_with_timeout(executor)
         except Exception:  # noqa: BLE001
             return []
 
@@ -111,6 +111,27 @@ def key_if_any(executor: AlpacaExecutor) -> bool:
     return bool(key and secret)
 
 STATE_FILE = "data/bot_state.json"
+
+
+def _positions_with_timeout(executor: AlpacaExecutor, timeout_s: float = 30.0) -> list:
+    """Lee posiciones de Alpaca sin bloquear el proceso principal indefinidamente."""
+    result, error = {}, {}
+
+    def _fetch():
+        try:
+            result["legs"] = executor.positions()
+        except Exception as exc:  # noqa: BLE001
+            error["exc"] = exc
+
+    t = threading.Thread(target=_fetch, daemon=True, name="alpaca-positions")
+    t.start()
+    t.join(timeout_s)
+    if t.is_alive():
+        raise TimeoutError(
+            f"Alpaca positions no respondió en {timeout_s:.0f}s")
+    if "exc" in error:
+        raise error["exc"]
+    return result.get("legs", [])
 
 
 def save_state(state: dict):
@@ -140,7 +161,10 @@ def reconcile_positions_with_broker(executor: AlpacaExecutor, state: dict) -> in
     """
     from options.option_details import parse_occ
     try:
-        legs = executor.positions()
+        legs = _positions_with_timeout(executor)
+    except TimeoutError as exc:
+        logger.error("Reconciliación: %s; se continúa sin reconstrucción", exc)
+        return 0
     except Exception:  # noqa: BLE001
         logger.exception("Reconciliación: no se pudo leer posiciones de Alpaca")
         return 0
@@ -676,12 +700,12 @@ def main():
                     _s.cfg["max_premium_net"] = sizing["max_premium_net"]
             if sizing.get("unlimited"):
                 logger.warning(
-                    "FASE RECUPERACIÓN: sin tope de prima, objetivo %.2f "
-                    "(prima objetivo %.2f, caja %.2f). Una pérdida total en "
-                    "una entrada puede dejar el equity bajo el piso %.2f",
+                    "FASE RECUPERACIÓN: objetivo %.2f, prima objetivo %.2f, "
+                    "presupuesto seguro %.2f, caja %.2f, piso %.2f",
                     (regime.get("floor") or {}).get("target", 100_000.0),
-                    sizing["target_premium"], acct_cash,
-                    (regime.get("floor") or {}).get("floor", 99_400.0))
+                    sizing["target_premium"],
+                    recovery_risk_budget(equity, cfg), acct_cash,
+                    (regime.get("floor") or {}).get("floor", 99_000.0))
 
             # 1. datos con el timeframe propio de cada estrategia:
             #    swing usa 1d (210 días para SMA200+ATR); day usa 5m/15m

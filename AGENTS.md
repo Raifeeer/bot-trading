@@ -1377,3 +1377,16 @@ Estos cambios están validados localmente pero todavía no deben considerarse ac
 ### 43.5 Criterio operativo
 
 El bot sí tiene cobertura conceptual para `bull`, `bear` y `cash`, pero no significa que opere en cualquier dirección en cada tick. En `bull` requiere señales alcistas válidas, cotizaciones completas, anti-earnings sin bloqueo, riesgo aprobado y piso abierto. En `bear` requiere CHoCH bajista, cadena de opciones válida, prima mínima de `100`, presupuesto seguro y piso abierto. En `cash` permanece fuera de mercado. El siguiente agente debe distinguir siempre entre proceso sano, señal disponible, orden enviada y posición confirmada por Alpaca.
+
+
+## 44. Revisión Manus: bloqueo de arranque 00072 y recuperación operativa — 17 de agosto de 2026
+
+La revisión `polaris-bot-00072-fpc` se desplegó desde `b22ec6d` con la configuración PAPER preservada. Cloud Run pasó el startup probe y Telegram inició, pero durante la ventana observada no apareció `Bot iniciado`, `FIRESTORE_ENABLED`, `Tick OK` ni un nuevo snapshot. El último documento Firestore seguía en equity `99,288.65`, cero posiciones, órdenes y señales. El orden de arranque coloca Telegram antes del log `Bot iniciado`; el hilo de Telegram tiene timeout y heartbeat, por lo que el punto probable estaba entre conexión/snapshot de Alpaca, lecturas persistentes y reconciliación inicial.
+
+Se añadió `_positions_with_timeout()` en `bot.py`: la lectura de posiciones de Alpaca se ejecuta en un hilo daemon con límite de 30 segundos. Si el broker no responde, el bot registra el fallo y continúa el arranque sin reconstrucción; el enriquecimiento de posiciones reutiliza el mismo timeout. Esto evita que un endpoint colgado impida llegar al primer tick.
+
+Se corrigió también el mensaje de recuperación, que todavía decía “sin tope de prima” y mostraba el piso antiguo de `99,400`. Ahora informa objetivo, prima objetivo, presupuesto seguro, caja y piso vigente. El sizing ya limita el número de contratos al menor entre `max_risk_per_trade_pct` y `max_daily_loss_usd`, y descarta antes de enviar órdenes si ni un contrato cabe.
+
+El `recovery_floor` se cambió a `99,000` en código y configuración para que el equity observado de `99,288.65` no permanezca bloqueado por debajo de `99,400`. El piso del reto permanece `99,900`, el objetivo `100,000`, el `max_daily_loss_usd` permanece `400` y el modo de producción sigue siendo PAPER. Esta modificación permite nuevas entradas PAPER, pero no elimina el circuito diario ni el límite por operación.
+
+Validación local posterior: `compileall` correcto, Ruff F/B en cero y **94 tests OK**, 1 omitido y 2 expected failures. Antes de declarar producción funcional hay que publicar este cambio, construir una imagen inmutable por commit, desplegar la revisión siguiente en PAPER y observar al menos un arranque completo y dos ticks. Deben distinguirse: señal detectada, entrada bloqueada por earnings/riesgo/piso, orden enviada y posición confirmada por Alpaca.
