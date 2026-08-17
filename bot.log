@@ -541,3 +541,23 @@ NameError: name 'args' is not defined
 2026-08-17 13:45:25,751 option_details WARNING spot_iv_from_feed(TQQQ) excedió 0s, se omite este tick
 2026-08-17 13:45:25,766 polaris.tgbt INFO TG response sent=True para '/estado'
 2026-08-17 13:45:25,767 polaris.tgbt INFO TG response sent=True para 'qué opinas de AAPL'
+2026-08-17 13:52:02,219 risk CRITICAL CIRCUIT BREAKER DIARIO ($): pérdida 500.00 >= límite 400.00; sin más entradas hoy
+2026-08-17 13:52:02,220 risk CRITICAL CIRCUIT BREAKER DIARIO ($): pérdida 500.00 >= límite 400.00; sin más entradas hoy
+2026-08-17 13:52:02,220 risk INFO RISK [REJECTED] TQQQ: bot detenido por circuit breaker (0 acciones)
+2026-08-17 13:52:02,220 risk CRITICAL CIRCUIT BREAKER DIARIO ($): pérdida 777.00 >= límite 400.00; sin más entradas hoy
+2026-08-17 13:52:02,220 risk CRITICAL CIRCUIT BREAKER DIARIO: drawdown 16.00% (límite 15.00%)
+2026-08-17 13:52:02,238 feed WARNING Corrigiendo 1 barras incoherentes (high/low)
+2026-08-17 13:52:02,242 feed WARNING Corrigiendo 30 barras incoherentes (high/low)
+2026-08-17 13:52:02,247 feed WARNING Corrigiendo 1 barras incoherentes (high/low)
+2026-08-17 13:52:02,251 feed WARNING Corrigiendo 2 barras incoherentes (high/low)
+2026-08-17 13:52:02,255 risk.floor WARNING RETO ARMADO: equity 100500.00 alcanzó el objetivo 100000.00; desde ahora rige el piso 99900.00
+2026-08-17 13:52:02,257 state.firestore WARNING Fallo leyendo último equity de Firestore: boom
+2026-08-17 13:52:02,258 risk.floor WARNING RETO ARMADO: equity 100000.00 alcanzó el objetivo 100000.00; desde ahora rige el piso 99900.00
+2026-08-17 13:52:02,258 risk.floor WARNING RETO ARMADO: equity 100000.00 alcanzó el objetivo 100000.00; desde ahora rige el piso 99900.00
+2026-08-17 13:52:02,260 bot WARNING Reconciliación: reconstruida posición TQQQ (call_spread_TQQQ_85.0_100.0) desde Alpaca; no estaba en el estado local del bot
+2026-08-17 13:52:02,260 bot WARNING Reconciliación: TQQQ 2026-09-18 CALL no forma un vertical de 2 patas (1 patas encontradas); no se reconstruye automáticamente
+2026-08-17 13:52:02,261 risk CRITICAL CIRCUIT BREAKER DIARIO: drawdown 6.00% (límite 5.00%)
+2026-08-17 13:52:02,261 risk INFO RISK nuevo día: equity inicial 100.00
+2026-08-17 13:52:02,463 option_details WARNING spot_iv_from_feed(TQQQ) excedió 0s, se omite este tick
+2026-08-17 13:52:02,476 polaris.tgbt INFO TG response sent=True para '/estado'
+2026-08-17 13:52:02,477 polaris.tgbt INFO TG response sent=True para 'qué opinas de AAPL'

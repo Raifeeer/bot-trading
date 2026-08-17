@@ -8,7 +8,11 @@ consistente y fuera de muestra: 75% de ventanas bajistas en positivo, mediana
 Estos tests fijan las tres condiciones que vienen de la MEDICIÓN, no de una
 preferencia, y cuya pérdida silenciosa anularía el motor:
 
-1. Solo actúa cuando el régimen NO es bull (es el hueco que cubría).
+1. Solo actúa en régimen `bear` DECLARADO (>=30% del universo con CHoCH, o
+   crash_event). NO en `cash`, que cubre el lateral y el bear SUAVE: ahí
+   docs/skills/wheel_skill.md §3 prohíbe las defensivas porque la volatilidad
+   realizada infla los put spreads (S75 -32.9%, S76 -6.6%) mientras que
+   quedarse en cash ganó (+26.7%, S78).
 2. Prima total >= min_premium_net ($100): por debajo, las 4 comisiones del
    spread ($2.60) se comen la ventaja — a prima $15 el resultado cae a -5.2%.
 3. Salida propia tp1.5/sl0.5: con el tp1.4/sl0.25 de los calls, `put_choch`
@@ -57,11 +61,15 @@ class TestBearCandidates(unittest.TestCase):
         got = B.bear_entry_candidates(r, {"positions": []}, CFG)
         self.assertEqual(sorted(got), ["NOK", "TSLA"])
 
-    def test_also_acts_in_cash_regime(self):
-        """`cash` tambien es un regimen donde el bot no hacia nada."""
-        r = _regime("cash", TSLA=True)
-        self.assertEqual(B.bear_entry_candidates(r, {"positions": []}, CFG),
-                         ["TSLA"])
+    def test_does_NOT_act_in_cash_regime(self):
+        """`cash` cubre el lateral y el bear SUAVE (bajo SMA200 sin CHoCH).
+        docs/skills/wheel_skill.md §3 lo prohibe con evidencia: ahi la
+        volatilidad realizada infla los put spreads y las defensivas
+        perdieron (S75 -32.9%, S76 -6.6%) mientras quedarse en cash gano
+        (+26.7%, S78). Solo se opera en regimen `bear` declarado."""
+        r = _regime("cash", TSLA=True, AMD=True)
+        self.assertEqual(B.bear_entry_candidates(r, {"positions": []}, CFG), [],
+                         "no debe abrir defensivas en bear suave/lateral")
 
     def test_only_tickers_with_choch(self):
         r = _regime("bear", TSLA=False, AMD=False)

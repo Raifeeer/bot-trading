@@ -225,7 +225,13 @@ def bear_entry_candidates(regime: dict, state: dict, cfg: dict) -> list:
     y respeta el límite propio del motor bajista.
     """
     b = options_bear_cfg(cfg)
-    if not b["enabled"] or regime.get("regime") == "bull":
+    # SOLO en régimen "bear" (>=30% del universo con CHoCH, o crash_event), no
+    # en cualquier cosa que no sea bull. El régimen "cash" (lateral y bear
+    # SUAVE bajo SMA200 sin CHoCH) tiene prohibido operar defensivas por
+    # docs/skills/wheel_skill.md §3: ahí la volatilidad realizada infla el
+    # precio de los put spreads y las defensivas perdieron (S75 -32.9%,
+    # S76 -6.6%) mientras que quedarse en cash gano (+26.7%, S78).
+    if not b["enabled"] or regime.get("regime") != "bear":
         return []
     abiertos = {p["symbol"] for p in state.get("positions", [])}
     n_puts = sum(1 for p in state.get("positions", [])
