@@ -1620,3 +1620,43 @@ if __name__ == "__main__":
 
 
 
+
+
+# ---------------------------------------------------------------------------
+# Pata de REBOTE documentada (docs/skills/wheel_skill.md §4)
+# El skill describe S36 como "Rebote en selloff (RSI<25, precio>SMA100) ->
+# call spread 0.30/0.10, DTE 21, budget 15%", con +53-60% y win 71-75%. Pero
+# en el codigo S36 es motor="smc_daily": la condicion documentada NO existia
+# como motor. Se implementa aqui tal cual la describe la documentacion, para
+# poder medirla en vez de citarla.
+# ---------------------------------------------------------------------------
+def rebote_doc_entry(hist, d, rsi_max=25.0, sma_floor=100):
+    """RSI14 < rsi_max con el precio por encima de la SMA(sma_floor).
+
+    La logica: sobreventa fuerte (RSI<25) pero estructura de fondo intacta
+    (sigue sobre la SMA100), o sea un retroceso dentro de tendencia y no un
+    cambio de tendencia. Anti-look-ahead: solo filas <= d.
+    """
+    sub = hist[hist.index.normalize() <= d]
+    if len(sub) < sma_floor + 20:
+        return None
+    r = rsi(sub["close"])
+    sf = sma(sub["close"], sma_floor)
+    last_close = float(sub["close"].iloc[-1])
+    if pd.isna(r.iloc[-1]) or pd.isna(sf.iloc[-1]):
+        return None
+    if r.iloc[-1] < rsi_max and last_close > float(sf.iloc[-1]):
+        return dict(type="rebote_doc")
+    return None
+
+
+def rebote_doc_exit(hist, d, rsi_out=60.0):
+    """Salida del rebote: RSI recuperado por encima de rsi_out."""
+    sub = hist[hist.index.normalize() <= d]
+    if len(sub) < 30:
+        return False
+    r = rsi(sub["close"])
+    return bool(pd.notna(r.iloc[-1]) and r.iloc[-1] > rsi_out)
+
+
+MOTORES["rebote_doc"] = (rebote_doc_entry, rebote_doc_exit)
