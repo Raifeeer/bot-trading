@@ -1265,3 +1265,39 @@ umbral — el TP/SL sí importa, pero medido, no por la cota nominal.
 Salvedades: 8 ventanas bajistas (ese 75% son 6 de 8, muestra pequeña) y primas Black-Scholes,
 no cadenas point-in-time. Recomendación pendiente de decisión del dueño: cablear `put_choch`
 con `tp1.5/sl0.5` y prima ≥$100 como motor bajista. **No** `regime_aware`.
+
+## 41. Ronda 6: el playbook documentado, medido — y una atribución falsa — 17 de agosto de 2026
+
+`docs/skills/wheel_skill.md` §4 define una tabla régimen→estructura que nunca se había medido
+como conjunto. Se evaluaron sus 7 patas sobre 21 ventanas y 2 tamaños, puntuando cada pata en SU
+régimen (no en promedio) y con el cash como pata de referencia.
+
+**Hallazgo 1 — la pata de rebote no puede existir.** El skill atribuía a S36 la condición
+«RSI<25 y precio>SMA100» con +53–60% y win 71–75%. En el código **S36 es `motor="smc_daily"`**,
+así que esas cifras son de otra estrategia. Y la condición documentada, implementada como motor
+`rebote_doc`, da **0 operaciones en 4.928 días-ticker**: cuando el RSI baja de 25 (mínimos
+13,9–24,7) el precio ya está bajo su SMA100 — las dos cláusulas se excluyen estructuralmente.
+RSI<30 también da 0; hacen falta RSI<35 para 5 ocurrencias y RSI<40 para 53. De ahí que el repo
+tenga `rebote_rsi40`: el umbral ya se había relajado en el código, pero la documentación siguió
+citando la condición original. Corregido en `wheel_skill.md` §4 y `backtest_skill.md` §3.
+
+**Hallazgo 2 — la tabla por régimen sugiere que el playbook está invertido, pero NO es
+accionable.** Con prima $289: en régimen «sube» ninguna pata bate al cash (+1.7%, 56%); en
+«lateral» el call spread 0.30/0.10 TP1.5/SL0.5 da +4.9% y 75% frente a −2.7% del cash; en «baja»
+`choch_put_S63` da +7.2% y 75%. Leído literalmente: el bot opera donde no aporta y está quieto
+donde sí aportaría.
+
+**Por qué no se actuó sobre eso.** Dos defectos de la medición, no del bot:
+(a) la etiqueta de régimen se calcula sobre **SPY**, pero el motor solo dispara en BB, F y NOK,
+cuya correlación diaria con SPY es de +0,41, +0,43 y +0,33 — la etiqueta no describe lo que
+hicieron los tickers operados; (b) «lateral» son **4 ventanas**, así que ese 75% son 3 de 4.
+Invertir la puerta de entrada con esa base sería el mismo error de sobreajuste que el propio
+`backtest_skill.md` §8 prohíbe. Pendiente metodológico: clasificar el régimen por ticker (o por
+el propio universo) en vez de por SPY antes de volver a evaluar el playbook.
+
+Nota importante: el sesgo está solo en el etiquetado del backtest. La clasificación de régimen
+**en producción** (`risk/regime.py`) ya se calcula sobre los propios tickers del universo.
+
+**Lo que sí replica en tres pruebas independientes:** `put_choch` en mercado a la baja — ronda 5
+(+6,8%, 75% de ventanas), ronda 6 (+7,2%, 75%) y el S63 histórico (+20,8% en el selloff). Es lo
+único del corpus con ventaja confirmada por caminos distintos, y ya está en producción (§40).

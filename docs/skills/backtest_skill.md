@@ -34,7 +34,7 @@ Los backtests usan cuatro ventanas con comportamientos de régimen distintos, y 
 |---|---|---|
 | **S51** (hold semanal equally weighted, universo reto) | Bull | **Regenerado 15 ago 2026: +3.6%, 105 trades, dd −10.2%.** El +92% histórico era un artefacto del motor legacy `hold`, que concentraba el capital en una sola posición (+92.5% con dd −63.5%); con `hold_weekly` explícito el benchmark real es +3.6%. No volver a citar el +92%. |
 | **S63** (put spread 0.30/0.10, DTE 21, trigger CHoCH pragmático) | CHoCH bear | +20.8% en selloff ene–abr 2026 (única positiva; con comisiones +2.6%) |
-| **S36** (call spread 0.30/0.10, DTE 21, RSI<25 + precio>SMA100) | Rebote | +53–60%, win rate 71–75%, budget 15% |
+| **S36** | Rebote (atribución errónea) | En el código S36 es `motor="smc_daily"`, NO un motor de rebote. La condición «RSI<25 + precio>SMA100» que se le atribuía da **0 operaciones** en 4.928 días-ticker: al caer el RSI bajo 25 el precio ya está bajo su SMA100, así que las cláusulas se excluyen. Ver aviso en `wheel_skill.md` §4. |
 | **S55** (cash en lateral) | Lateral | S36: 0 trades, capital intacto vs hold -96% |
 | **S67** (DTE 7–10 OTM) | — | -48%: el theta de los últimos días destruye |
 | **S75/S76** (defensivas en bear suave HTF) | Bear suave | El filtro `cheap_min_net=28` estaba declarado pero ignorado; ya está conectado al motor y los resultados deben regenerarse. |

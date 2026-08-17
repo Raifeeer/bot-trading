@@ -40,8 +40,22 @@ El flujo de decisión combinado es: las señales SMC (sección 3 de `docs/skills
 | Bull (RSI>50, precio>SMA200, universo) | Call debit spread 0.25/0.10, DTE 10–45, cierre 7 DTE | S51 (+92% en 90 días) |
 | CHoCH bear (≥30% del universo) | Put spread 0.30/0.10, DTE 21, budget 30% equity, máx 2 pos, TP 1.5/SL 0.5 | S63 (+20.8% en selloff ene–abr 2026) |
 | Lateral | Cash — no operar | S55 (S36: 0 trades, capital intacto) |
-| Rebote en selloff (RSI<25, precio>SMA100) | Call spread 0.30/0.10, DTE 21, budget 15% | S36 (+53–60%, win 71–75%) |
+| Rebote en selloff | **ATRIBUCIÓN CORREGIDA — ver aviso abajo** | S36 mide `smc_daily`, no rebote |
 | Bear suave HTF (bajo SMA200 sin CHoCH) | Cash + hold solo si bull local | S78 (+26.7%, ganador reciente) |
+
+> **AVISO (17 ago 2026): la fila de "rebote en selloff" era incorrecta.** Esta
+> tabla atribuía a S36 la condición «RSI<25 y precio>SMA100» con +53–60% y win
+> 71–75%. Dos problemas comprobados: (1) en el código **S36 es
+> `motor="smc_daily"`**, no un motor de rebote, así que esas cifras pertenecen a
+> otra estrategia; (2) la condición documentada **no puede dispararse**: se
+> implementó como motor `rebote_doc` y dio **0 operaciones en 4.928 días-ticker**
+> (2024-02 → 2026-08, universo reto). La causa es estructural, no de muestra —
+> cuando el RSI cae por debajo de 25 (mínimos históricos 13,9–24,7) el precio ya
+> está **por debajo** de su SMA100; las dos cláusulas se excluyen entre sí.
+> Incluso relajando a RSI<30 salen 0 ocurrencias; hacen falta RSI<35 para 5 y
+> RSI<40 para 53. Por eso el repo tiene `rebote_rsi40`: alguien ya había
+> descubierto que el umbral debía relajarse, pero la documentación siguió
+> citando la condición original. **No usar esta fila para calibrar nada.**
 
 ## 5. Errores conocidos
 
