@@ -1410,3 +1410,12 @@ Se observó un `HTTP 409 Conflict` del polling Telegram durante el cambio de rev
 Aunque `00076` completó el primer tick, no apareció un segundo tick durante la ventana esperada. La revisión de código mostró que el loop llamaba directamente a `executor.account_snapshot()` al inicio y al final de cada ciclo, sin timeout. Se añadió `_call_with_timeout(..., 30s)` a ambas rutas; así una respuesta colgada del broker no bloquea el ciclo indefinidamente. El siguiente despliegue `00077` debe confirmar al menos dos `Tick OK` y una nueva escritura Firestore, o un timeout controlado claramente registrado.
 
 El feed de Alpaca PAPER devuelve `APIError: subscription does not permit querying recent SIP data` para los ocho tickers y cae a yfinance. El fallback funciona y entrega 5min, 15min y 1d; no debe confundirse este warning de suscripción con un fallo total del bot. Para reducir latencia y dependencia de fallback, queda pendiente contratar un feed Alpaca compatible o seleccionar explícitamente un proveedor de datos autorizado.
+
+
+## 47. Verificación de 00077 y telemetría de señales
+
+La revisión `polaris-bot-00077-4jq` opera con CPU siempre asignada, `minScale=1`, `maxScale=1` y modo `PAPER`. Después de eliminar la revisión anterior `00076`, el bot completó dos ciclos con `Estado escrito en Firestore` y `Tick OK`; no se observó un nuevo `HTTP 409 Conflict` de Telegram después de la limpieza. El 409 observado a las `17:35:56Z` pertenecía al intervalo previo a eliminar `00076`, que era el segundo poller.
+
+En ambos ticks el snapshot quedó con equity `99,288.65`, cero posiciones y cero órdenes. El régimen fue `bull` (`4/8` tickers bull, `0/8` bear) y los datos llegaron para 5min, 15min y 1d. Alpaca rechazó las consultas SIP recientes por la suscripción actual y el feed cayó a yfinance, pero el fallback entregó los datos y el tick finalizó correctamente.
+
+Para distinguir ausencia de señales de bloqueos silenciosos se añadió `signal_stats` por tick y se publica en el snapshot: `scanned`, `tradable`, `bull_gate`, `approved`, `orders` y `bear_candidates`. También se registra `SEÑALES tick: {...}` en Cloud Logging. Esta telemetría se validó localmente con `compileall`, Ruff F/B y **95 tests OK**, 1 omitido y 2 expected failures. Debe desplegarse antes de concluir por qué no se abrió una posición.

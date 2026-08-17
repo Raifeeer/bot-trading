@@ -739,6 +739,14 @@ def main():
             cached = {}
             failed_tfs = []
             skip_tick = False
+            signal_stats = {
+                "scanned": 0,
+                "tradable": 0,
+                "bull_gate": 0,
+                "approved": 0,
+                "orders": 0,
+                "bear_candidates": 0,
+            }
             for sname, strat in strats.items():
                 tf, days = tf_by_strat[sname]
                 if tf not in cached:
@@ -761,6 +769,9 @@ def main():
                     if len(df) < (60 if tf == "1d" else 20):
                         continue
                     sig = strat.scan(df, symbol=sym)
+                    signal_stats["scanned"] += 1
+                    if sig.tradable:
+                        signal_stats["tradable"] += 1
                     # Régimen S78: solo se abren entradas en régimen bull
                     # (bear/cash = cash; el piso de equity también bloquea).
                     if sig.tradable and strat.last_structure and \
@@ -785,12 +796,14 @@ def main():
                                         sym)
                             strat.reset()
                             continue
+                        signal_stats["bull_gate"] += 1
                         st = strat.last_structure
                         entry_px = abs(st.net_premium)
                         dec = rm.approve_position(sym, sig, entry_px, equity,
                                                   [type("P", (), {"symbol": p["symbol"]})()
                                                    for p in state["positions"]])
                         if dec.decision == "APPROVED":
+                            signal_stats["approved"] += 1
                             # Tamaño según la fase del piso: en recuperación se
                             # escala para cerrar la brecha hasta $100k; en fase
                             # de reto vuelve a 1 contrato (ver recovery_sizing).
@@ -826,6 +839,7 @@ def main():
                                     spec["symbol"], spec["side"], spec["qty"],
                                     order_type=spec["order_type"],
                                     limit_price=spec["limit_price"]))
+                            signal_stats["orders"] += len(submitted)
                             state["positions"].append({
                                 "symbol": sym, "strategy": sname,
                                 "structure": st.name,
@@ -856,6 +870,7 @@ def main():
             try:
                 bcfg = options_bear_cfg(cfg)
                 candidatos = bear_entry_candidates(regime, state, cfg)
+                signal_stats["bear_candidates"] = len(candidatos)
                 if candidatos and not (regime.get("floor") or {}).get("below_floor") \
                         and not rm.is_halted():
                     for sym in candidatos:
@@ -894,6 +909,7 @@ def main():
                             s["symbol"], s["side"], s["qty"],
                             order_type=s["order_type"],
                             limit_price=s["limit_price"]) for s in order_specs]
+                        signal_stats["orders"] += len(submitted)
                         state["positions"].append({
                             "symbol": sym, "strategy": "bear_put_choch",
                             "kind": "put",
@@ -993,6 +1009,8 @@ def main():
                     logger.exception("Error gestionando posición %s: %s",
                                      p["symbol"], e)
 
+            state["tick_diagnostics"] = signal_stats
+            logger.info("SEÑALES tick: %s", signal_stats)
             save_state(state)
             acct = (_call_with_timeout(executor.account_snapshot, 30.0,
                                         "Alpaca account snapshot")
@@ -1037,6 +1055,7 @@ def main():
                             "PAPER" if "paper" in (os.environ.get("APCA_API_BASE_URL") or "") else "REAL"),
                         "strategies": list(strats.keys()),
                         "universe": cfg["universo"].get("tickers", []),
+                        "tick_diagnostics": signal_stats,
                         "decisions_today": [d for d in state["decisions"]
                                             if d.get("ts", "").startswith(
                                                 datetime.utcnow().strftime("%Y-%m-%d"))],
