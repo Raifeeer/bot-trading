@@ -121,16 +121,38 @@ def main():
           f"= {len(grid)*len(SPLITS)} corridas")
 
     jobs = [(i, cfg, sp) for i, cfg in enumerate(grid) for sp in SPLITS]
+
+    # Checkpoint incremental: cada corrida se apunta a un JSONL en cuanto
+    # termina, y al arrancar se saltan las ya hechas. Un reinicio del
+    # contenedor (o del proceso) no cuesta volver a empezar de cero.
+    ckpt = os.path.join(out_dir, "walkforward_ckpt.jsonl")
+    results, done = [], set()
+    if os.path.exists(ckpt):
+        with open(ckpt) as f:
+            for line in f:
+                try:
+                    r = json.loads(line)
+                except Exception:  # noqa: BLE001
+                    continue
+                results.append(r)
+                done.add((r["idx"], r["split"]))
+        print(f"Checkpoint: {len(done)} corridas ya hechas, se reanuda")
+    pending = [j for j in jobs if (j[0], j[2]) not in done]
+    print(f"Pendientes: {len(pending)}")
+
     t0 = time.time()
-    results = []
-    with ProcessPoolExecutor(max_workers=4, initializer=_init,
-                             initargs=(cache,)) as ex:
-        for k, r in enumerate(ex.map(_run_one, jobs, chunksize=4), 1):
-            results.append(r)
-            if k % 50 == 0:
-                el = time.time() - t0
-                print(f"  {k}/{len(jobs)} en {el:.0f}s "
-                      f"(ETA {el/k*(len(jobs)-k):.0f}s)", flush=True)
+    if pending:
+        with open(ckpt, "a") as cf:
+            with ProcessPoolExecutor(max_workers=4, initializer=_init,
+                                     initargs=(cache,)) as ex:
+                for k, r in enumerate(ex.map(_run_one, pending, chunksize=2), 1):
+                    results.append(r)
+                    cf.write(json.dumps(r, default=float) + "\n")
+                    cf.flush()
+                    if k % 25 == 0:
+                        el = time.time() - t0
+                        print(f"  {k}/{len(pending)} en {el:.0f}s "
+                              f"(ETA {el/k*(len(pending)-k):.0f}s)", flush=True)
 
     rdf = pd.DataFrame(results)
     gdf = pd.DataFrame(grid)
