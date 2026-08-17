@@ -269,6 +269,12 @@ def value_spread(spread, spot, days_later, sc, exit_spot=None):
     return (px_l - px_s) * 100 * MARGIN_MULT
 
 
+def _roundtrip_commission(sc: dict) -> float:
+    """Comisión total de una operación completa de spread: 2 patas x
+    (entrada + salida). Se cobra al cerrar, pero debe reservarse al entrar."""
+    return 4.0 * float(sc.get("comision") or 0.0)
+
+
 def option_entry_cost(spread: dict, sc: dict) -> float:
     """Costo de entrada con slippage por contrato; 0 por defecto para legacy."""
     slip = max(0.0, float(sc.get("slippage_pct", 0.0)))
@@ -717,6 +723,18 @@ MOTORES["breakout55"] = (
 )
 
 def run_scenario(key: str, sc: dict, data: dict):
+    # El universo del escenario DEBE aplicarse aquí: los bucles de entrada de
+    # las rutas no-regime iteran `sorted(data.items())`, así que sin filtrar
+    # operaban sobre todos los tickers descargados e ignoraban por completo
+    # `sc["tickers"]` — dos escenarios con universos distintos devolvían
+    # resultados idénticos byte a byte (detectado el 17 ago 2026, invalida las
+    # conclusiones por universo del corpus histórico S1-S89).
+    universo = set(sc.get("tickers") or data.keys())
+    data = {s: df for s, df in data.items() if s in universo}
+    if not data:
+        raise ValueError(f"{key}: ningún ticker del universo {sorted(universo)} "
+                         f"está en los datos")
+
     today = pd.Timestamp.now(tz="UTC").normalize()
     if sc.get("window_dates"):
         start = pd.Timestamp(sc["window_dates"][0], tz="UTC").normalize()
@@ -836,7 +854,21 @@ def run_scenario(key: str, sc: dict, data: dict):
                     continue
                 risk_budget = equity * sc["risk_pct"]
                 entry_net = option_entry_cost(spread, sc)
-                if entry_net > min(risk_budget, equity * 0.5):
+                # Contabilidad de caja: el equity solo se actualiza al CERRAR
+                # (`equity += pnl`), así que sin descontar lo ya comprometido
+                # en posiciones abiertas el motor podía comprar max_pos veces
+                # el mismo % del equity total y acabar gastando más de lo que
+                # tenía — con equity final negativo (-102% observado el 17 ago
+                # 2026). Además, una cuenta a cero no puede seguir operando.
+                committed = sum(p["entry_net"] for p in open_pos)
+                available = equity - committed
+                if equity <= 0 or available <= 0:
+                    continue
+                # La comisión se cobra al CERRAR (4 patas-lado), así que el
+                # disponible tiene que cubrir también ese coste futuro: si no,
+                # una entrada que gasta todo el saldo y pierde deja la cuenta
+                # en negativo.
+                if entry_net + _roundtrip_commission(sc) > min(risk_budget + _roundtrip_commission(sc), available):
                     continue
                 open_pos.append(dict(symbol=sym, spread=spread,
                                      entry_net=entry_net,
@@ -856,7 +888,9 @@ def run_scenario(key: str, sc: dict, data: dict):
                         continue
                     entry_net = min(equity / (len(data) - len(open_pos)),
                                     equity * sc["risk_pct"])
-                    if entry_net > equity * 0.5:
+                    committed_h = sum(p["entry_net"] for p in open_pos)
+                    available_h = equity - committed_h
+                    if equity <= 0 or available_h <= 0 or entry_net > available_h:
                         continue
                     open_pos.append(dict(symbol=sym, spread=None,
                                          entry_net=entry_net,
@@ -958,7 +992,15 @@ def run_scenario(key: str, sc: dict, data: dict):
                                                 reason="rebalance", motor="regime_aware",
                                                 days_held=(d-p["entry_date"]).days))
                 pos3 = [p for p in pos3 if p.get("side") != "equity"]
-                per = equity3 / max(len(rebal_syms), 1)
+                # Al rebalancear solo se cierran las patas de acciones; los put
+                # spreads abiertos siguen ocupando capital. Repartir el equity
+                # ENTERO entre las acciones sobrecomprometía la cuenta (podía
+                # comprometer puts + 100% del equity) y la dejaba en negativo
+                # si todo perdía. Se reparte solo lo que queda libre.
+                comprometido_puts = sum(p["entry_net"] for p in pos3
+                                        if p.get("side") != "equity")
+                libre = max(0.0, equity3 - comprometido_puts)
+                per = libre / max(len(rebal_syms), 1)
                 for sym in rebal_syms:
                     dfsym = data.get(sym)
                     if dfsym is None:
@@ -987,7 +1029,12 @@ def run_scenario(key: str, sc: dict, data: dict):
                         continue
                     risk_budget = equity3 * sc["risk_pct"]
                     entry_net = option_entry_cost(spread, sc)
-                    if entry_net > min(risk_budget, equity3 * 0.5):
+                    committed3 = sum(p["entry_net"] for p in pos3)
+                    available3 = equity3 - committed3
+                    if equity3 <= 0 or available3 <= 0:
+                        continue
+                    if entry_net + _roundtrip_commission(sc) > min(
+                            risk_budget + _roundtrip_commission(sc), available3):
                         continue
                     pos3.append(dict(symbol=sym, side="put", spread=spread,
                                      entry_net=entry_net, last_spot=spot,

@@ -392,3 +392,11 @@ NameError: name 'args' is not defined
 2026-08-17 11:37:53,393 option_details WARNING spot_iv_from_feed(TQQQ) excedió 0s, se omite este tick
 2026-08-17 11:37:53,411 polaris.tgbt INFO TG response sent=True para '/estado'
 2026-08-17 11:37:53,412 polaris.tgbt INFO TG response sent=True para 'qué opinas de AAPL'
+2026-08-17 11:49:29,255 state.firestore WARNING Fallo leyendo último equity de Firestore: boom
+2026-08-17 11:49:29,258 bot WARNING Reconciliación: reconstruida posición TQQQ (call_spread_TQQQ_85.0_100.0) desde Alpaca; no estaba en el estado local del bot
+2026-08-17 11:49:29,258 bot WARNING Reconciliación: TQQQ 2026-09-18 CALL no forma un vertical de 2 patas (1 patas encontradas); no se reconstruye automáticamente
+2026-08-17 11:49:29,258 risk CRITICAL CIRCUIT BREAKER DIARIO: drawdown 6.00% (límite 5.00%)
+2026-08-17 11:49:29,258 risk INFO RISK nuevo día: equity inicial 100.00
+2026-08-17 11:49:29,460 option_details WARNING spot_iv_from_feed(TQQQ) excedió 0s, se omite este tick
+2026-08-17 11:49:29,474 polaris.tgbt INFO TG response sent=True para '/estado'
+2026-08-17 11:49:29,474 polaris.tgbt INFO TG response sent=True para 'qué opinas de AAPL'

@@ -56,18 +56,27 @@ class TestBreakevenFormula(unittest.TestCase):
 
 
 class TestProductionExitConfig(unittest.TestCase):
-    """DEFECTO CONOCIDO — los dos tests de esta clase fallan a propósito.
+    """OJO CON LA INTERPRETACIÓN — el umbral nominal es una COTA PESIMISTA.
 
-    Documentan, en código ejecutable, que `config/config.yaml` corre hoy
-    tp_premium_mult=1.4 / sl_premium_mult=0.25: un 65.2% de acierto exigido
-    contra un 64% máximo histórico. Están marcados `expectedFailure` para
-    que la suite siga en verde mientras se decide, con las rondas de
-    backtesting out-of-sample, a qué valores mover la config (elegir el
-    mejor in-sample es justo el error que advierte
-    docs/skills/backtest_skill.md §8).
+    La fórmula de arriba supone que el cierre ocurre exactamente en
+    `entry*tp_mult` o `entry*sl_mult`. En la realidad (y en el backtest) las
+    salidas se evalúan sobre velas DIARIAS, así que un ganador puede
+    rebasar el objetivo con holgura antes de que se compruebe la condición.
+    Medido sobre los trades reales del corpus el 17 ago 2026, la relación
+    ganancia/pérdida realizada es de 1.4 de mediana (S41 2.80, S39 2.13,
+    S78 2.04, S36 1.74) — muy por encima del 0.53 nominal de tp1.4/sl0.25.
 
-    Al corregir la config hay que RETIRAR los dos decoradores: entonces
-    pasan y quedan como guarda-raíl permanente.
+    Es decir: el 65.2% "exigido" por la fórmula NO es el acierto realmente
+    necesario; con R:R realizado de 1.4 el equilibrio está cerca del 42%, y
+    el acierto observado (mediana 47%) queda por encima. Una conclusión
+    anterior de esta sesión que declaraba la config "matemáticamente
+    perdedora" se apoyaba en la cota nominal y era incorrecta.
+
+    Por eso los dos tests que miran la config real van marcados
+    `expectedFailure`: dejan registrada la asimetría nominal como señal de
+    alerta sin afirmar que la config pierda dinero, algo que solo puede
+    zanjar el walk-forward con el motor de backtest ya corregido (bugs de
+    universo y de bancarrota arreglados el mismo día).
     """
 
     def _load_exit_cfg(self):
