@@ -1397,3 +1397,16 @@ Validación local posterior: `compileall` correcto, Ruff F/B en cero y **94 test
 La revisión `00073` pasó el startup probe y arrancó Telegram, pero no alcanzó `Bot iniciado` durante la ventana observada. La lectura de código confirmó que el proceso principal todavía podía quedar bloqueado en `executor.connect()` o `executor.account_snapshot()` antes de la reconciliación de posiciones. Se añadió `_call_with_timeout()` con hilo daemon: 45 s para conexión Alpaca, 30 s para snapshot de cuenta y 30 s para posiciones. En producción PAPER, un bloqueo ahora falla rápido y deja que Cloud Run reinicie la instancia en vez de mantenerla viva sin ticks.
 
 La regresión de timeout de posiciones quedó cubierta por un test determinista. La validación local posterior terminó con **95 tests OK**, 1 omitido y 2 expected failures; `compileall` y Ruff F/B también pasaron. El siguiente despliegue debe confirmar que aparece `Bot iniciado` tras el timeout o que se registra un fallo controlado de Alpaca y una recreación limpia de la instancia.
+
+
+## 46. Causa raíz de operación background y segundo ciclo — 17 de agosto de 2026
+
+La causa raíz de que las revisiones `00072–00075` parecieran sanas pero no ejecutaran el loop de forma continua era la anotación de Cloud Run `run.googleapis.com/cpu-throttling: 'true'`. El servicio tenía `minScale=1`, pero Cloud Run estrangulaba la CPU cuando no había una solicitud HTTP activa; el servidor `/diag/*` podía responder mientras `bot.py` no avanzaba. Se corrigió con `gcloud run services update polaris-bot --no-cpu-throttling`, creando la revisión `polaris-bot-00076-zn6`, con `minScale=1`, `maxScale=1` y CPU siempre asignada.
+
+La revisión `00076` quedó verificada con `Bot iniciado`, conexión Alpaca PAPER, `FIRESTORE_ENABLED=True`, régimen `bull`, equity `99,288.65`, `Estado escrito en Firestore` y `Tick OK`. No había posiciones ni órdenes porque antes del cambio el piso bloqueaba, y después el feed produjo datos pero no una señal ejecutable; esto es distinto de un proceso caído.
+
+Se observó un `HTTP 409 Conflict` del polling Telegram durante el cambio de revisión, causado por revisiones antiguas con instancias/polling aún vivos. Se eliminaron las revisiones sin tráfico `00071` a `00075`, conservando `00076`, para dejar un único consumidor del bot de Telegram. El conflicto debe comprobarse de nuevo en el siguiente ciclo.
+
+Aunque `00076` completó el primer tick, no apareció un segundo tick durante la ventana esperada. La revisión de código mostró que el loop llamaba directamente a `executor.account_snapshot()` al inicio y al final de cada ciclo, sin timeout. Se añadió `_call_with_timeout(..., 30s)` a ambas rutas; así una respuesta colgada del broker no bloquea el ciclo indefinidamente. El siguiente despliegue `00077` debe confirmar al menos dos `Tick OK` y una nueva escritura Firestore, o un timeout controlado claramente registrado.
+
+El feed de Alpaca PAPER devuelve `APIError: subscription does not permit querying recent SIP data` para los ocho tickers y cae a yfinance. El fallback funciona y entrega 5min, 15min y 1d; no debe confundirse este warning de suscripción con un fallo total del bot. Para reducir latencia y dependencia de fallback, queda pendiente contratar un feed Alpaca compatible o seleccionar explícitamente un proveedor de datos autorizado.

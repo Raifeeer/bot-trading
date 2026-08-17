@@ -675,7 +675,8 @@ def main():
     while True:
         skip_tick = False
         try:
-            snap = executor.account_snapshot()
+            snap = _call_with_timeout(executor.account_snapshot, 30.0,
+                                      "Alpaca account snapshot")
             equity = snap["equity"]
             rm.check_circuit_breakers(equity)
             if rm.is_halted():
@@ -993,9 +994,11 @@ def main():
                                      p["symbol"], e)
 
             save_state(state)
-            acct = executor.account_snapshot() if not executor.dry_run else {
+            acct = (_call_with_timeout(executor.account_snapshot, 30.0,
+                                        "Alpaca account snapshot")
+                    if not executor.dry_run else {
                 "equity": equity, "cash": equity, "portfolio_value": equity,
-                "buying_power": equity * 4}
+                "buying_power": equity * 4})
             logger.info("FIRESTORE_ENABLED=%s (antes de write_state_snapshot)",
                         FIRESTORE_ENABLED)
             enriched_positions = _enriched_positions(executor)
