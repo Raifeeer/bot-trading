@@ -113,25 +113,29 @@ def key_if_any(executor: AlpacaExecutor) -> bool:
 STATE_FILE = "data/bot_state.json"
 
 
-def _positions_with_timeout(executor: AlpacaExecutor, timeout_s: float = 30.0) -> list:
-    """Lee posiciones de Alpaca sin bloquear el proceso principal indefinidamente."""
+def _call_with_timeout(fn, timeout_s: float, label: str):
+    """Ejecuta una llamada externa en hilo daemon con timeout duro."""
     result, error = {}, {}
 
-    def _fetch():
+    def _run():
         try:
-            result["legs"] = executor.positions()
+            result["value"] = fn()
         except Exception as exc:  # noqa: BLE001
             error["exc"] = exc
 
-    t = threading.Thread(target=_fetch, daemon=True, name="alpaca-positions")
+    t = threading.Thread(target=_run, daemon=True, name=f"timeout-{label}")
     t.start()
     t.join(timeout_s)
     if t.is_alive():
-        raise TimeoutError(
-            f"Alpaca positions no respondió en {timeout_s:.0f}s")
+        raise TimeoutError(f"{label} no respondió en {timeout_s:.0f}s")
     if "exc" in error:
         raise error["exc"]
-    return result.get("legs", [])
+    return result.get("value")
+
+
+def _positions_with_timeout(executor: AlpacaExecutor, timeout_s: float = 30.0) -> list:
+    """Lee posiciones de Alpaca sin bloquear el proceso principal indefinidamente."""
+    return _call_with_timeout(executor.positions, timeout_s, "Alpaca positions")
 
 
 def save_state(state: dict):
@@ -562,11 +566,13 @@ def main():
     executor = AlpacaExecutor(dry_run=args.dry_run)
     start_tg_bot()
     try:
-        executor.connect()
-        equity0 = float(executor.account_snapshot()["equity"])
-    except ExecutionError as e:
+        _call_with_timeout(executor.connect, 45.0, "Alpaca connect")
+        account = _call_with_timeout(executor.account_snapshot, 30.0,
+                                    "Alpaca account snapshot")
+        equity0 = float(account["equity"])
+    except (ExecutionError, TimeoutError) as e:
         if not args.dry_run:
-            raise
+            raise ExecutionError(f"Alpaca no disponible: {e}") from e
         # dry-run sin credenciales: capital simulado desde configuración
         equity0 = float(os.environ.get("BOT_START_CAPITAL", 100_000.0))
         logger.warning("Alpaca no configurado: %s · operación simulada con capital inicial %.0f", e, equity0)

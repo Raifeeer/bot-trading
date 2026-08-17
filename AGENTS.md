@@ -1390,3 +1390,10 @@ Se corrigió también el mensaje de recuperación, que todavía decía “sin to
 El `recovery_floor` se cambió a `99,000` en código y configuración para que el equity observado de `99,288.65` no permanezca bloqueado por debajo de `99,400`. El piso del reto permanece `99,900`, el objetivo `100,000`, el `max_daily_loss_usd` permanece `400` y el modo de producción sigue siendo PAPER. Esta modificación permite nuevas entradas PAPER, pero no elimina el circuito diario ni el límite por operación.
 
 Validación local posterior: `compileall` correcto, Ruff F/B en cero y **94 tests OK**, 1 omitido y 2 expected failures. Antes de declarar producción funcional hay que publicar este cambio, construir una imagen inmutable por commit, desplegar la revisión siguiente en PAPER y observar al menos un arranque completo y dos ticks. Deben distinguirse: señal detectada, entrada bloqueada por earnings/riesgo/piso, orden enviada y posición confirmada por Alpaca.
+
+
+## 45. Timeout de conexión Alpaca antes del primer tick
+
+La revisión `00073` pasó el startup probe y arrancó Telegram, pero no alcanzó `Bot iniciado` durante la ventana observada. La lectura de código confirmó que el proceso principal todavía podía quedar bloqueado en `executor.connect()` o `executor.account_snapshot()` antes de la reconciliación de posiciones. Se añadió `_call_with_timeout()` con hilo daemon: 45 s para conexión Alpaca, 30 s para snapshot de cuenta y 30 s para posiciones. En producción PAPER, un bloqueo ahora falla rápido y deja que Cloud Run reinicie la instancia en vez de mantenerla viva sin ticks.
+
+La regresión de timeout de posiciones quedó cubierta por un test determinista. La validación local posterior terminó con **95 tests OK**, 1 omitido y 2 expected failures; `compileall` y Ruff F/B también pasaron. El siguiente despliegue debe confirmar que aparece `Bot iniciado` tras el timeout o que se registra un fallo controlado de Alpaca y una recreación limpia de la instancia.

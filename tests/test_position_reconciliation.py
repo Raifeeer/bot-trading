@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from bot import reconcile_positions_with_broker
+from bot import reconcile_positions_with_broker, _call_with_timeout
 
 
 class _FakeExecutor:
@@ -13,6 +13,13 @@ class _FakeExecutor:
 
     def positions(self):
         return self._legs
+
+
+class _HangingExecutor:
+    def positions(self):
+        import time
+        time.sleep(1.0)
+        return []
 
 
 TQQQ_LONG = dict(symbol="TQQQ260918C00085000", qty=10.0, avg_entry=2.32,
@@ -30,6 +37,11 @@ TQQQ_PUT_SHORT = dict(symbol="TQQQ260918P00100000", qty=-10.0, avg_entry=0.35,
 
 
 class TestPositionReconciliation(unittest.TestCase):
+    def test_external_position_call_has_timeout(self):
+        with self.assertRaises(TimeoutError):
+            _call_with_timeout(_HangingExecutor().positions, 0.01,
+                               "test positions")
+
     def test_reconstructs_vertical_spread_missing_from_local_state(self):
         state = {"positions": [], "decisions": [], "orders": []}
         executor = _FakeExecutor([TQQQ_LONG, TQQQ_SHORT])
