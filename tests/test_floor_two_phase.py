@@ -8,7 +8,8 @@ permanente y rige el piso de $99,900.
 
 Lo que estos tests protegen sobre todo es el latch: sin él, romper el piso del
 reto devolvería al bot a modo recuperación —que tiene un piso más bajo— y el
-piso de $99,900 no protegería nada.
+piso de $99,900 no protegería nada. El recovery_floor actual es $99,000 para
+permitir recuperar desde el equity de producción observado ($99,288.65).
 """
 import os
 import sys
@@ -27,14 +28,19 @@ class TestRecoveryPhase(unittest.TestCase):
         state = {}
         r = check_floor(99_689.15, state, CFG)
         self.assertEqual(r["phase"], "recuperacion")
-        self.assertEqual(r["floor"], 99_400.0)
+        self.assertEqual(r["floor"], 99_000.0)
         self.assertFalse(r["below_floor"], "debe poder abrir posiciones")
         self.assertFalse(r["challenge_armed"])
+
+    def test_current_production_equity_can_trade(self):
+        r = check_floor(99_288.65, {}, CFG)
+        self.assertEqual(r["phase"], "recuperacion")
+        self.assertFalse(r["below_floor"])
 
     def test_recovery_floor_still_protects(self):
         """La recuperación no es 'sin control de riesgo': su piso frena."""
         state = {}
-        r = check_floor(99_350.0, state, CFG)
+        r = check_floor(98_950.0, state, CFG)
         self.assertEqual(r["phase"], "recuperacion")
         self.assertTrue(r["below_floor"])
         self.assertIn("PISO ROTADO", r["reason"])
@@ -71,7 +77,7 @@ class TestChallengeArming(unittest.TestCase):
         self.assertEqual(r2["phase"], "reto")
         self.assertEqual(r2["floor"], 99_900.0)
         self.assertTrue(r2["below_floor"])
-        self.assertNotEqual(r2["floor"], 99_400.0,
+        self.assertNotEqual(r2["floor"], 99_000.0,
                             "no debe relajarse al piso de recuperación")
 
     def test_equity_above_target_arms_even_without_prior_state(self):
@@ -88,7 +94,8 @@ class TestChallengeArming(unittest.TestCase):
 class TestEntryGateIntegration(unittest.TestCase):
     def test_gate_open_in_recovery_and_closed_below_recovery_floor(self):
         """Reproduce la condición de bot.py: bull + not below_floor."""
-        for equity, esperado in ((99_689.15, True), (99_350.0, False)):
+        for equity, esperado in ((99_689.15, True), (99_288.65, True),
+                                 (98_950.0, False)):
             state = {}
             fr = check_floor(equity, state, CFG)
             regime = {"regime": "bull", "floor": fr}

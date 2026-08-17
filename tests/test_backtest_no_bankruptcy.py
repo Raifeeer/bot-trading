@@ -68,7 +68,7 @@ class TestNoNegativeEquity(unittest.TestCase):
         idx = pd.date_range("2025-01-02", periods=300, freq="B", tz="UTC")
         rng = np.random.default_rng(7)
         data = {}
-        for i, s in enumerate(["AAA", "BBB", "CCC", "DDD"]):
+        for _i, s in enumerate(["AAA", "BBB", "CCC", "DDD"]):
             close = np.maximum(
                 60.0 - np.linspace(0, 45, 300) + rng.standard_normal(300) * 0.6,
                 1.0)

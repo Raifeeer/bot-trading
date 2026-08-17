@@ -3,8 +3,8 @@
 FASE 1 — RECUPERACIÓN (`recuperacion`)
     Mientras el equity esté por debajo de `challenge_target` ($100,000), el
     objetivo es volver a esa cifra. Rige un piso de seguridad más bajo
-    (`recovery_floor`) para que el bot pueda operar: con el piso del reto
-    ($99,900) por encima del equity actual se producía un bloqueo circular
+    (`recovery_floor`, $99,000) para que el bot pueda operar: con el piso del
+    reto ($99,900) por encima del equity actual se producía un bloqueo circular
     —el bot necesitaba ganar para poder operar y necesitaba operar para
     ganar— que lo dejaba inmóvil de forma permanente (17 ago 2026).
 
@@ -32,10 +32,10 @@ DEFAULT_FLOOR_CFG = {
     "equity_floor": 99900.0,
     # Al alcanzarlo se arma el reto de forma permanente.
     "challenge_target": 100000.0,
-    # Piso de seguridad durante la recuperación. Debe quedar por debajo del
-    # equity de partida o el bot no podría operar; limita cuánto más se puede
-    # perder mientras se intenta volver al objetivo.
-    "recovery_floor": 99400.0,
+    # Piso de seguridad durante la recuperación. El equity de producción
+    # observado el 17-08-2026 fue $99,288.65; $99,000 deja margen operativo
+    # real sin eliminar el guard-rail ni el breaker diario de $400.
+    "recovery_floor": 99000.0,
 }
 
 

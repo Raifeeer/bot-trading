@@ -145,7 +145,7 @@ def main():
           "independientes de ~2 meses")
     print("=" * 96)
     rows = []
-    for i, c in cdf.iterrows():
+    for _i, c in cdf.iterrows():
         sub = rdf[rdf["idx"] == c["idx"]].dropna(subset=["ret"])
         if sub.empty:
             continue

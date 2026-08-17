@@ -5,7 +5,7 @@ real. Sin red real: se mockean _send y _ai_answer_with_timeout."""
 import os
 import sys
 import unittest
-from unittest.mock import call, patch
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from state import telegram_bot  # noqa: E402

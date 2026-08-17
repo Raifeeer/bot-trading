@@ -35,7 +35,7 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from loop_backtests import CAPITAL_INICIAL, UNI_RETO, run_scenario  # noqa: E402
-from round4_puts import WINDOWS, N_REGULARES, clasificar_ventanas  # noqa: E402
+from round4_puts import WINDOWS, clasificar_ventanas  # noqa: E402
 
 COMISION_BASE = 0.65
 PRIMA_BACKTEST = 15.0  # risk_pct 0.15 sobre $100 de capital

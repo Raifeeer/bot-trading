@@ -197,6 +197,7 @@ def reconcile_positions_with_broker(executor: AlpacaExecutor, state: dict) -> in
             state["positions"].append({
                 "symbol": underlying,
                 "strategy": "reconciled_broker",
+                "kind": "put" if otype == "PUT" else "call",
                 "structure": structure,
                 "net_premium": net_premium,
                 "max_risk": abs(net_premium) * 100,
@@ -234,8 +235,11 @@ def bear_entry_candidates(regime: dict, state: dict, cfg: dict) -> list:
     if not b["enabled"] or regime.get("regime") != "bear":
         return []
     abiertos = {p["symbol"] for p in state.get("positions", [])}
-    n_puts = sum(1 for p in state.get("positions", [])
-                 if p.get("kind") == "put")
+    n_puts = sum(
+        1 for p in state.get("positions", [])
+        if p.get("kind") == "put"
+        or "put" in str(p.get("structure", "")).lower()
+    )
     if n_puts >= b["max_positions"]:
         return []
     cupo = b["max_positions"] - n_puts
@@ -247,18 +251,11 @@ def bear_entry_candidates(regime: dict, state: dict, cfg: dict) -> list:
 def recovery_sizing(equity: float, floor_res: dict, cfg: dict) -> dict:
     """Tamaño permitido según la fase del piso (ver risk/floor.py).
 
-    FASE `recuperacion` (equity < $100k, reto sin armar): por decisión
-    explícita del dueño (17 ago 2026) el bot opera SIN el tope de prima de
-    $12 con el objetivo de volver a $100,000. El tamaño objetivo es el que
-    cierra la brecha en un acierto:
-
-        prima_objetivo = (objetivo - equity) / (tp_mult - 1)
-
-    con tp_mult=1.4 (TP +40%) eso son ~$777 para una brecha de $311. AVISO
-    EXPLÍCITO: esa prima supera el margen hasta el piso de recuperación
-    ($289), así que una única operación perdedora puede dejar la cuenta por
-    debajo del piso — el piso solo bloquea entradas nuevas, no limita la
-    pérdida de una posición ya abierta. Es el coste aceptado de la decisión.
+    FASE `recuperacion` (equity < $100k, reto sin armar): el bot calcula una
+    prima objetivo para volver a $100,000, pero el número de contratos se
+    limita antes de enviar órdenes al presupuesto seguro de recuperación: el
+    menor entre `max_risk_per_trade_pct` y `max_daily_loss_usd`. La prima
+    objetivo sirve para priorizar el tamaño, no para saltarse los breakers.
 
     FASE `reto` (reto armado): vuelve al estado regular — tope de prima de
     config y 1 contrato. La transición es automática vía el latch del piso,
@@ -283,18 +280,37 @@ def recovery_sizing(equity: float, floor_res: dict, cfg: dict) -> dict:
 
 
 def contracts_for_target(structure, target_premium: float,
-                         cash_disponible: float) -> int:
-    """Nº de contratos para acercarse a `target_premium`, acotado por la caja.
+                         cash_disponible: float,
+                         max_premium_total: float | None = None) -> int:
+    """Nº de contratos objetivo con caja y presupuesto de riesgo acotados.
 
-    Nunca menos de 1 (si no cabe ni uno, el llamador debe descartar la
-    entrada) y nunca más de lo que la caja disponible puede pagar.
+    Devuelve 0 cuando ni un contrato cabe en el presupuesto seguro; el
+    llamador debe descartar la entrada antes de enviar ninguna pata. En
+    recuperación, ``max_premium_total`` limita una pérdida única al menor
+    entre el riesgo por operación y el breaker diario absoluto.
     """
     prima_uno = abs(float(structure.net_premium))
     if prima_uno <= 0:
-        return 1
+        return 0
+    presupuesto = max(0.0, float(cash_disponible))
+    if max_premium_total is not None:
+        presupuesto = min(presupuesto, max(0.0, float(max_premium_total)))
+    n_budget = int(presupuesto // prima_uno)
+    if n_budget < 1:
+        return 0
     n_objetivo = int(target_premium // prima_uno) if target_premium > 0 else 1
-    n_caja = int(max(0.0, cash_disponible) // prima_uno)
-    return max(1, min(max(n_objetivo, 1), max(n_caja, 1)))
+    return min(max(n_objetivo, 1), n_budget)
+
+
+def recovery_risk_budget(equity: float, cfg: dict) -> float:
+    """Presupuesto máximo de prima para una única entrada de recuperación."""
+    risk_cfg = cfg.get("risk", {}) or {}
+    pct = max(0.0, float(risk_cfg.get("max_risk_per_trade_pct", 0.0)))
+    by_trade = float(equity) * pct / 100.0
+    daily = risk_cfg.get("max_daily_loss_usd")
+    if daily is None:
+        return max(0.0, by_trade)
+    return max(0.0, min(by_trade, float(daily)))
 
 
 def _option_order_specs(structure, cfg, closing=False, contracts: int = 1):
@@ -739,15 +755,24 @@ def main():
                             if sizing.get("unlimited"):
                                 n_contratos = contracts_for_target(
                                     st, sizing["target_premium"],
-                                    float(acct_cash))
+                                    float(acct_cash),
+                                    max_premium_total=recovery_risk_budget(
+                                        equity, cfg))
+                                if n_contratos == 0:
+                                    logger.info(
+                                        "RECUPERACIÓN: %s descartado, ni un "
+                                        "contrato cabe en el presupuesto seguro",
+                                        sym)
+                                    strat.reset()
+                                    continue
                                 logger.warning(
                                     "RECUPERACIÓN: %s escalado a %d contratos "
                                     "(prima/contrato %.2f, prima total %.2f, "
-                                    "objetivo %.2f) — una pérdida total puede "
-                                    "dejar el equity bajo el piso",
+                                    "objetivo %.2f, presupuesto seguro %.2f)",
                                     sym, n_contratos, abs(st.net_premium),
                                     abs(st.net_premium) * n_contratos,
-                                    sizing["target_premium"])
+                                    sizing["target_premium"],
+                                    recovery_risk_budget(equity, cfg))
                             # Validar TODAS las cotizaciones antes de enviar la
                             # primera pata; evita spreads parciales y precios 0.
                             order_specs = _option_order_specs(
@@ -803,7 +828,14 @@ def main():
                         n_contratos = 1
                         if sizing.get("unlimited"):
                             n_contratos = contracts_for_target(
-                                st, sizing["target_premium"], float(acct_cash))
+                                st, sizing["target_premium"], float(acct_cash),
+                                max_premium_total=recovery_risk_budget(
+                                    equity, cfg))
+                        if n_contratos == 0:
+                            logger.info(
+                                "BEAR: %s descartado, ni un contrato cabe en "
+                                "el presupuesto seguro", sym)
+                            continue
                         prima_total = prima_uno * n_contratos
                         # Umbral medido en la ronda 5: por debajo de esta prima
                         # las 4 comisiones del spread se comen la ventaja.

@@ -170,7 +170,7 @@ risk:
   floor:
     equity_floor: 99900.0        # piso del reto $100 -> $200 (fase 2)
     challenge_target: 100000.0   # al alcanzarlo se arma el reto
-    recovery_floor: 99400.0      # piso de seguridad durante la recuperacion
+    recovery_floor: 99000.0      # permite recuperar desde equity $99,288.65
   # Anti-earnings: bloquear entradas N días antes de reportes de ganancias
   earnings_horizon_days: 2
   # RETO $100 -> $200: perfil agresivo pero con válvulas de seguridad

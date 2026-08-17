@@ -1351,3 +1351,29 @@ La medición de la ronda 6 clasifica ventanas usando SPY mientras el motor opera
 ### 42.6 Regla de continuación
 
 No promocionar nuevas estrategias ni interpretar el objetivo `$100 → $200` como criterio de éxito. Primero corregir la reconciliación de puts, cerrar los cinco avisos F/B, etiquetar imágenes por commit y verificar la revisión resultante en PAPER. Después repetir los backtests con datos y costes documentados, especialmente con cadenas de opciones históricas point-in-time antes de tomar decisiones sobre `put_choch`.
+
+
+## 43. Correcciones Manus: recuperación y operación PAPER — 17 de agosto de 2026
+
+### 43.1 Diagnóstico de no operación
+
+La revisión activa `polaris-bot-00071-8pz` estaba sana: Cloud Logging mostraba `FIRESTORE_ENABLED=True`, escritura de estado y `Tick OK`. El documento `polaris/2026-08-17` tenía equity `99,288.65`, cero posiciones, cero órdenes y cero señales. La ausencia de operaciones no era un fallo del loop: el régimen reciente era `bull`, pero el equity estaba por debajo del `recovery_floor` configurado en `99,400`, por lo que la condición `not regime.floor.below_floor` bloqueaba entradas alcistas y bajistas. El motor bajista, además, solo opera con régimen exactamente `bear`; no opera en `cash` por diseño.
+
+### 43.2 Fixes aplicados y validados
+
+1. `reconcile_positions_with_broker()` ahora persiste `kind: "put"` o `kind: "call"` al reconstruir un vertical desde Alpaca. `bear_entry_candidates()` cuenta tanto `kind == "put"` como estructuras legacy cuyo nombre contiene `put`, evitando superar `options_bear.max_positions` tras un reinicio.
+2. `contracts_for_target()` ahora devuelve cero si ni un contrato cabe en el presupuesto seguro, en vez de forzar una entrada de prima cero o una entrada que no cabe. `recovery_risk_budget()` limita la prima total de una entrada al menor entre `max_risk_per_trade_pct` y `max_daily_loss_usd`; las entradas que exceden ese presupuesto se descartan antes de enviar la primera pata.
+3. El `recovery_floor` se ajustó de `99,400` a `99,000` en `risk/floor.py` y `config/config.yaml`. La razón es desbloquear la recuperación desde el equity observado de `99,288.65`, conservando un guard-rail y los breakers de riesgo. El piso del reto sigue en `99,900` y el objetivo sigue en `100,000`.
+4. Se cerraron los cinco avisos Ruff F/B pendientes en `round2_consistency.py`, `round5_size.py`, `tests/test_backtest_no_bankruptcy.py`, `tests/test_telegram_ack_message.py` y `walkforward.py`.
+
+### 43.3 Validación local
+
+Tras los cambios: `python3 -m compileall -q .` termina con éxito; `ruff check . --select F,B` termina con `All checks passed`; y `python3 -m unittest discover -s tests -p 'test_*.py' -q` termina con **94 tests OK**, 1 omitido y 2 expected failures. Se añadieron regresiones para puts reconstruidos, presupuesto de recuperación y equity de producción por encima del nuevo piso.
+
+### 43.4 Estado de despliegue
+
+Estos cambios están validados localmente pero todavía no deben considerarse activos en Cloud Run hasta publicar una imagen inmutable etiquetada con el commit, desplegarla en PAPER y observar varios ticks con señales, órdenes o un bloqueo explícito de datos/earnings. No se habilita `REAL` automáticamente. Antes del despliegue se debe revisar el diff, publicar GitHub y construir la imagen con tag de commit en vez de depender solo de `latest`.
+
+### 43.5 Criterio operativo
+
+El bot sí tiene cobertura conceptual para `bull`, `bear` y `cash`, pero no significa que opere en cualquier dirección en cada tick. En `bull` requiere señales alcistas válidas, cotizaciones completas, anti-earnings sin bloqueo, riesgo aprobado y piso abierto. En `bear` requiere CHoCH bajista, cadena de opciones válida, prima mínima de `100`, presupuesto seguro y piso abierto. En `cash` permanece fuera de mercado. El siguiente agente debe distinguir siempre entre proceso sano, señal disponible, orden enviada y posición confirmada por Alpaca.

@@ -1,15 +1,11 @@
 """Dimensionamiento por fase del piso (decisión del dueño, 17 ago 2026).
 
-En fase `recuperacion` el bot opera SIN el tope de prima de $12, escalando
-contratos para cerrar la brecha hasta $100,000 en un acierto. Al armarse el
-reto vuelve al comportamiento regular (tope de config, 1 contrato), sin fecha
-que recordar: lo gobierna el latch de risk/floor.py.
-
-AVISO que estos tests dejan por escrito: la prima necesaria para cerrar la
-brecha ($777 para $311 con TP +40%) SUPERA el margen hasta el piso de
-recuperación ($289), asi que una sola entrada perdedora puede dejar el equity
-bajo el piso. El piso solo bloquea entradas nuevas; no limita la pérdida de
-una posición ya abierta. Es el coste aceptado de la decisión.
+En fase `recuperacion` el bot calcula una prima objetivo para cerrar la
+brecha hasta $100,000, pero el número real de contratos queda limitado por el
+presupuesto seguro de una entrada: el menor entre `max_risk_per_trade_pct` y
+`max_daily_loss_usd`. Si no cabe ni un contrato, la entrada se descarta antes
+de enviar cualquier pata. Al armarse el reto vuelve al comportamiento regular
+(tope de config, 1 contrato), gobernado por el latch de `risk/floor.py`.
 """
 import os
 import sys
@@ -86,9 +82,22 @@ class TestContractsForTarget(unittest.TestCase):
         n = B.contracts_for_target(st, 777.0, cash_disponible=400.0)
         self.assertEqual(n, 2)          # solo caben 2 x 150 = 300
 
-    def test_zero_premium_is_safe(self):
+    def test_zero_premium_is_rejected(self):
         st = _Structure(0.0)
-        self.assertEqual(B.contracts_for_target(st, 777.0, 98_000.0), 1)
+        self.assertEqual(B.contracts_for_target(st, 777.0, 98_000.0), 0)
+
+    def test_recovery_budget_caps_contracts(self):
+        st = _Structure(150.0)
+        n = B.contracts_for_target(
+            st, 777.0, cash_disponible=98_000.0,
+            max_premium_total=400.0)
+        self.assertEqual(n, 2)
+
+    def test_recovery_budget_rejects_unaffordable_contract(self):
+        st = _Structure(450.0)
+        self.assertEqual(
+            B.contracts_for_target(st, 777.0, 98_000.0,
+                                   max_premium_total=400.0), 0)
 
 
 class TestOrderSpecsScaling(unittest.TestCase):
@@ -110,16 +119,15 @@ class TestOrderSpecsScaling(unittest.TestCase):
 
 
 class TestDocumentedRiskOfTheDecision(unittest.TestCase):
-    def test_target_premium_exceeds_margin_to_floor(self):
-        """Deja constancia numérica: el tamaño objetivo puede romper el piso."""
-        equity, floor = 99_689.15, 99_400.0
-        floor_res = dict(phase="recuperacion", target=100_000.0, floor=floor)
+    def test_target_is_capped_before_order_sizing(self):
+        equity = 99_689.15
+        floor_res = dict(phase="recuperacion", target=100_000.0,
+                         floor=99_400.0)
         s = B.recovery_sizing(equity, floor_res, CFG)
-        margen = equity - floor
-        self.assertGreater(
-            s["target_premium"], margen,
-            "si esto deja de cumplirse, revisar el aviso de riesgo asociado")
-        self.assertLess(equity - s["target_premium"], floor)
+        self.assertGreater(s["target_premium"], 0)
+        self.assertEqual(B.recovery_risk_budget(equity, {
+            "risk": {"max_risk_per_trade_pct": 5.0,
+                     "max_daily_loss_usd": 400.0}}), 400.0)
 
 
 if __name__ == "__main__":

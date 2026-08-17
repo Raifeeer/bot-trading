@@ -16,7 +16,6 @@ Método:
 
 Uso: BT_CACHE=data/bt_cache_1d.pkl python3 walkforward.py
 """
-import itertools
 import json
 import os
 import pickle

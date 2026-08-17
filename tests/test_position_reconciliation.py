@@ -21,6 +21,12 @@ TQQQ_LONG = dict(symbol="TQQQ260918C00085000", qty=10.0, avg_entry=2.32,
 TQQQ_SHORT = dict(symbol="TQQQ260918C00100000", qty=-10.0, avg_entry=0.35,
                   market_value=-350.0, unrealized_pl=0.0,
                   unrealized_pl_pct=0.0, asset_class="us_option")
+TQQQ_PUT_LONG = dict(symbol="TQQQ260918P00085000", qty=10.0, avg_entry=2.32,
+                     market_value=2010.0, unrealized_pl=-310.0,
+                     unrealized_pl_pct=-0.1336, asset_class="us_option")
+TQQQ_PUT_SHORT = dict(symbol="TQQQ260918P00100000", qty=-10.0, avg_entry=0.35,
+                      market_value=-350.0, unrealized_pl=0.0,
+                      unrealized_pl_pct=0.0, asset_class="us_option")
 
 
 class TestPositionReconciliation(unittest.TestCase):
@@ -40,6 +46,16 @@ class TestPositionReconciliation(unittest.TestCase):
         legs_by_side = {leg["side"]: leg for leg in pos["legs"]}
         self.assertEqual(legs_by_side["buy"]["symbol"], "TQQQ260918C00085000")
         self.assertEqual(legs_by_side["sell"]["symbol"], "TQQQ260918C00100000")
+
+    def test_reconstructed_put_is_tagged_for_bear_position_limit(self):
+        state = {"positions": [], "decisions": [], "orders": []}
+        executor = _FakeExecutor([TQQQ_PUT_LONG, TQQQ_PUT_SHORT])
+
+        n = reconcile_positions_with_broker(executor, state)
+
+        self.assertEqual(n, 1)
+        self.assertEqual(state["positions"][0]["kind"], "put")
+        self.assertIn("put_spread", state["positions"][0]["structure"])
 
     def test_already_known_position_is_not_duplicated(self):
         state = {
