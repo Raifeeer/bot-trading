@@ -324,3 +324,63 @@ NameError: name 'args' is not defined
 2026-08-17 04:49:40,647 option_details WARNING spot_iv_from_feed(TQQQ) excedió 0s, se omite este tick
 2026-08-17 04:49:40,667 polaris.tgbt INFO TG response sent=True para '/estado'
 2026-08-17 04:49:40,668 polaris.tgbt INFO TG response sent=True para 'qué opinas de AAPL'
+2026-08-17 05:16:54,705 state.firestore WARNING Fallo leyendo último equity de Firestore: boom
+2026-08-17 05:16:54,720 bot WARNING Reconciliación: reconstruida posición TQQQ (call_spread_TQQQ_85.0_100.0) desde Alpaca; no estaba en el estado local del bot
+2026-08-17 05:16:54,720 bot WARNING Reconciliación: TQQQ 2026-09-18 CALL no forma un vertical de 2 patas (1 patas encontradas); no se reconstruye automáticamente
+2026-08-17 05:16:54,721 risk CRITICAL CIRCUIT BREAKER DIARIO: drawdown 6.00% (límite 5.00%)
+2026-08-17 05:16:54,721 risk INFO RISK nuevo día: equity inicial 100.00
+2026-08-17 05:16:54,923 option_details WARNING spot_iv_from_feed(TQQQ) excedió 0s, se omite este tick
+2026-08-17 05:16:54,946 polaris.tgbt INFO TG response sent=True para '/estado'
+2026-08-17 05:16:54,946 polaris.tgbt INFO TG response sent=True para 'qué opinas de AAPL'
+2026-08-17 05:17:12,556 feed WARNING SOFI: DataFeedError (Sin credenciales de Alpaca. Define APCA_API_KEY_ID / APCA_API_SECRET_KEY o config/config.yaml. Usa provider=yfinance para desarrollo sin clave.) — reintento con yfinance
+2026-08-17 05:17:12,557 feed WARNING F: DataFeedError (Sin credenciales de Alpaca. Define APCA_API_KEY_ID / APCA_API_SECRET_KEY o config/config.yaml. Usa provider=yfinance para desarrollo sin clave.) — reintento con yfinance
+2026-08-17 05:17:12,573 feed WARNING PLTR: DataFeedError (Sin credenciales de Alpaca. Define APCA_API_KEY_ID / APCA_API_SECRET_KEY o config/config.yaml. Usa provider=yfinance para desarrollo sin clave.) — reintento con yfinance
+2026-08-17 05:17:19,276 yfinance ERROR Failed to get ticker 'SOFI' reason: Failed to perform, curl: (35) Recv failure: Connection reset by peer. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+2026-08-17 05:17:25,743 yfinance ERROR Failed to get ticker 'F' reason: Failed to perform, curl: (35) Recv failure: Connection reset by peer. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+2026-08-17 05:17:32,221 yfinance ERROR Failed to get ticker 'PLTR' reason: Failed to perform, curl: (35) Recv failure: Connection reset by peer. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+2026-08-17 05:17:32,223 yfinance ERROR $PLTR: possibly delisted; no timezone found
+2026-08-17 05:17:32,225 feed ERROR PLTR sin datos (ningún proveedor): yfinance no devolvió datos para PLTR (1d)
+2026-08-17 05:17:32,225 feed WARNING TSLA: DataFeedError (Sin credenciales de Alpaca. Define APCA_API_KEY_ID / APCA_API_SECRET_KEY o config/config.yaml. Usa provider=yfinance para desarrollo sin clave.) — reintento con yfinance
+2026-08-17 05:17:38,605 feed WARNING SOFI yfinance intento 1 falló: SSLError (Failed to perform, curl: (35) Recv failure: Connection reset by peer. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.)
+2026-08-17 05:17:44,983 feed WARNING F yfinance intento 1 falló: SSLError (Failed to perform, curl: (35) Recv failure: Connection reset by peer. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.)
+2026-08-17 05:17:51,395 yfinance ERROR Failed to get ticker 'TSLA' reason: Failed to perform, curl: (35) Recv failure: Connection reset by peer. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+2026-08-17 05:17:51,396 yfinance ERROR $TSLA: possibly delisted; no timezone found
+2026-08-17 05:17:51,398 feed ERROR TSLA sin datos (ningún proveedor): yfinance no devolvió datos para TSLA (1d)
+2026-08-17 05:17:51,398 feed WARNING AMD: DataFeedError (Sin credenciales de Alpaca. Define APCA_API_KEY_ID / APCA_API_SECRET_KEY o config/config.yaml. Usa provider=yfinance para desarrollo sin clave.) — reintento con yfinance
+2026-08-17 05:17:57,750 yfinance ERROR Failed to get ticker 'SOFI' reason: Failed to perform, curl: (35) Recv failure: Connection reset by peer. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+2026-08-17 05:17:57,758 yfinance ERROR $SOFI: possibly delisted; no timezone found
+2026-08-17 05:17:57,758 feed ERROR SOFI sin datos (ningún proveedor): yfinance no devolvió datos para SOFI (1d)
+2026-08-17 05:17:57,758 feed WARNING NOK: DataFeedError (Sin credenciales de Alpaca. Define APCA_API_KEY_ID / APCA_API_SECRET_KEY o config/config.yaml. Usa provider=yfinance para desarrollo sin clave.) — reintento con yfinance
+2026-08-17 05:18:04,176 yfinance ERROR Failed to get ticker 'F' reason: Failed to perform, curl: (35) Recv failure: Connection reset by peer. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+2026-08-17 05:18:04,177 yfinance ERROR $F: possibly delisted; no timezone found
+2026-08-17 05:18:04,178 feed ERROR F sin datos (ningún proveedor): yfinance no devolvió datos para F (1d)
+2026-08-17 05:18:04,178 feed WARNING BB: DataFeedError (Sin credenciales de Alpaca. Define APCA_API_KEY_ID / APCA_API_SECRET_KEY o config/config.yaml. Usa provider=yfinance para desarrollo sin clave.) — reintento con yfinance
+2026-08-17 05:18:10,566 yfinance ERROR Failed to get ticker 'AMD' reason: Failed to perform, curl: (35) Recv failure: Connection reset by peer. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+2026-08-17 05:18:10,568 yfinance ERROR $AMD: possibly delisted; no timezone found
+2026-08-17 05:18:10,568 feed ERROR AMD sin datos (ningún proveedor): yfinance no devolvió datos para AMD (1d)
+2026-08-17 05:18:10,569 feed WARNING TQQQ: DataFeedError (Sin credenciales de Alpaca. Define APCA_API_KEY_ID / APCA_API_SECRET_KEY o config/config.yaml. Usa provider=yfinance para desarrollo sin clave.) — reintento con yfinance
+2026-08-17 05:18:16,946 yfinance ERROR Failed to get ticker 'NOK' reason: Failed to perform, curl: (35) Recv failure: Connection reset by peer. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+2026-08-17 05:18:16,954 yfinance ERROR $NOK: possibly delisted; no timezone found
+2026-08-17 05:18:16,955 feed ERROR NOK sin datos (ningún proveedor): yfinance no devolvió datos para NOK (1d)
+2026-08-17 05:18:23,464 yfinance ERROR Failed to get ticker 'BB' reason: Failed to perform, curl: (35) Recv failure: Connection reset by peer. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+2026-08-17 05:18:23,464 yfinance ERROR $BB: possibly delisted; no timezone found
+2026-08-17 05:18:23,466 feed ERROR BB sin datos (ningún proveedor): yfinance no devolvió datos para BB (1d)
+2026-08-17 05:18:29,926 yfinance ERROR Failed to get ticker 'TQQQ' reason: Failed to perform, curl: (35) Recv failure: Connection reset by peer. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+2026-08-17 05:18:29,926 yfinance ERROR $TQQQ: possibly delisted; no timezone found
+2026-08-17 05:18:29,927 feed ERROR TQQQ sin datos (ningún proveedor): yfinance no devolvió datos para TQQQ (1d)
+2026-08-17 05:18:30,224 state.firestore WARNING Fallo leyendo último equity de Firestore: boom
+2026-08-17 05:18:30,229 bot WARNING Reconciliación: reconstruida posición TQQQ (call_spread_TQQQ_85.0_100.0) desde Alpaca; no estaba en el estado local del bot
+2026-08-17 05:18:30,230 bot WARNING Reconciliación: TQQQ 2026-09-18 CALL no forma un vertical de 2 patas (1 patas encontradas); no se reconstruye automáticamente
+2026-08-17 05:18:30,230 risk CRITICAL CIRCUIT BREAKER DIARIO: drawdown 6.00% (límite 5.00%)
+2026-08-17 05:18:30,230 risk INFO RISK nuevo día: equity inicial 100.00
+2026-08-17 05:18:30,437 option_details WARNING spot_iv_from_feed(TQQQ) excedió 0s, se omite este tick
+2026-08-17 05:18:30,458 polaris.tgbt INFO TG response sent=True para '/estado'
+2026-08-17 05:18:30,459 polaris.tgbt INFO TG response sent=True para 'qué opinas de AAPL'
+2026-08-17 05:20:08,215 state.firestore WARNING Fallo leyendo último equity de Firestore: boom
+2026-08-17 05:20:08,230 bot WARNING Reconciliación: reconstruida posición TQQQ (call_spread_TQQQ_85.0_100.0) desde Alpaca; no estaba en el estado local del bot
+2026-08-17 05:20:08,230 bot WARNING Reconciliación: TQQQ 2026-09-18 CALL no forma un vertical de 2 patas (1 patas encontradas); no se reconstruye automáticamente
+2026-08-17 05:20:08,230 risk CRITICAL CIRCUIT BREAKER DIARIO: drawdown 6.00% (límite 5.00%)
+2026-08-17 05:20:08,230 risk INFO RISK nuevo día: equity inicial 100.00
+2026-08-17 05:20:08,433 option_details WARNING spot_iv_from_feed(TQQQ) excedió 0s, se omite este tick
+2026-08-17 05:20:08,453 polaris.tgbt INFO TG response sent=True para '/estado'
+2026-08-17 05:20:08,454 polaris.tgbt INFO TG response sent=True para 'qué opinas de AAPL'
