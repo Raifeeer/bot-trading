@@ -47,8 +47,16 @@ def _clean(df: pd.DataFrame) -> pd.DataFrame:
     )
     if bad.any():
         logger.warning("Corrigiendo %d barras incoherentes (high/low)", bad.sum())
-        df.loc[bad, "high"] = df.loc[bad, [["open", "close"]]].max(axis=1)
-        df.loc[bad, "low"] = df.loc[bad, [["open", "close"]]].min(axis=1)
+        # OJO con los corchetes: `[["open", "close"]]` (doble) hacía que pandas
+        # buscase UNA columna llamada ('open','close') y lanzaba
+        # KeyError("None of [Index([('open','close')])] are in the [columns]").
+        # El except de arriba se comía el error y el ticker se caía del
+        # universo COMPLETO — bastaba una sola barra malformada. En producción
+        # tumbaba NOK, BB, SOFI y F, dejando el régimen sobre 5 de 8 tickers y
+        # justo los baratos donde el motor dispara (17 ago 2026).
+        oc = df.loc[bad, ["open", "close"]]
+        df.loc[bad, "high"] = oc.max(axis=1)
+        df.loc[bad, "low"] = oc.min(axis=1)
     df["volume"] = df["volume"].fillna(0).astype(float)
     return df[["open", "high", "low", "close", "volume"]].sort_index()
 
