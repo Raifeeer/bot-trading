@@ -746,6 +746,8 @@ def main():
                 "approved": 0,
                 "orders": 0,
                 "bear_candidates": 0,
+                "by_strategy": {},
+                "by_symbol": {},
             }
             for sname, strat in strats.items():
                 tf, days = tf_by_strat[sname]
@@ -764,14 +766,33 @@ def main():
                 data = cached[tf]
                 if not data or tf in failed_tfs:
                     continue
+                strat_diag = signal_stats["by_strategy"].setdefault(
+                    sname, {"timeframe": tf, "scanned": 0,
+                            "tradable": 0, "reasons": {}})
                 # 2-4. señales → estructuras
                 for sym, df in data.items():
-                    if len(df) < (60 if tf == "1d" else 20):
+                    sym_diag = signal_stats["by_symbol"].setdefault(
+                        sym, {"strategies": {}})["strategies"].setdefault(
+                            sname, {"timeframe": tf, "scanned": 0,
+                                    "tradable": 0, "reasons": {}})
+                    min_bars = 60 if tf == "1d" else 20
+                    if len(df) < min_bars:
+                        reason = "insufficient_history"
+                        strat_diag["reasons"][reason] = strat_diag["reasons"].get(reason, 0) + 1
+                        sym_diag["reasons"][reason] = sym_diag["reasons"].get(reason, 0) + 1
                         continue
                     sig = strat.scan(df, symbol=sym)
                     signal_stats["scanned"] += 1
+                    strat_diag["scanned"] += 1
+                    sym_diag["scanned"] += 1
                     if sig.tradable:
                         signal_stats["tradable"] += 1
+                        strat_diag["tradable"] += 1
+                        sym_diag["tradable"] += 1
+                    else:
+                        reason = "not_tradable"
+                        strat_diag["reasons"][reason] = strat_diag["reasons"].get(reason, 0) + 1
+                        sym_diag["reasons"][reason] = sym_diag["reasons"].get(reason, 0) + 1
                     # Régimen S78: solo se abren entradas en régimen bull
                     # (bear/cash = cash; el piso de equity también bloquea).
                     if sig.tradable and strat.last_structure and \
@@ -784,6 +805,9 @@ def main():
                         from data.earnings import blocked as _earnings_blocked
                         eh = cfg.get("risk", {}).get("earnings_horizon_days", 2)
                         if _earnings_blocked(sym, eh):
+                            reason = "earnings_blocked"
+                            strat_diag["reasons"][reason] = strat_diag["reasons"].get(reason, 0) + 1
+                            sym_diag["reasons"][reason] = sym_diag["reasons"].get(reason, 0) + 1
                             state["decisions"].append({
                                 "ts": datetime.utcnow().isoformat(),
                                 "decision": "EARNINGS_RISK",
@@ -797,6 +821,8 @@ def main():
                             strat.reset()
                             continue
                         signal_stats["bull_gate"] += 1
+                        strat_diag["reasons"]["bull_gate"] = strat_diag["reasons"].get("bull_gate", 0) + 1
+                        sym_diag["reasons"]["bull_gate"] = sym_diag["reasons"].get("bull_gate", 0) + 1
                         st = strat.last_structure
                         entry_px = abs(st.net_premium)
                         dec = rm.approve_position(sym, sig, entry_px, equity,
@@ -804,6 +830,8 @@ def main():
                                                    for p in state["positions"]])
                         if dec.decision == "APPROVED":
                             signal_stats["approved"] += 1
+                            strat_diag["reasons"]["approved"] = strat_diag["reasons"].get("approved", 0) + 1
+                            sym_diag["reasons"]["approved"] = sym_diag["reasons"].get("approved", 0) + 1
                             # Tamaño según la fase del piso: en recuperación se
                             # escala para cerrar la brecha hasta $100k; en fase
                             # de reto vuelve a 1 contrato (ver recovery_sizing).
@@ -840,6 +868,8 @@ def main():
                                     order_type=spec["order_type"],
                                     limit_price=spec["limit_price"]))
                             signal_stats["orders"] += len(submitted)
+                            strat_diag["reasons"]["orders_submitted"] = strat_diag["reasons"].get("orders_submitted", 0) + len(submitted)
+                            sym_diag["reasons"]["orders_submitted"] = sym_diag["reasons"].get("orders_submitted", 0) + len(submitted)
                             state["positions"].append({
                                 "symbol": sym, "strategy": sname,
                                 "structure": st.name,
@@ -861,6 +891,21 @@ def main():
                                 logger.exception("Fallo notificando apertura")
                             strat.reset()
                             save_state(state)
+                        else:
+                            reason = f"risk_rejected:{dec.reason}"
+                            strat_diag["reasons"][reason] = strat_diag["reasons"].get(reason, 0) + 1
+                            sym_diag["reasons"][reason] = sym_diag["reasons"].get(reason, 0) + 1
+                    elif sig.tradable:
+                        if not strat.last_structure:
+                            reason = "no_structure"
+                        elif regime.get("regime") != "bull":
+                            reason = "regime_not_bull"
+                        elif (regime.get("floor") or {}).get("below_floor"):
+                            reason = "below_floor"
+                        else:
+                            reason = "entry_gate_unknown"
+                        strat_diag["reasons"][reason] = strat_diag["reasons"].get(reason, 0) + 1
+                        sym_diag["reasons"][reason] = sym_diag["reasons"].get(reason, 0) + 1
 
             # 4b. MOTOR BAJISTA: put spreads sobre CHoCH bear (AGENTS.md §40).
             #     Cubre el hueco que dejaba el bot long-only: en régimen bear

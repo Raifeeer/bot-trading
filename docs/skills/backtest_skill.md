@@ -83,3 +83,25 @@ Los ensembles fijos de `regime_hold_cash` con breakout20/55 se evalúan como inv
 ## 8. Reglas para el agente orquestador
 
 Ningún cambio de parámetro de estrategia entra en producción sin: (1) pasar por las cuatro ventanas de backtest; (2) pasar por E1–E4 y E3c si toca los stops; (3) validarse en la ventana más reciente; (4) documentar el informe con resultados reproducibles. Cada ronda debe incluir anti-look-ahead, fecha de decisión, comisiones, slippage y sensibilidad. El filtro anti-earnings de producción usa un calendario actual de yfinance y no es point-in-time; no inyectarlo sin más en historia. Los cierres o lambdas dentro de barridos deben evitar capturas tardías de variables (B023). La estrategia puede cambiar con los datos, pero no se debe perseguir $100→$200 mediante sobreajuste ni presentar una meta como rentabilidad esperada.
+
+
+## 9. Comparación A/B reproducible
+
+Usar `scripts/run_ab_comparison.py` para comparar un baseline y un candidato sin tocar Cloud Run ni enviar órdenes. El script descarga el dataset una sola vez, exige que ambos brazos tengan las mismas ventanas, conserva el commit, proveedor, universo y hash de los datos, y genera un CSV emparejado más un manifiesto JSON.
+
+Ejemplo:
+
+```bash
+cd /home/ubuntu/bot-trading
+export PYTHONPATH="$PWD"
+python3 scripts/run_ab_comparison.py \
+  --baseline-key regime_hold_cash_recent_2026 \
+  --candidate-key breakout55_recent_2026_r15 \
+  --output-prefix ab_recent_2026
+```
+
+Para un ajuste propio, pasar `--baseline-json` y `--candidate-json` con el mismo número y orden de ventanas. Cada brazo debe declarar motor, universo, fechas, riesgo, DTE, deltas, TP/SL, comisión, slippage y coste equity. No se permite elegir el ganador mirando solo la ventana de test.
+
+El resultado debe evaluarse por retorno neto, drawdown peak-to-trough, número de operaciones, win rate, profit factor, sensibilidad a slippage y estabilidad fuera de muestra. El candidato no se promueve por tener mayor retorno aislado: debe mejorar o no degradar materialmente el drawdown, sobrevivir a costes, mantener suficiente muestra y superar una validación walk-forward. Todo ajuste que llegue a PAPER debe conservar una feature flag y permitir volver al baseline sin cambiar el `RiskManager`.
+
+El smoke A/B del 17 de agosto de 2026 comparó `regime_hold_cash_recent_2026` frente a `breakout55_recent_2026_r15` sobre `2026-04-01..2026-08-14`, con un único dataset y sin órdenes. El baseline terminó en `129.186` (+29.186%, 152 trades, drawdown -25.0933%); el candidato en `127.4964` (+27.4964%, 14 trades, drawdown -25.4729%). Es una comprobación del arnés, no evidencia para promover breakout. El artefacto está en `/home/ubuntu/backtests/ab_smoke_recent_2026_20260817T184708Z.csv` y su manifiesto JSON homónimo.

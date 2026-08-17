@@ -1441,3 +1441,21 @@ Por tanto, el bot está ejecutándose y no está realizando operaciones porque *
 El régimen actual es `bull` (`4/8` tickers bull, `0/8` bear), por lo que el motor bajista no tiene candidatos. Los tres motores alcistas están activos (`opt_day_momentum`, `opt_day_breakout`, `opt_swing_trend`), pero no han generado una señal ejecutable. El feed de Alpaca sigue devolviendo `subscription does not permit querying recent SIP data` y utiliza yfinance como fallback; el fallback entrega barras 5min, 15min y 1d y no impide completar el tick.
 
 Estado confirmado: equity `99,288.65`, cero posiciones, cero órdenes, modo `PAPER`, Firestore actualizado. Antes de promover cualquier cambio de sensibilidad de las señales, el siguiente agente debe registrar la causa estadística de `tradable=0` por estrategia/símbolo y ejecutar un análisis A/B en PAPER; nunca relajar umbrales únicamente para fabricar operaciones.
+
+
+## 49. Telemetría detallada y arnés A/B — 17 de agosto de 2026
+
+Se amplió `bot.py` para guardar en `tick_diagnostics` el diagnóstico agregado y desglosado del loop. El snapshot conserva `scanned`, `tradable`, `bull_gate`, `approved`, `orders` y `bear_candidates`; además incluye `by_strategy` y `by_symbol`. Cada estrategia registra timeframe, barras escaneadas, señales tradables y razones como `not_tradable`, `insufficient_history`, `earnings_blocked`, `regime_not_bull`, `below_floor`, `no_structure`, `risk_rejected:<reason>`, `approved` y `orders_submitted`. Cada símbolo conserva el mismo desglose por estrategia.
+
+La telemetría no modifica las puertas de entrada, el `RiskManager`, el sizing ni el motor bajista; solo hace observable el motivo de cada resultado. Antes de desplegar, se verificó `compileall`, Ruff F/B en cero y 95 tests OK (1 omitido y 2 expected failures).
+
+Se añadió `scripts/run_ab_comparison.py`. Es research-only: descarga los datos una vez, ejecuta baseline y candidato sobre el mismo objeto de datos, exige ventanas idénticas, registra commit/proveedor/universo/hash y genera CSV emparejado más manifiesto JSON. No importa un executor, no toca Cloud Run, no escribe Firestore y no puede enviar órdenes.
+
+Smoke reproducible ejecutado sobre `2026-04-01..2026-08-14`:
+
+| Brazo | Equity final | Retorno | Trades | Win rate | Profit factor | Drawdown |
+|---|---:|---:|---:|---:|---:|---:|
+| `regime_hold_cash_recent_2026` | 129.1860 | 29.186% | 152 | 43.42% | 1.4888 | -25.0933% |
+| `breakout55_recent_2026_r15` | 127.4964 | 27.4964% | 14 | 57.14% | 1.4177 | -25.4729% |
+
+El smoke valida el arnés, no promueve breakout. Artefactos: `/home/ubuntu/backtests/ab_smoke_recent_2026_20260817T184708Z.csv` y el manifiesto JSON homónimo. El siguiente agente debe desplegar únicamente la telemetría en PAPER, esperar al menos dos ticks y usar `by_strategy`/`by_symbol` para localizar el motor que produce cero señales. Cualquier ajuste posterior debe compararse con el arnés A/B y pasar walk-forward, costes, slippage y test fuera de muestra antes de entrar en producción.
