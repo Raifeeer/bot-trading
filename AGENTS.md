@@ -1419,3 +1419,25 @@ La revisión `polaris-bot-00077-4jq` opera con CPU siempre asignada, `minScale=1
 En ambos ticks el snapshot quedó con equity `99,288.65`, cero posiciones y cero órdenes. El régimen fue `bull` (`4/8` tickers bull, `0/8` bear) y los datos llegaron para 5min, 15min y 1d. Alpaca rechazó las consultas SIP recientes por la suscripción actual y el feed cayó a yfinance, pero el fallback entregó los datos y el tick finalizó correctamente.
 
 Para distinguir ausencia de señales de bloqueos silenciosos se añadió `signal_stats` por tick y se publica en el snapshot: `scanned`, `tradable`, `bull_gate`, `approved`, `orders` y `bear_candidates`. También se registra `SEÑALES tick: {...}` en Cloud Logging. Esta telemetría se validó localmente con `compileall`, Ruff F/B y **95 tests OK**, 1 omitido y 2 expected failures. Debe desplegarse antes de concluir por qué no se abrió una posición.
+
+
+## 48. Resultado final de operación 00078 — 17 de agosto de 2026
+
+La revisión `polaris-bot-00078-xtj`, desplegada desde el commit `c40ce62`, conserva `PAPER`, `minScale=1`, `maxScale=1` y `cpu-throttling=false`. El bot arranca, conecta con Alpaca, reconstruye el piso desde Firestore y completa ticks con `Estado escrito en Firestore` y `Tick OK`. La revisión anterior `00077` queda reemplazada; las revisiones antiguas que podían mantener un polling Telegram paralelo fueron eliminadas.
+
+El diagnóstico publicado en el último snapshot muestra:
+
+```text
+scanned=24
+tradable=0
+bull_gate=0
+approved=0
+bear_candidates=0
+orders=0
+```
+
+Por tanto, el bot está ejecutándose y no está realizando operaciones porque **ninguna de las 24 evaluaciones de estrategia produjo una señal tradable** en los ticks observados. No hay evidencia de que el bloqueo actual sea el piso, `RiskManager`, earnings, prima mínima o falta de presupuesto: esas puertas no se alcanzaron porque `tradable=0`. Tampoco debe forzarse una orden solo para mostrar actividad; eso rompería la semántica de las estrategias y el control de riesgo.
+
+El régimen actual es `bull` (`4/8` tickers bull, `0/8` bear), por lo que el motor bajista no tiene candidatos. Los tres motores alcistas están activos (`opt_day_momentum`, `opt_day_breakout`, `opt_swing_trend`), pero no han generado una señal ejecutable. El feed de Alpaca sigue devolviendo `subscription does not permit querying recent SIP data` y utiliza yfinance como fallback; el fallback entrega barras 5min, 15min y 1d y no impide completar el tick.
+
+Estado confirmado: equity `99,288.65`, cero posiciones, cero órdenes, modo `PAPER`, Firestore actualizado. Antes de promover cualquier cambio de sensibilidad de las señales, el siguiente agente debe registrar la causa estadística de `tradable=0` por estrategia/símbolo y ejecutar un análisis A/B en PAPER; nunca relajar umbrales únicamente para fabricar operaciones.
