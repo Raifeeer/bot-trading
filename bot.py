@@ -83,6 +83,22 @@ from execution.alpaca_executor import AlpacaExecutor, ExecutionError
 logger.info("BOOT: imports complete")
 
 
+def _latest_bar_key(data: dict) -> str:
+    """Devuelve una clave estable de la última barra disponible."""
+    return max(
+        (str(df.index[-1]) for df in data.values()
+         if df is not None and not df.empty),
+        default="unknown",
+    )
+
+
+def _entry_context_key(data: dict, regime: dict) -> str:
+    """Identifica barra cerrada + régimen + estado del piso para entradas."""
+    regime_name = (regime or {}).get("regime", "unknown")
+    floor_below = bool((regime or {}).get("floor", {}).get("below_floor"))
+    return f"{_latest_bar_key(data)}|{regime_name}|floor={floor_below}"
+
+
 def _enriched_positions(executor: AlpacaExecutor) -> list:
     """Piernas crudas de Alpaca enriquecidas con option_details (DTE, greeks).
 
@@ -559,8 +575,19 @@ def build_strategies(cfg, spread_builder):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--poll-minutes", type=float, default=5.0)
+    parser.add_argument(
+        "--poll-minutes", type=float, default=None,
+        help="Compatibilidad: intervalo completo en minutos; sobrescribe poll-seconds",
+    )
+    parser.add_argument(
+        "--poll-seconds", type=float,
+        default=float(os.environ.get("POLL_SECONDS", "60")),
+        help="Intervalo entre ciclos completos; mínimo seguro 15 s",
+    )
     args = parser.parse_args()
+    if args.poll_minutes is not None:
+        args.poll_seconds = args.poll_minutes * 60.0
+    args.poll_seconds = max(15.0, float(args.poll_seconds))
 
     logger.info("BOOT: entering main")
     cfg = get_config()
@@ -630,8 +657,8 @@ def main():
             save_state(state)
 
     tickers = cfg["universo"]["tickers"]
-    logger.info("Bot iniciado: %d estrategias, %d tickers, poll=%.0fmin, dry_run=%s",
-                len(strats), len(tickers), args.poll_minutes, args.dry_run)
+    logger.info("Bot iniciado: %d estrategias, %d tickers, poll=%.0fs, dry_run=%s",
+                len(strats), len(tickers), args.poll_seconds, args.dry_run)
 
     # Watchdog: si ningún tick completo en MAX_TICK_SECONDS, el proceso se
     # reinicia y Cloud Run recrea la instancia automáticamente.
@@ -672,8 +699,16 @@ def main():
                 pass
     threading.Thread(target=_watchdog, daemon=True, name="watchdog").start()
 
+    # Solo reevalúa entradas cuando cambia la barra cerrada o el contexto de
+    # régimen/piso. La gestión de posiciones y el heartbeat siguen corriendo
+    # cada ciclo. Esto evita duplicar señales/órdenes al bajar la cadencia a 1m.
+    last_entry_context = {}
+    cycle_id = 0
+
     while True:
-        skip_tick = False
+        cycle_id += 1
+        cycle_started = time.monotonic()
+        phase_times = {}
         try:
             snap = _call_with_timeout(executor.account_snapshot, 30.0,
                                       "Alpaca account snapshot")
@@ -738,8 +773,9 @@ def main():
                 tf_by_strat[sname] = (tf, days)
             cached = {}
             failed_tfs = []
-            skip_tick = False
             signal_stats = {
+                "cycle_id": cycle_id,
+                "poll_seconds": args.poll_seconds,
                 "scanned": 0,
                 "tradable": 0,
                 "bull_gate": 0,
@@ -769,6 +805,12 @@ def main():
                 strat_diag = signal_stats["by_strategy"].setdefault(
                     sname, {"timeframe": tf, "scanned": 0,
                             "tradable": 0, "reasons": {}})
+                entry_context = _entry_context_key(data, regime)
+                if last_entry_context.get(sname) == entry_context:
+                    reason = "same_bar_context"
+                    strat_diag["reasons"][reason] = strat_diag["reasons"].get(reason, 0) + len(data)
+                    continue
+                last_entry_context[sname] = entry_context
                 # 2-4. señales → estructuras
                 for sym, df in data.items():
                     sym_diag = signal_stats["by_symbol"].setdefault(
@@ -907,6 +949,8 @@ def main():
                         strat_diag["reasons"][reason] = strat_diag["reasons"].get(reason, 0) + 1
                         sym_diag["reasons"][reason] = sym_diag["reasons"].get(reason, 0) + 1
 
+            phase_times["entries_s"] = round(time.monotonic() - cycle_started, 3)
+
             # 4b. MOTOR BAJISTA: put spreads sobre CHoCH bear (AGENTS.md §40).
             #     Cubre el hueco que dejaba el bot long-only: en régimen bear
             #     no abría nada. `put_choch` es lo único del corpus con
@@ -979,6 +1023,8 @@ def main():
                         save_state(state)
             except Exception:  # noqa: BLE001
                 logger.exception("Fallo en el motor bajista; el tick continúa")
+
+            phase_times["bear_s"] = round(time.monotonic() - cycle_started, 3)
 
             # 5-6. gestionar posiciones abiertas (evaluar salida y cerrar)
             for i, p in enumerate(list(state["positions"])):
@@ -1054,9 +1100,13 @@ def main():
                     logger.exception("Error gestionando posición %s: %s",
                                      p["symbol"], e)
 
+            phase_times["positions_s"] = round(time.monotonic() - cycle_started, 3)
             state["tick_diagnostics"] = signal_stats
             logger.info("SEÑALES tick: %s", signal_stats)
             save_state(state)
+            phase_times["pre_publish_s"] = round(time.monotonic() - cycle_started, 3)
+            signal_stats["phase_seconds"] = dict(phase_times)
+            publish_started = time.monotonic()
             acct = (_call_with_timeout(executor.account_snapshot, 30.0,
                                         "Alpaca account snapshot")
                     if not executor.dry_run else {
@@ -1125,16 +1175,25 @@ def main():
                                              datetime.utcnow().strftime("%Y-%m-%d"))]})
             except Exception:  # noqa: BLE001
                 logger.exception("Fallo actualizando estado Telegram")
+            phase_times["publish_s"] = round(time.monotonic() - publish_started, 3)
+            phase_times["total_s"] = round(time.monotonic() - cycle_started, 3)
+            signal_stats["phase_seconds"] = phase_times
             _hb["ts"].append(time.time())
+            logger.info("CYCLE TIMING id=%d total=%.3fs entries=%.3fs bear=%.3fs positions=%.3fs publish=%.3fs sleep=%.3fs",
+                        cycle_id, phase_times["total_s"],
+                        phase_times.get("entries_s", 0.0),
+                        phase_times.get("bear_s", 0.0),
+                        phase_times.get("positions_s", 0.0),
+                        phase_times.get("publish_s", 0.0),
+                        args.poll_seconds)
             logger.info("Tick OK — equity=%.2f posiciones=%d", equity, len(state["positions"]))
 
         except Exception as e:  # noqa: BLE001
             logger.exception("Error en el loop: %s", e)
 
-        if not skip_tick:
-            time.sleep(args.poll_minutes * 60)
-        else:
-            time.sleep(300)
+        # El loop es secuencial: nunca solapa ciclos. La siguiente evaluación
+        # empieza después de terminar esta y esperar el intervalo configurado.
+        time.sleep(args.poll_seconds)
 
 
 if __name__ == "__main__":

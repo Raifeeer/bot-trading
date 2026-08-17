@@ -1476,3 +1476,14 @@ El agregado fue `scanned=24`, `tradable=0`, `approved=0`, `orders=0`, `bear_cand
 El segundo tick continuó llegando a régimen y datos; tras eliminar las revisiones `00077` y `00078`, quedó únicamente `00079` como revisión operativa. El `HTTP 409` observado a las `18:52:12Z` pertenece al intervalo anterior a esa limpieza; la comprobación posterior debe usar solo logs posteriores a la eliminación. La lista regional confirmó que `00079-bt6` es la única revisión reciente de la serie `0007x`.
 
 La causa de datos sigue siendo la suscripción Alpaca sin SIP reciente, con fallback funcional a yfinance. Debe resolverse con un feed compatible antes de interpretar cambios pequeños de señal como una mejora de estrategia.
+
+
+## 51. Reactividad y temporización del loop — 17 de agosto de 2026
+
+Se preparó una mejora de scheduling para no confundir un sondeo de cinco minutos con ejecución en tiempo real. `bot.py` admite ahora `--poll-seconds` y `POLL_SECONDS`, con mínimo de 15 s; `--poll-minutes` queda como compatibilidad y sobrescribe el valor en segundos. El valor recomendado para PAPER es `60` segundos.
+
+La caché de `data/feed.py` evita que una cadencia de 60 s descargue los mismos datos continuamente: 5m tiene TTL 240 s, 15m 600 s y 1d 900 s. El loop sigue siendo secuencial y nunca solapa ciclos. Para impedir órdenes duplicadas, las entradas solo se reevalúan cuando cambia la última barra disponible o cambia el régimen/estado del piso; la gestión de posiciones, el heartbeat y el snapshot siguen ejecutándose cada ciclo. Los reintentos sobre la misma barra quedan registrados como `same_bar_context`.
+
+Se añadió `phase_seconds` a `tick_diagnostics` y el log `CYCLE TIMING`, con `entries_s`, `bear_s`, `positions_s`, `publish_s`, `pre_publish_s` y `total_s`. Así se puede distinguir latencia del feed, análisis, gestión, publicación y espera sin inferirlo solo desde `Tick OK`. Se añadieron tres tests deterministas en `tests/test_scheduler_context.py` para barra estable, barra nueva y cambio de régimen/piso.
+
+La implementación está validada localmente con `compileall`, Ruff F/B en cero, los tres tests de scheduler y la suite completa OK. El cambio todavía debe desplegarse en PAPER y medirse en producción antes de considerar una cadencia menor de 60 s. No se modifica el RiskManager, el piso, los circuit breakers ni el modo de trading.
