@@ -269,6 +269,29 @@ def value_spread(spread, spot, days_later, sc, exit_spot=None):
     return (px_l - px_s) * 100 * MARGIN_MULT
 
 
+# Asignacion minima por pata: por debajo de esto la cuenta esta agotada y no
+# se abre nada (una pata de $0 rompia pnl_pct = pnl / entry_net).
+_MIN_PER = 0.01
+
+
+def _safe_per_symbol(equity: float, n_syms: int, sc: dict,
+                     committed: float = 0.0) -> float:
+    """Reparto por símbolo para las rutas de 'hold' equally weighted.
+
+    El motor tiene cuatro contabilidades de equity duplicadas (`equity`,
+    `equity2`, `equity3`, `equity3b`) y las tres de reparto repartían el
+    equity ENTERO entre los símbolos, sin descontar lo ya comprometido ni
+    reservar la comisión que se cobra al cerrar cada pata. Con la cuenta casi
+    vacía, esa comisión la empujaba a negativo (-102% / equity -1.95
+    observado el 17 ago 2026). Este helper centraliza la aritmética segura:
+    nunca compromete más que el capital libre menos la comisión de salida.
+    """
+    n = max(int(n_syms), 1)
+    libre = max(0.0, float(equity) - float(committed))
+    reserva = n * float(sc.get("comision") or 0.0)
+    return max(0.0, libre - reserva) / n
+
+
 def _roundtrip_commission(sc: dict) -> float:
     """Comisión total de una operación completa de spread: 2 patas x
     (entrada + salida). Se cobra al cerrar, pero debe reservarse al entrar."""
@@ -999,9 +1022,9 @@ def run_scenario(key: str, sc: dict, data: dict):
                 # si todo perdía. Se reparte solo lo que queda libre.
                 comprometido_puts = sum(p["entry_net"] for p in pos3
                                         if p.get("side") != "equity")
-                libre = max(0.0, equity3 - comprometido_puts)
-                per = libre / max(len(rebal_syms), 1)
-                for sym in rebal_syms:
+                per = _safe_per_symbol(equity3, len(rebal_syms), sc,
+                                       committed=comprometido_puts)
+                for sym in (rebal_syms if per > _MIN_PER else []):
                     dfsym = data.get(sym)
                     if dfsym is None:
                         continue
@@ -1108,8 +1131,8 @@ def run_scenario(key: str, sc: dict, data: dict):
                                              reason="rebalance", motor="regime_hold_cash",
                                              days_held=(d - p["entry_date"]).days))
                 pos3b = []
-                per = equity3b / max(len(rebal_symsb), 1)
-                for sym in rebal_symsb:
+                per = _safe_per_symbol(equity3b, len(rebal_symsb), sc)
+                for sym in (rebal_symsb if per > _MIN_PER else []):
                     dfsym = data.get(sym)
                     if dfsym is None:
                         continue
@@ -1237,8 +1260,8 @@ def run_scenario(key: str, sc: dict, data: dict):
                                             days_held=(d-p["entry_date"]).days,
                                             motor="hold_weekly"))
                 open_pos2 = []
-                per = equity2 / max(len(rebal_syms), 1)
-                for sym in rebal_syms:
+                per = _safe_per_symbol(equity2, len(rebal_syms), sc)
+                for sym in (rebal_syms if per > _MIN_PER else []):
                     dfsym = data.get(sym)
                     if dfsym is None:
                         continue
