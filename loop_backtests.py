@@ -1464,14 +1464,25 @@ def main():
     parser.add_argument("--all", action="store_true")
     args = parser.parse_args()
 
-    feed = MarketDataFeed(os.environ.get("DATA_PROVIDER", "yfinance"))
     all_tickers = sorted({t for s in SCENARIOS.values() for t in s["tickers"]})
-    print(f"Descargando {N_DIAS_HIST}d para {len(all_tickers)} tickers...")
-    t0 = time.time()
-    data = feed.history(all_tickers, "1d", days=N_DIAS_HIST)
-    print(f"Datos listos en {time.time()-t0:.0f}s")
+    cache_path = os.environ.get("BT_CACHE")
+    if cache_path and os.path.exists(cache_path):
+        # Dataset congelado en disco (download_bt_cache.py): mismo histórico
+        # para todos los escenarios y corridas reproducibles sin depender de
+        # la red ni del rango SIP de Alpaca.
+        import pickle
+        with open(cache_path, "rb") as f:
+            data = pickle.load(f)
+        print(f"Cache {cache_path}: {len(data)} tickers")
+    else:
+        feed = MarketDataFeed(os.environ.get("DATA_PROVIDER", "yfinance"))
+        print(f"Descargando {N_DIAS_HIST}d para {len(all_tickers)} tickers...")
+        t0 = time.time()
+        data = feed.history(all_tickers, "1d", days=N_DIAS_HIST)
+        print(f"Datos listos en {time.time()-t0:.0f}s")
 
-    rows, out_dir = [], "/home/ubuntu/backtests"
+    rows = []
+    out_dir = os.environ.get("BT_OUT", "/home/ubuntu/backtests")
     os.makedirs(out_dir, exist_ok=True)
     keys = [args.scenario] if args.scenario else (list(SCENARIOS) if args.all else ["S1"])
     for key in keys:
