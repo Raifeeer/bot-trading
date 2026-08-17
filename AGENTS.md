@@ -1190,3 +1190,78 @@ descarta — el tamaño sale de la estructura, no del gestor de riesgo. Hoy lo g
 Revisiones desplegadas hoy: `polaris-bot-00066-k9f` (piso en dos fases),
 `00067-dk7` (dimensionamiento de recuperación), `00068-wtq` (breaker diario absoluto).
 Suite: 66 tests en verde.
+
+## 39. Cuarto bug del motor: el P&L de las patas de acciones se descartaba — 17 de agosto de 2026
+
+El más silencioso de los cuatro. El bucle diario refrescaba `pos["last_spot"]` con el cierre de
+cada día, y los cierres valoraban la posición contra ese mismo campo:
+
+```python
+pos["last_spot"] = exit_spot                       # bucle diario
+val = entry_net * cierre_hoy / pos["last_spot"]    # cierre -> cociente 1 -> pnl 0.0
+```
+
+Las patas de acciones no podían registrar ganancia ni pérdida. `regime_aware` tenía **72 de 74
+operaciones con pnl exactamente 0 y pnl MÁXIMO +0.0000**: parecía incapaz de ganar cuando en
+realidad su P&L se tiraba a la basura. Se detectó porque la ronda 4 reportó win rate mediano 0%
+con 4,728 operaciones, algo imposible.
+
+Arreglado separando `entry_spot` (precio de entrada, inmutable, referencia de valoración) de
+`last_spot` (último precio conocido, fallback si falta la barra de salida), con `_ref_spot()`
+sembrado en las cuatro rutas que crean patas de acciones. Efecto en la ventana del drawdown
+−19% (feb–jun 2025): `regime_aware` de 72/74 ceros a 0/74 y +5.04%; `hold_weekly` +16.61%.
+
+Invalidó los resultados previos para `hold_weekly`, `hold`, `regime_aware` y `regime_hold_cash`,
+y las cifras del corpus que dependen de ellos: **S51, S57, S58, S65, S77 y S78** (incluido el
+"+26.7% de S78" y el benchmark S51). Con el motor limpio, la ronda 1 pasa de "41% de configs
+rentables en TEST, mediana −4.6%" a **78% y +3.3%**, y `hold_weekly` de 0% a 100% de configs
+positivas en TEST — la conclusión previa de "2 de 3 ventanas pierden para todo" queda retirada.
+
+Van cuatro defectos independientes en este motor (universo ignorado, bancarrota en cuatro
+contabilidades, P&L descartado). Regla práctica: **toda cifra del corpus histórico es sospechosa
+hasta regenerarla con el motor actual**, y cada invariante tiene ya su test
+(`test_backtest_universe.py`, `test_backtest_no_bankruptcy.py`, `test_backtest_equity_pnl.py`).
+
+## 40. El único resultado con ventaja real: put_choch a tamaño suficiente — 17 de agosto de 2026
+
+El bot en producción es **long-only** por cuatro puertas independientes: `direction: bull` fijo
+en config (leído una vez al arrancar), la puerta de entrada exige `regime == "bull"`, el gestor
+rechaza señales SHORT por política, y `put_choch_entry()` se calcula en `risk/regime.py` pero
+ningún punto de `bot.py` lo consume. En régimen bear no hace nada.
+
+**Ronda 4** (21 ventanas, 7 alineadas a los drawdowns reales de SPY; clasificación por caída
+interna y no por retorno punta a punta, porque un put vive del camino: w6 cae −13.7% y cierra
++1.5%). En ventanas bajistas y sin comisión, `put_choch` es el único motor con mayoría de
+ventanas positivas (64.1%, mediana +1.1%). **`regime_aware` —la forma en que el repo ya tiene
+cableados los puts— es PEOR que quedarse en cash** (12.5% de ventanas positivas contra 37.5%):
+encenderlo sin medirlo habría empeorado el bot.
+
+**Ronda 5** (efecto del tamaño; el backtest opera primas de ~$15, así que se escala la comisión
+a la baja en la misma proporción — equivalente, porque lo que importa es el cociente
+comisión/prima, verificado: $15→17.33%, $777→0.33%).
+
+Resultado en ventanas bajistas (% de ventanas positivas / mediana):
+
+| motor | $15 | $100 | $777 |
+|---|---|---|---|
+| **put_choch tp1.5/sl0.5** | 31% / −5.2% | **75% / +4.7%** | **75% / +6.8%** |
+| smc_daily | 25% / −14.0% | 44% / +0.0% | 44% / +0.0% |
+| swing | 12% / −0.4% | 25% / +0.0% | 25% / +0.0% |
+| regime_hold_cash (cash) | 0% / −18.8% | 38% / −2.8% | 38% / −1.3% |
+
+Dos conclusiones, una de ellas contra la hipótesis de partida:
+
+**(a) "El tamaño arregla la estrategia" es FALSO para los calls.** Subir el tamaño detiene la
+sangría (de −14.7% a 0.0%) pero no crea ventaja: `smc_daily` y `swing` se estancan exactamente
+en mediana 0.0% a cualquier tamaño. La comisión explicaba las pérdidas, no la ausencia de
+ganancias.
+
+**(b) Es CIERTO para los puts.** La comisión enmascaraba una señal real en `put_choch`: con
+prima ≥$100 aparece 75% de ventanas bajistas positivas y mediana +6.8%, batiendo al cash
+(−1.3%) de forma clara. Es lo único de todo el día con ventaja positiva, consistente y fuera de
+muestra. Y solo funciona con `tp1.5/sl0.5`: con el `tp1.4/sl0.25` de producción nunca cruza el
+umbral — el TP/SL sí importa, pero medido, no por la cota nominal.
+
+Salvedades: 8 ventanas bajistas (ese 75% son 6 de 8, muestra pequeña) y primas Black-Scholes,
+no cadenas point-in-time. Recomendación pendiente de decisión del dueño: cablear `put_choch`
+con `tp1.5/sl0.5` y prima ≥$100 como motor bajista. **No** `regime_aware`.
