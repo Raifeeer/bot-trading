@@ -1080,3 +1080,113 @@ Firestore mockeado (día de hoy, fallback a días previos, fallo silencioso → 
 Suite completa: 31/31 (excluyendo `test_regime_s78.py`, `SyntaxError` preexistente y no
 relacionado). Pendiente: build + deploy de este commit (los roles IAM ya aplican sin deploy;
 la reconstrucción del piso desde Firestore sí requiere la nueva imagen).
+
+## 36. Tres bugs del motor de backtest y por qué el corpus histórico no era fiable — 17 de agosto de 2026
+
+Al intentar justificar con datos un cambio de TP/SL, el walk-forward destapó que el motor
+(`loop_backtests.py`) tenía tres defectos que invalidaban los resultados:
+
+**(a) El universo del escenario se ignoraba.** Los bucles de entrada de las rutas no-regime
+iteran `sorted(data.items())` —todos los tickers que el llamador descargó— en vez de
+`sc["tickers"]`. Dos escenarios con universos distintos devolvían resultados idénticos byte a
+byte. Todas las conclusiones "por universo" del corpus S1–S89 (baratos vs ETF vs tech) estaban
+midiendo lo mismo. Arreglado filtrando `data` al entrar en `run_scenario`, con fallo ruidoso si
+el universo no intersecta los datos.
+
+**(b) El equity podía acabar negativo** (−102% en 38 corridas; imposible, porque un spread de
+débito no puede perder más que la prima). Causas acumuladas en **cuatro** contabilidades
+duplicadas (`equity`, `equity2`, `equity3`, `equity3b`): el capital comprometido en posiciones
+abiertas no se descontaba; la comisión de ida y vuelta se cobra al cerrar y no se reservaba al
+entrar; y las tres rutas de *hold* repartían el equity ENTERO entre los símbolos sin descontar
+los puts que seguían ocupando capital. Centralizado en `_safe_per_symbol()` + `_MIN_PER`.
+
+**(c) Corrección de una conclusión propia.** Se afirmó que la config de producción
+(tp 1.4 / sl 0.25) era "matemáticamente perdedora" porque su win rate de equilibrio nominal es
+65.2%. Es una **cota pesimista**: las salidas se evalúan en velas diarias y los ganadores
+rebasan el objetivo, así que el R:R **realizado** medido en los trades es 1.4 de mediana
+(S41 2.80, S39 2.13, S78 2.04) frente al 0.53 nominal. El equilibrio real ronda el 42%.
+
+**Hallazgo colateral:** con el universo ya aplicado, `solo_tech` y `solo_TQQQ` dan 0 trades. El
+motor solo dispara en BB, F y NOK — no es la estrategia sobre el universo del reto que describe
+la documentación, y explica que 52 de 89 escenarios tuvieran menos de 10 operaciones.
+
+### Resultados con el motor corregido (3 rondas, dataset congelado 2024-02-29 → 2026-08-13)
+
+Ronda 1 (walk-forward, ventanas disjuntas): TRAIN 0% de configs rentables, VALID 0%, TEST 41%
+(mediana −4.6%). rho TRAIN→TEST +0.596 (con el motor roto daba +0.909: el bug inflaba la
+aparente generalización).
+
+Ronda 2 (consistencia, 14 ventanas independientes de ~2 meses): **ninguna** candidata supera el
+36% de ventanas positivas. Producción (smc_daily tp1.4/sl0.25): 21% de ventanas positivas,
+mediana −18.6%. `hold_weekly`: 0% de 14 ventanas con 430 trades.
+
+Ronda 3 (costes) — **la ronda decisiva**. Producción, mediana y % de ventanas positivas:
+
+| comisión | slip 0% | slip 5% |
+|---|---|---|
+| $0.00 | 50% / +0.1% | 50% / +0.7% |
+| $0.65 | 21% / −18.6% | 7% / −17.2% |
+| $1.30 | 7% / −34.9% | 7% / −30.8% |
+
+Conclusión: **sin costes la estrategia es break-even; lo que la vuelve claramente perdedora es
+la comisión.** Un spread vertical paga 4 comisiones por operación completa ($2.60 con $0.65 por
+pata-lado), y sobre primas de $12 eso es el 21.7% del capital arriesgado — el win rate de
+equilibrio se va al 84.1%. La comisión es un coste FIJO por operación, así que su peso es
+inversamente proporcional al tamaño:
+
+| prima | comisión/prima | WR de equilibrio |
+|---|---|---|
+| $12 | 21.7% | 84.1% |
+| $100 | 2.6% | 67.5% |
+| $289 | 0.9% | 66.0% |
+| $777 | 0.3% | 65.5% |
+
+Es decir: el tope de prima de $12 del perfil del reto era, él mismo, una de las causas
+principales de que la estrategia no pudiera ganar. Operar más grande no mejora la señal, pero
+elimina el lastre que la ronda 3 identifica como el killer.
+
+## 37. Piso de equity en dos fases y dimensionamiento de recuperación — 17 de agosto de 2026
+
+Con la cuenta en $99,689 y el piso del reto en $99,900, el bot quedaba en un **bloqueo
+circular**: necesitaba ganar para poder operar y operar para poder ganar. No habría operado
+nunca. Decisión del dueño: modo recuperación temporal.
+
+`risk/floor.py` pasa a dos fases. **`recuperacion`** (equity < `challenge_target` $100,000):
+rige `recovery_floor` ($99,400) y el bot puede operar. **`reto`**: al tocar los $100,000 la fase
+queda **ARMADA de forma permanente** y rige `equity_floor` ($99,900).
+
+El latch (`_challenge_armed`) es la pieza crítica: si la fase se recalculara comparando equity
+con el objetivo, romper el piso del reto devolvería al bot a recuperación —piso más bajo— y el
+piso de $99,900 no protegería nada. Como el JSON local es efímero, se reconstruye desde
+Firestore al arrancar (`read_challenge_armed()`, busca el flag en los snapshots de 30 días).
+
+`recovery_sizing()` + `contracts_for_target()`: en fase de recuperación se levanta el tope de
+prima y se escalan contratos hacia `brecha / (tp_mult - 1)` (~$777 para una brecha de $311 con
+TP +40%), acotado por la caja. Las dos patas escalan por igual: el spread mantiene su ratio 1:1
+y sigue siendo de riesgo definido. Al armarse el reto vuelve solo al tope de config y 1
+contrato, sin fecha que recordar.
+
+**RIESGO ACEPTADO Y DOCUMENTADO:** $777 de prima supera los $289 de margen hasta el piso de
+recuperación, así que una sola entrada perdedora puede dejar el equity en ~$98,912, bajo el
+piso. El piso solo bloquea entradas NUEVAS; no limita la pérdida de una posición ya abierta
+(así se llegó aquí: la posición TQQQ heredada eran $1,970 de prima). Registrado en
+`logger.warning` por entrada y fijado en `test_target_premium_exceeds_margin_to_floor`.
+
+## 38. Los circuit breakers estaban calibrados a la escala equivocada — 17 de agosto de 2026
+
+La gestión de riesgo existía pero no protegía al tamaño del reto: `max_drawdown_daily_pct` 15%
+se mide sobre la cuenta completa, o sea **$14,953**. Con entradas de $777 harían falta ~19
+pérdidas totales para que saltara. Eran decorativos a esta escala.
+
+Nuevo `max_daily_loss_usd` (400.0) en `risk/manager.py::check_circuit_breakers`: corta por
+importe absoluto, de modo que **una única entrada perdedora grande detiene las entradas del
+resto del día** en vez de encadenar otra igual. Sin la clave en config el comportamiento es
+idéntico al histórico (cambio aditivo).
+
+Pendiente conocido, no tocado: `max_risk_per_trade_pct` se calcula en `approve_position()` y se
+descarta — el tamaño sale de la estructura, no del gestor de riesgo. Hoy lo gobierna
+`recovery_sizing()` a propósito, pero la incoherencia sigue ahí.
+
+Revisiones desplegadas hoy: `polaris-bot-00066-k9f` (piso en dos fases),
+`00067-dk7` (dimensionamiento de recuperación), `00068-wtq` (breaker diario absoluto).
+Suite: 66 tests en verde.
