@@ -20,6 +20,7 @@ Variables de entorno:
 import logging
 import os
 from datetime import date, datetime, timezone
+from datetime import timedelta as _timedelta
 
 logger = logging.getLogger("state.firestore")
 
@@ -79,6 +80,33 @@ def append_trade(trade: dict) -> None:
         })
     except Exception as e:  # nunca bloquear el bot
         logger.warning("Fallo al publicar trade a Firestore: %s", e)
+
+
+def read_last_equity() -> float | None:
+    """Devuelve el último equity publicado (día de hoy o, si no hay tick
+    todavía hoy, el más reciente de los últimos 7 días) o None si no hay
+    ninguno / falla la lectura.
+
+    Se usa al arrancar el proceso para reconstruir `_floor_below` (§34 de
+    AGENTS.md): el JSON local es efímero y se resetea en cada redeploy, así
+    que sin esto el bot "olvida" que ya estaba bajo el piso y puede volver a
+    notificar "PISO ROTADO" espontáneamente en cada reinicio aunque el
+    equity no haya cruzado nada de verdad.
+    """
+    try:
+        db = _get_db()
+        for offset in range(7):
+            day = (date.today() - _timedelta(days=offset)).isoformat()
+            snap = db.collection("polaris").document(day).get(timeout=10.0)
+            if snap.exists:
+                payload = (snap.to_dict() or {}).get("payload") or {}
+                equity = payload.get("equity")
+                if equity is not None:
+                    return float(equity)
+        return None
+    except Exception as e:  # nunca bloquear el arranque del bot
+        logger.warning("Fallo leyendo último equity de Firestore: %s", e)
+        return None
 
 
 def append_equity_point(equity: float) -> None:

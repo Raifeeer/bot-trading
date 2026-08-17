@@ -1045,3 +1045,38 @@ avanzar nunca a `Estado escrito en Firestore` (solo lo destrababa el watchdog a 
 el cuelgue), el tick completo — incluyendo el `spot_iv_from_feed` que antes se quedaba
 colgado — tardó ~2.5 minutos y terminó en `Tick OK`. Root-cause confirmado y resuelto en
 producción, no solo en el test unitario de `tests/test_spot_iv_timeout.py`.
+
+## 35. Cierre de pendientes menores: fallbacks LLM, bandera de piso persistente, gate verificado — 17 de agosto de 2026
+
+Tres de los cuatro pendientes que quedaban abiertos (todo salvo la ejecución de la orden de
+cierre de TQQQ, que depende de que abra el mercado):
+
+**Fallbacks Gemini/Grok reales.** La cuenta de servicio del propio bot en Cloud Run
+(`173223792589-compute@developer.gserviceaccount.com`) no tenía `roles/secretmanager.secretAccessor`
+sobre `vercel-polaris-web-studio-GEMINI_API_KEY` ni `polaris-GROK_API_KEY` — por eso, aunque
+§27 evitó que el cuelgue de Secret Manager bloqueara Telegram, esas dos claves seguían sin
+poder leerse nunca (fallo rápido en vez de cuelgue, pero fallo al fin). Se otorgó el rol con
+`gcloud secrets add-iam-policy-binding` sobre ambos secretos — aplica en caliente, sin
+necesidad de redeploy.
+
+**Bandera "PISO ROTADO/RECUPERADO" espontánea en cada redeploy.** Causa raíz: `_floor_below`
+en `risk/floor.py::check_floor()` vive en `state` (el JSON local efímero de `bot.py`), que se
+resetea en cada redeploy/reinicio de instancia — así que tras un restart el bot "olvidaba" que
+ya estaba bajo el piso y podía volver a notificar el cruce sin que el equity se hubiera movido
+de verdad. Fix: nueva `state.firestore_state.read_last_equity()` (lee el último equity
+publicado del día, con fallback a los 7 días previos si el tick de hoy aún no escribió nada);
+`bot.py` la usa justo después de `load_state()` para reconstruir `state["_floor_below"]` antes
+de la primera evaluación del piso, solo cuando el estado local no trae ya el flag (arranque en
+frío). Documentado como fix, no solo detectado.
+
+**Verificación de que el piso bloquea entradas nuevas de verdad.** El código en `bot.py`
+(~línea 552) ya exigía `regime=='bull' and not below_floor` para abrir una posición — existía,
+pero nunca se había probado. `tests/test_floor_gate.py` reproduce exactamente esa condición
+booleana con `check_floor()` real (no mockeado) y confirma que con equity bajo el piso el gate
+queda cerrado, y abierto cuando el equity está por encima. También cubre transiciones
+below→above→below de `crossed` (solo dispara una vez por cruce) y `read_last_equity()` con
+Firestore mockeado (día de hoy, fallback a días previos, fallo silencioso → None).
+
+Suite completa: 31/31 (excluyendo `test_regime_s78.py`, `SyntaxError` preexistente y no
+relacionado). Pendiente: build + deploy de este commit (los roles IAM ya aplican sin deploy;
+la reconstrucción del piso desde Firestore sí requiere la nueva imagen).

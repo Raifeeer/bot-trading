@@ -40,7 +40,8 @@ from data.feed import MarketDataFeed
 
 try:
     from state.firestore_state import (write_state_snapshot,
-                                      append_equity_point)
+                                      append_equity_point,
+                                      read_last_equity)
     FIRESTORE_ENABLED = True
 except Exception:  # noqa: BLE001
     logger.exception("Firestore NO disponible (import de state.firestore_state falló)")
@@ -412,6 +413,19 @@ def main():
     builder = SpreadBuilder(option_feed)
     strats = build_strategies(cfg, builder)
     state = load_state()
+    if "_floor_below" not in state and FIRESTORE_ENABLED:
+        # data/bot_state.json es efímero (se resetea en cada redeploy/reinicio
+        # de instancia); sin esto el bot "olvida" si ya estaba bajo el piso y
+        # puede reenviar "PISO ROTADO" espontáneamente aunque el equity no
+        # haya cruzado nada de verdad (AGENTS.md §34).
+        last_equity = read_last_equity()
+        if last_equity is not None:
+            floor_cfg = (cfg.get("risk", {}) or {}).get("floor", {})
+            floor = float(floor_cfg.get("equity_floor", 99_900.0))
+            state["_floor_below"] = last_equity < floor
+            logger.info(
+                "Piso reconstruido desde Firestore: equity=%.2f floor=%.2f below=%s",
+                last_equity, floor, state["_floor_below"])
     if not no_alpaca:
         n_reconciled = reconcile_positions_with_broker(executor, state)
         if n_reconciled:
