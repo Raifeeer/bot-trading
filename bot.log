@@ -408,3 +408,25 @@ NameError: name 'args' is not defined
 2026-08-17 12:02:36,811 option_details WARNING spot_iv_from_feed(TQQQ) excedió 0s, se omite este tick
 2026-08-17 12:02:36,825 polaris.tgbt INFO TG response sent=True para '/estado'
 2026-08-17 12:02:36,825 polaris.tgbt INFO TG response sent=True para 'qué opinas de AAPL'
+2026-08-17 12:07:56,799 risk.floor WARNING RETO ARMADO: equity 100500.00 alcanzó el objetivo 100000.00; desde ahora rige el piso 99900.00
+2026-08-17 12:07:56,800 state.firestore WARNING Fallo leyendo último equity de Firestore: boom
+2026-08-17 12:07:56,802 risk.floor WARNING RETO ARMADO: equity 100000.00 alcanzó el objetivo 100000.00; desde ahora rige el piso 99900.00
+2026-08-17 12:07:56,802 risk.floor WARNING RETO ARMADO: equity 100000.00 alcanzó el objetivo 100000.00; desde ahora rige el piso 99900.00
+2026-08-17 12:07:56,803 bot WARNING Reconciliación: reconstruida posición TQQQ (call_spread_TQQQ_85.0_100.0) desde Alpaca; no estaba en el estado local del bot
+2026-08-17 12:07:56,803 bot WARNING Reconciliación: TQQQ 2026-09-18 CALL no forma un vertical de 2 patas (1 patas encontradas); no se reconstruye automáticamente
+2026-08-17 12:07:56,804 risk CRITICAL CIRCUIT BREAKER DIARIO: drawdown 6.00% (límite 5.00%)
+2026-08-17 12:07:56,804 risk INFO RISK nuevo día: equity inicial 100.00
+2026-08-17 12:07:57,009 option_details WARNING spot_iv_from_feed(TQQQ) excedió 0s, se omite este tick
+2026-08-17 12:07:57,022 polaris.tgbt INFO TG response sent=True para '/estado'
+2026-08-17 12:07:57,022 polaris.tgbt INFO TG response sent=True para 'qué opinas de AAPL'
+2026-08-17 12:08:44,748 risk.floor WARNING RETO ARMADO: equity 100500.00 alcanzó el objetivo 100000.00; desde ahora rige el piso 99900.00
+2026-08-17 12:08:44,750 state.firestore WARNING Fallo leyendo último equity de Firestore: boom
+2026-08-17 12:08:44,752 risk.floor WARNING RETO ARMADO: equity 100000.00 alcanzó el objetivo 100000.00; desde ahora rige el piso 99900.00
+2026-08-17 12:08:44,752 risk.floor WARNING RETO ARMADO: equity 100000.00 alcanzó el objetivo 100000.00; desde ahora rige el piso 99900.00
+2026-08-17 12:08:44,753 bot WARNING Reconciliación: reconstruida posición TQQQ (call_spread_TQQQ_85.0_100.0) desde Alpaca; no estaba en el estado local del bot
+2026-08-17 12:08:44,753 bot WARNING Reconciliación: TQQQ 2026-09-18 CALL no forma un vertical de 2 patas (1 patas encontradas); no se reconstruye automáticamente
+2026-08-17 12:08:44,753 risk CRITICAL CIRCUIT BREAKER DIARIO: drawdown 6.00% (límite 5.00%)
+2026-08-17 12:08:44,753 risk INFO RISK nuevo día: equity inicial 100.00
+2026-08-17 12:08:44,956 option_details WARNING spot_iv_from_feed(TQQQ) excedió 0s, se omite este tick
+2026-08-17 12:08:44,973 polaris.tgbt INFO TG response sent=True para '/estado'
+2026-08-17 12:08:44,973 polaris.tgbt INFO TG response sent=True para 'qué opinas de AAPL'

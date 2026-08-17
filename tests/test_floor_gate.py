@@ -15,7 +15,10 @@ from state import firestore_state  # noqa: E402
 
 class TestFloorGate(unittest.TestCase):
     def test_below_floor_detected_and_crossed_once(self):
-        state = {}
+        # Reto ya ARMADO: rige el piso de $99,900 (fase 2). Sin armar, estos
+        # valores caen en fase de recuperación, cuyo piso es $99,400 y por
+        # tanto no los bloquea — ver tests/test_floor_two_phase.py.
+        state = {"_challenge_armed": True}
         r1 = check_floor(99_800.0, state)
         self.assertTrue(r1["below_floor"])
         self.assertTrue(r1["crossed"])
@@ -38,7 +41,7 @@ class TestFloorGate(unittest.TestCase):
     def test_new_entry_gate_blocks_when_below_floor(self):
         """Reproduce exactamente la condición de bot.py (línea ~552-554):
         `sig.tradable and regime=='bull' and not below_floor`."""
-        state = {}
+        state = {"_challenge_armed": True}
         floor_res = check_floor(99_500.0, state)
         regime = {"regime": "bull", "floor": floor_res}
 

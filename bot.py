@@ -41,7 +41,8 @@ from data.feed import MarketDataFeed
 try:
     from state.firestore_state import (write_state_snapshot,
                                       append_equity_point,
-                                      read_last_equity)
+                                      read_last_equity,
+                                      read_challenge_armed)
     FIRESTORE_ENABLED = True
 except Exception:  # noqa: BLE001
     logger.exception("Firestore NO disponible (import de state.firestore_state falló)")
@@ -413,19 +414,31 @@ def main():
     builder = SpreadBuilder(option_feed)
     strats = build_strategies(cfg, builder)
     state = load_state()
-    if "_floor_below" not in state and FIRESTORE_ENABLED:
+    if FIRESTORE_ENABLED and ("_floor_below" not in state
+                              or "_challenge_armed" not in state):
         # data/bot_state.json es efímero (se resetea en cada redeploy/reinicio
         # de instancia); sin esto el bot "olvida" si ya estaba bajo el piso y
         # puede reenviar "PISO ROTADO" espontáneamente aunque el equity no
         # haya cruzado nada de verdad (AGENTS.md §34).
+        #
+        # `_challenge_armed` es más delicado: es un latch de una sola dirección
+        # (una vez tocados los $100k rige el piso del reto para siempre). Si se
+        # perdiera en un redeploy, el bot volvería a modo recuperación —con un
+        # piso más bajo— y el piso del reto dejaría de proteger. Se recupera de
+        # Firestore, que sí es persistente.
+        from risk.floor import active_floor
+        floor_cfg = (cfg.get("risk", {}) or {}).get("floor", {})
+        armed_prev = read_challenge_armed()
+        if armed_prev is not None and "_challenge_armed" not in state:
+            state["_challenge_armed"] = armed_prev
         last_equity = read_last_equity()
-        if last_equity is not None:
-            floor_cfg = (cfg.get("risk", {}) or {}).get("floor", {})
-            floor = float(floor_cfg.get("equity_floor", 99_900.0))
+        if last_equity is not None and "_floor_below" not in state:
+            floor, phase, armed = active_floor(last_equity, state, floor_cfg)
             state["_floor_below"] = last_equity < floor
             logger.info(
-                "Piso reconstruido desde Firestore: equity=%.2f floor=%.2f below=%s",
-                last_equity, floor, state["_floor_below"])
+                "Piso reconstruido desde Firestore: equity=%.2f fase=%s "
+                "floor=%.2f reto_armado=%s below=%s",
+                last_equity, phase, floor, armed, state["_floor_below"])
     if not no_alpaca:
         n_reconciled = reconcile_positions_with_broker(executor, state)
         if n_reconciled:

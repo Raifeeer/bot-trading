@@ -133,6 +133,19 @@ strategies:
       max_hold_days: 20
 
 risk:
+  # ---------------------------------------------------------------------------
+  # PISO DE EQUITY EN DOS FASES (ver risk/floor.py)
+  #   Fase 1 "recuperacion": equity < challenge_target -> rige recovery_floor.
+  #   Fase 2 "reto":         al tocar challenge_target queda ARMADA de forma
+  #                          permanente y rige equity_floor ($99,900).
+  # El latch existe porque, si la fase se recalculara solo comparando equity
+  # con el objetivo, romper el piso del reto devolveria al bot a modo
+  # recuperacion (piso mas bajo) y el piso no protegeria nada.
+  # ---------------------------------------------------------------------------
+  floor:
+    equity_floor: 99900.0        # piso del reto $100 -> $200 (fase 2)
+    challenge_target: 100000.0   # al alcanzarlo se arma el reto
+    recovery_floor: 99400.0      # piso de seguridad durante la recuperacion
   # Anti-earnings: bloquear entradas N días antes de reportes de ganancias
   earnings_horizon_days: 2
   # RETO $100 -> $200: perfil agresivo pero con válvulas de seguridad

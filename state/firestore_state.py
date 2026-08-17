@@ -109,6 +109,31 @@ def read_last_equity() -> float | None:
         return None
 
 
+def read_challenge_armed() -> bool | None:
+    """Devuelve si el reto $100->$200 ya quedó armado (equity tocó los $100k)
+    según el último snapshot publicado, o None si no hay dato.
+
+    Es un latch de una sola dirección: se lee al arrancar porque el JSON local
+    es efímero y perderlo devolvería el bot a modo recuperación (piso más
+    bajo), dejando el piso del reto sin efecto (ver risk/floor.py).
+    """
+    try:
+        db = _get_db()
+        for offset in range(30):
+            day = (date.today() - _timedelta(days=offset)).isoformat()
+            snap = db.collection("polaris").document(day).get(timeout=10.0)
+            if not snap.exists:
+                continue
+            payload = (snap.to_dict() or {}).get("payload") or {}
+            floor = ((payload.get("risk") or {}).get("floor") or {})
+            if "challenge_armed" in floor:
+                return bool(floor["challenge_armed"])
+        return None
+    except Exception as e:  # nunca bloquear el arranque del bot
+        logger.warning("Fallo leyendo challenge_armed de Firestore: %s", e)
+        return None
+
+
 def append_equity_point(equity: float) -> None:
     """Guarda un punto de la curva de equity del día."""
     try:
