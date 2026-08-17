@@ -1487,3 +1487,21 @@ La caché de `data/feed.py` evita que una cadencia de 60 s descargue los mismos 
 Se añadió `phase_seconds` a `tick_diagnostics` y el log `CYCLE TIMING`, con `entries_s`, `bear_s`, `positions_s`, `publish_s`, `pre_publish_s` y `total_s`. Así se puede distinguir latencia del feed, análisis, gestión, publicación y espera sin inferirlo solo desde `Tick OK`. Se añadieron tres tests deterministas en `tests/test_scheduler_context.py` para barra estable, barra nueva y cambio de régimen/piso.
 
 La implementación está validada localmente con `compileall`, Ruff F/B en cero, los tres tests de scheduler y la suite completa OK. El cambio todavía debe desplegarse en PAPER y medirse en producción antes de considerar una cadencia menor de 60 s. No se modifica el RiskManager, el piso, los circuit breakers ni el modo de trading.
+
+
+## 52. Validación de reactividad en 00080 — 17 de agosto de 2026
+
+La revisión `polaris-bot-00080-n8x`, commit `2daef98`, está activa al 100% de tráfico en PAPER con `POLL_SECONDS=60`, `cpu-throttling=false`, `minScale=1` y `maxScale=1`. Se verificaron cuatro ciclos consecutivos separados por aproximadamente 60 s.
+
+Los tiempos observados fueron:
+
+| Ciclo | Total | Entradas | Bear | Posiciones | Publicación |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 8.740 s | 6.963 s | 6.963 s | 6.963 s | 1.774 s |
+| 2 | 1.645 s | 0.134 s | 0.134 s | 0.134 s | 1.510 s |
+| 3 | 0.309 s | 0.101 s | 0.101 s | 0.101 s | 0.208 s |
+| 4 | 0.346 s | 0.138 s | 0.138 s | 0.138 s | 0.207 s |
+
+El ciclo 1 hizo el escaneo completo; los ciclos posteriores reutilizaron el mismo contexto de barra y registraron `same_bar_context`, evitando revaluar señales y duplicar órdenes. La gestión de posiciones, publicación y heartbeat continuaron ejecutándose. No se observaron tracebacks en la validación de la revisión.
+
+El entorno efectivo conserva `DATA_PROVIDER=alpaca` para la cascada configurada, `APCA_API_BASE_URL=paper` y el nuevo `POLL_SECONDS=60`. Esta mejora no cambia las estrategias, el sizing, el piso ni los circuit breakers. El objetivo de la cadencia rápida es detectar una barra nueva antes, no fabricar entradas sobre la misma barra.
