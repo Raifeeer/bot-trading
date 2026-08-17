@@ -1459,3 +1459,20 @@ Smoke reproducible ejecutado sobre `2026-04-01..2026-08-14`:
 | `breakout55_recent_2026_r15` | 127.4964 | 27.4964% | 14 | 57.14% | 1.4177 | -25.4729% |
 
 El smoke valida el arnés, no promueve breakout. Artefactos: `/home/ubuntu/backtests/ab_smoke_recent_2026_20260817T184708Z.csv` y el manifiesto JSON homónimo. El siguiente agente debe desplegar únicamente la telemetría en PAPER, esperar al menos dos ticks y usar `by_strategy`/`by_symbol` para localizar el motor que produce cero señales. Cualquier ajuste posterior debe compararse con el arnés A/B y pasar walk-forward, costes, slippage y test fuera de muestra antes de entrar en producción.
+
+
+## 50. Validación de telemetría en 00079 y limpieza final de Telegram
+
+La revisión `polaris-bot-00079-bt6`, commit `daea8f2`, recibió correctamente la telemetría detallada. En el tick observado, los 24 pares estrategia/símbolo fueron escaneados y los tres motores quedaron así:
+
+```text
+opt_day_momentum  timeframe=5min  scanned=8  tradable=0  not_tradable=8
+opt_day_breakout  timeframe=15min scanned=8  tradable=0  not_tradable=8
+opt_swing_trend   timeframe=1d    scanned=8  tradable=0  not_tradable=8
+```
+
+El agregado fue `scanned=24`, `tradable=0`, `approved=0`, `orders=0`, `bear_candidates=0`. La telemetría por símbolo confirma el mismo resultado para cada uno de los ocho tickers del universo. Por tanto, la ausencia de operaciones no es un bloqueo del `RiskManager` ni del piso: las tres estrategias simplemente no generaron una señal tradable en esa ventana.
+
+El segundo tick continuó llegando a régimen y datos; tras eliminar las revisiones `00077` y `00078`, quedó únicamente `00079` como revisión operativa. El `HTTP 409` observado a las `18:52:12Z` pertenece al intervalo anterior a esa limpieza; la comprobación posterior debe usar solo logs posteriores a la eliminación. La lista regional confirmó que `00079-bt6` es la única revisión reciente de la serie `0007x`.
+
+La causa de datos sigue siendo la suscripción Alpaca sin SIP reciente, con fallback funcional a yfinance. Debe resolverse con un feed compatible antes de interpretar cambios pequeños de señal como una mejora de estrategia.
