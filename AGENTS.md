@@ -1301,3 +1301,53 @@ Nota importante: el sesgo está solo en el etiquetado del backtest. La clasifica
 **Lo que sí replica en tres pruebas independientes:** `put_choch` en mercado a la baja — ronda 5
 (+6,8%, 75% de ventanas), ronda 6 (+7,2%, 75%) y el S63 histórico (+20,8% en el selloff). Es lo
 único del corpus con ventaja confirmada por caminos distintos, y ya está en producción (§40).
+
+
+## 42. Handoff Manus tras revisar los commits de Cloud — 17 de agosto de 2026
+
+### 42.1 Sincronización confirmada
+
+La rama local fue alineada con `origin/main` en el commit `4b39ee3` (`docs: corregir la atribucion falsa de S36 y registrar la ronda 6`). Desde el estado anterior conocido `642dc12` hasta `4b39ee3` hay **32 commits de Claude** entre el 15 y el 17 de agosto de 2026. El conjunto modifica 42 archivos, con aproximadamente 4.609 líneas añadidas y 140 eliminadas.
+
+La secuencia completa está formada por:
+
+| Bloque | Commits y resultado |
+|---|---|
+| Fiabilidad operativa | `ce44c78` corrige el watchdog para usar `os._exit(1)` desde el hilo daemon; `5cda8fd` añade timeout de 20 s a `spot_iv_from_feed`; `e68ddbc` hace persistente el latch del piso en Firestore y habilita fallbacks LLM; `db401fb` documenta el fix post-`FIRESTORE_ENABLED`. |
+| Telegram y asistente | `e3bf0bb` añade timeout del acceso a Secret Manager; `303491d` añade snapshot técnico real; `925ea3d` añade acuse inmediato; `a265243` añade avisos de progreso por etapa y sus tests. |
+| Motor de backtest | `be0db2e` añade herramientas reproducibles; `c3ffdb1` añade rondas de consistencia y costes; `d5eadca` corrige universo/equity y añade tests; `93d5060` corrige bancarrota; `42ac5e4` corrige el P&L de patas equity; `b4976a0` añade el guard-rail del win rate; `97293e3`, `452dc95` y `6f066b0` ejecutan rondas 4–6. |
+| Piso y riesgo | `7e217cd` implementa piso de equity en dos fases; `9eeedde` elimina el tope de prima en recuperación; `cd20b99` añade `max_daily_loss_usd`; `6eb724f` documenta estos cambios y sus límites. |
+| Motor bajista | `7a9416f` cablea `put_choch` para régimen `bear`; `b21ea62` evita que una barra malformada descarte el ticker completo; `bd300f4` restringe el motor bajista a `regime == bear`, nunca `cash`, y añade regresiones. |
+| Documentación/metodología | `4d26352` documenta el cuarto bug y la ventaja medida de `put_choch`; `4b39ee3` corrige la atribución falsa de S36, registra la ronda 6 y actualiza las skills. Los commits intermedios incluyen actualizaciones de `bot.log` y documentación de cierres/producción. |
+
+### 42.2 Estado local validado
+
+Sobre `4b39ee3`, `python3 -m compileall -q .` termina correctamente. La suite ejecutada con `python3 -m unittest discover -s tests -p 'test_*.py' -v` termina con **90 tests OK**, 1 omitido y 2 expected failures. `pytest` no está instalado en la sandbox, por lo que no debe confundirse su ausencia con un fallo del código.
+
+Ruff F/B todavía reporta cinco problemas estáticos no corregidos en el HEAD de Cloud: `round2_consistency.py` B007, `round5_size.py` F401, `tests/test_backtest_no_bankruptcy.py` B007, `tests/test_telegram_ack_message.py` F401 y `walkforward.py` F401. No son fallos de ejecución confirmados, pero deben limpiarse antes de afirmar que la auditoría estática está completamente verde.
+
+### 42.3 Estado real de Cloud Run
+
+La revisión activa es `polaris-bot-00071-8pz`, creada el 17 de agosto a las 13:54 UTC, lista y con 100% del tráfico. Cloud Logging confirma `FIRESTORE_ENABLED=True`, `Estado escrito en Firestore` y `Tick OK`. El último estado observado muestra equity `99,288.65`, cero posiciones, régimen `bull` y el proceso en fase `recuperación` porque el objetivo de `100,000` aún no se ha alcanzado.
+
+El bot está emitiendo el warning de recuperación con una prima objetivo aproximada de `1,778.38` y caja `99,288.65`, mientras el piso de recuperación es `99,400.00`. En consecuencia, el piso bloquea nuevas entradas cuando el equity está por debajo de ese nivel. La lógica actual documenta explícitamente que el sizing de recuperación puede abrir una pérdida potencial mayor que el margen hasta el piso; no se debe tratar como un riesgo pequeño ni como una garantía de recuperación.
+
+El último build de Cloud Build asociado temporalmente al despliegue activo fue generado alrededor de las 13:52 UTC, antes de `6f066b0` y `4b39ee3`. Los metadatos del build no contienen `COMMIT_SHA`, y la imagen solo está etiquetada como `latest`; por ello no se puede afirmar automáticamente que la revisión 00071 contenga los últimos commits de documentación/ronda 6. Antes de cualquier cambio posterior conviene publicar imágenes inmutables etiquetadas por commit.
+
+### 42.4 Pendiente crítico detectado en revisión de código
+
+`reconcile_positions_with_broker()` reconstruye una posición de spread desde Alpaca pero no añade `"kind": "put"` cuando la estructura es un put. En cambio, `bear_entry_candidates()` cuenta las posiciones bajistas con `p.get("kind") == "put"`. Tras un reinicio con un put reconstruido, el contador puede subestimar las posiciones bajistas y permitir más de `options_bear.max_positions`. La salida también detecta puts por el nombre de la estructura, pero el límite de entradas no.
+
+Este punto está confirmado por lectura estática y todavía no tiene una prueba de regresión. Antes de desplegar el siguiente cambio hay que añadir `kind` derivado de `otype` en la reconstrucción y un test que simule un put reconstruido, compruebe el límite de posiciones y confirme que los calls no se etiquetan como puts.
+
+### 42.5 Otras incoherencias que siguen abiertas
+
+`RiskManager.approve_position()` sigue calculando `max_risk_per_trade_pct`, pero el tamaño real de spreads en el loop lo determina `recovery_sizing()` y `contracts_for_target()`. La propia documentación de Cloud lo marca como pendiente: el porcentaje de riesgo no gobierna efectivamente el tamaño durante recuperación.
+
+La configuración mantiene `options_bear.enabled: true` y `min_premium_net: 100.0`, pero el motor bajista solo puede abrir cuando el régimen es exactamente `bear` y el piso no está bloqueando nuevas entradas. La evidencia que motivó `put_choch` sigue limitada a ocho ventanas bajistas y primas Black–Scholes, no a cadenas de opciones point-in-time con bid/ask y fills reales.
+
+La medición de la ronda 6 clasifica ventanas usando SPY mientras el motor opera BB, F y NOK; Cloud documenta correctamente que esto no debe usarse para invertir el playbook. El siguiente estudio metodológico debe clasificar el régimen por ticker o por universo operado antes de modificar las puertas de producción.
+
+### 42.6 Regla de continuación
+
+No promocionar nuevas estrategias ni interpretar el objetivo `$100 → $200` como criterio de éxito. Primero corregir la reconciliación de puts, cerrar los cinco avisos F/B, etiquetar imágenes por commit y verificar la revisión resultante en PAPER. Después repetir los backtests con datos y costes documentados, especialmente con cadenas de opciones históricas point-in-time antes de tomar decisiones sobre `put_choch`.
