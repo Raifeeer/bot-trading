@@ -217,7 +217,60 @@ def reconcile_positions_with_broker(executor: AlpacaExecutor, state: dict) -> in
     return reconstructed
 
 
-def _option_order_specs(structure, cfg, closing=False):
+def recovery_sizing(equity: float, floor_res: dict, cfg: dict) -> dict:
+    """Tamaño permitido según la fase del piso (ver risk/floor.py).
+
+    FASE `recuperacion` (equity < $100k, reto sin armar): por decisión
+    explícita del dueño (17 ago 2026) el bot opera SIN el tope de prima de
+    $12 con el objetivo de volver a $100,000. El tamaño objetivo es el que
+    cierra la brecha en un acierto:
+
+        prima_objetivo = (objetivo - equity) / (tp_mult - 1)
+
+    con tp_mult=1.4 (TP +40%) eso son ~$777 para una brecha de $311. AVISO
+    EXPLÍCITO: esa prima supera el margen hasta el piso de recuperación
+    ($289), así que una única operación perdedora puede dejar la cuenta por
+    debajo del piso — el piso solo bloquea entradas nuevas, no limita la
+    pérdida de una posición ya abierta. Es el coste aceptado de la decisión.
+
+    FASE `reto` (reto armado): vuelve al estado regular — tope de prima de
+    config y 1 contrato. La transición es automática vía el latch del piso,
+    sin intervención ni fecha que recordar.
+
+    Devuelve {"unlimited": bool, "target_premium": float|None,
+              "max_premium_net": float|None}.
+    """
+    reto_cfg = ((cfg.get("universo", {}) or {}).get("options_reto") or {})
+    cap_regular = float(reto_cfg.get("max_premium_net", 0.50))
+    if (floor_res or {}).get("phase") != "recuperacion":
+        return dict(unlimited=False, target_premium=None,
+                    max_premium_net=cap_regular)
+
+    objetivo = float((floor_res or {}).get("target") or 100_000.0)
+    brecha = max(0.0, objetivo - float(equity))
+    tp_mult = float(premium_exit_cfg(cfg)["tp_mult"])
+    ganancia_pct = max(tp_mult - 1.0, 0.01)
+    target = brecha / ganancia_pct if brecha > 0 else 0.0
+    return dict(unlimited=True, target_premium=target,
+                max_premium_net=None)
+
+
+def contracts_for_target(structure, target_premium: float,
+                         cash_disponible: float) -> int:
+    """Nº de contratos para acercarse a `target_premium`, acotado por la caja.
+
+    Nunca menos de 1 (si no cabe ni uno, el llamador debe descartar la
+    entrada) y nunca más de lo que la caja disponible puede pagar.
+    """
+    prima_uno = abs(float(structure.net_premium))
+    if prima_uno <= 0:
+        return 1
+    n_objetivo = int(target_premium // prima_uno) if target_premium > 0 else 1
+    n_caja = int(max(0.0, cash_disponible) // prima_uno)
+    return max(1, min(max(n_objetivo, 1), max(n_caja, 1)))
+
+
+def _option_order_specs(structure, cfg, closing=False, contracts: int = 1):
     """Prepara órdenes por pata con una cotización válida y precio límite.
 
     Alpaca no acepta limit orders de opciones a 0.0. Se prevalidan todas las
@@ -247,7 +300,10 @@ def _option_order_specs(structure, cfg, closing=False):
         specs.append({
             "symbol": contract.symbol,
             "side": side,
-            "qty": abs(int(leg.quantity)),
+            # `contracts` escala las dos patas por igual: el spread mantiene
+            # su ratio 1:1 y por tanto el riesgo definido. En fase de reto
+            # vale 1 (comportamiento histórico).
+            "qty": abs(int(leg.quantity)) * max(1, int(contracts)),
             "order_type": order_type,
             "limit_price": limit_price,
         })
@@ -525,6 +581,24 @@ def main():
                                  "permitidas solo si hay datos previos")
                 regime = state.get("regime", {})
 
+            # 0b. Tamaño permitido según la fase del piso. En `recuperacion`
+            #     se levanta el tope de prima y se escala el nº de contratos
+            #     para cerrar la brecha hasta $100k; al armarse el reto vuelve
+            #     solo al comportamiento regular, sin fecha que recordar.
+            sizing = recovery_sizing(equity, regime.get("floor") or {}, cfg)
+            acct_cash = float(snap.get("cash") or equity)
+            for _s in strats.values():
+                if hasattr(_s, "cfg") and isinstance(_s.cfg, dict):
+                    _s.cfg["max_premium_net"] = sizing["max_premium_net"]
+            if sizing.get("unlimited"):
+                logger.warning(
+                    "FASE RECUPERACIÓN: sin tope de prima, objetivo %.2f "
+                    "(prima objetivo %.2f, caja %.2f). Una pérdida total en "
+                    "una entrada puede dejar el equity bajo el piso %.2f",
+                    (regime.get("floor") or {}).get("target", 100_000.0),
+                    sizing["target_premium"], acct_cash,
+                    (regime.get("floor") or {}).get("floor", 99_400.0))
+
             # 1. datos con el timeframe propio de cada estrategia:
             #    swing usa 1d (210 días para SMA200+ATR); day usa 5m/15m
             tf_by_strat = {}
@@ -590,9 +664,26 @@ def main():
                                                   [type("P", (), {"symbol": p["symbol"]})()
                                                    for p in state["positions"]])
                         if dec.decision == "APPROVED":
+                            # Tamaño según la fase del piso: en recuperación se
+                            # escala para cerrar la brecha hasta $100k; en fase
+                            # de reto vuelve a 1 contrato (ver recovery_sizing).
+                            n_contratos = 1
+                            if sizing.get("unlimited"):
+                                n_contratos = contracts_for_target(
+                                    st, sizing["target_premium"],
+                                    float(acct_cash))
+                                logger.warning(
+                                    "RECUPERACIÓN: %s escalado a %d contratos "
+                                    "(prima/contrato %.2f, prima total %.2f, "
+                                    "objetivo %.2f) — una pérdida total puede "
+                                    "dejar el equity bajo el piso",
+                                    sym, n_contratos, abs(st.net_premium),
+                                    abs(st.net_premium) * n_contratos,
+                                    sizing["target_premium"])
                             # Validar TODAS las cotizaciones antes de enviar la
                             # primera pata; evita spreads parciales y precios 0.
-                            order_specs = _option_order_specs(st, cfg)
+                            order_specs = _option_order_specs(
+                                st, cfg, contracts=n_contratos)
                             submitted = []
                             for spec in order_specs:
                                 submitted.append(executor.submit_option_order(
