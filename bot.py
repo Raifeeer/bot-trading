@@ -34,6 +34,7 @@ logging.basicConfig(
     ],
 )
 logger = logging.getLogger("bot")
+logger.info("BOOT: logging configured")
 
 from config import get_config
 from data.feed import MarketDataFeed
@@ -79,6 +80,7 @@ from options.strategy import OptionsStrategy
 from options.option_details import enrich_positions
 from risk.manager import RiskManager
 from execution.alpaca_executor import AlpacaExecutor, ExecutionError
+logger.info("BOOT: imports complete")
 
 
 def _enriched_positions(executor: AlpacaExecutor) -> list:
@@ -560,16 +562,21 @@ def main():
     parser.add_argument("--poll-minutes", type=float, default=5.0)
     args = parser.parse_args()
 
+    logger.info("BOOT: entering main")
     cfg = get_config()
+    logger.info("BOOT: config loaded")
     feed = MarketDataFeed(cfg["data"]["provider"])
     rm = RiskManager(cfg["risk"])
     executor = AlpacaExecutor(dry_run=args.dry_run)
+    logger.info("BOOT: executor created")
     start_tg_bot()
+    logger.info("BOOT: Telegram thread requested")
     try:
         _call_with_timeout(executor.connect, 45.0, "Alpaca connect")
         account = _call_with_timeout(executor.account_snapshot, 30.0,
                                     "Alpaca account snapshot")
         equity0 = float(account["equity"])
+        logger.info("BOOT: Alpaca connected and account snapshot loaded")
     except (ExecutionError, TimeoutError) as e:
         if not args.dry_run:
             raise ExecutionError(f"Alpaca no disponible: {e}") from e
@@ -580,10 +587,13 @@ def main():
     rm.reset_day(equity0)
 
     no_alpaca = executor.dry_run and not key_if_any(executor)
+    logger.info("BOOT: starting option feed and strategies")
     option_feed = OptionFeed(sim=no_alpaca)
     builder = SpreadBuilder(option_feed)
     strats = build_strategies(cfg, builder)
+    logger.info("BOOT: strategies built")
     state = load_state()
+    logger.info("BOOT: local state loaded")
     if FIRESTORE_ENABLED and ("_floor_below" not in state
                               or "_challenge_armed" not in state):
         # data/bot_state.json es efímero (se resetea en cada redeploy/reinicio
@@ -601,6 +611,7 @@ def main():
         armed_prev = read_challenge_armed()
         if armed_prev is not None and "_challenge_armed" not in state:
             state["_challenge_armed"] = armed_prev
+        logger.info("BOOT: reading persistent floor state")
         last_equity = read_last_equity()
         if last_equity is not None and "_floor_below" not in state:
             floor, phase, armed = active_floor(last_equity, state, floor_cfg)
@@ -610,6 +621,7 @@ def main():
                 "floor=%.2f reto_armado=%s below=%s",
                 last_equity, phase, floor, armed, state["_floor_below"])
     if not no_alpaca:
+        logger.info("BOOT: reconciling Alpaca positions")
         n_reconciled = reconcile_positions_with_broker(executor, state)
         if n_reconciled:
             logger.warning(
