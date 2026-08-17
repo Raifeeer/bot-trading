@@ -164,6 +164,11 @@ def classify_regime(data_1d: dict, tickers: list,
             "bear_count": bear_count, "n": n,
             "crash_event": crash_event, "crash_active": False,
             "intraday_cuts": intraday_cuts,
+            # Estado por ticker: `bear_choch` marca los subyacentes con cambio
+            # de carácter bajista. Se calculaba desde el principio pero no se
+            # devolvía, así que nadie podía consumirlo — de ahí que el bot
+            # fuera long-only pese a tener la señal (AGENTS.md §40).
+            "ticker_status": ticker_status,
             "summary": (f"{regime}: bull {bull_count}/{n}, bear {bear_count}/{n}, "
                         f"crash={crash_event} ({n_crash}/{n_eval}), "
                         f"intraday_cuts={list(intraday_cuts)}")}

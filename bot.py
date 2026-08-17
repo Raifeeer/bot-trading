@@ -217,6 +217,27 @@ def reconcile_positions_with_broker(executor: AlpacaExecutor, state: dict) -> in
     return reconstructed
 
 
+def bear_entry_candidates(regime: dict, state: dict, cfg: dict) -> list:
+    """Subyacentes con CHoCH bajista aptos para abrir un put spread.
+
+    Solo actúa cuando el régimen NO es bull: es el hueco que dejaba el bot
+    long-only (en bear se quedaba quieto). Excluye lo que ya está en cartera
+    y respeta el límite propio del motor bajista.
+    """
+    b = options_bear_cfg(cfg)
+    if not b["enabled"] or regime.get("regime") == "bull":
+        return []
+    abiertos = {p["symbol"] for p in state.get("positions", [])}
+    n_puts = sum(1 for p in state.get("positions", [])
+                 if p.get("kind") == "put")
+    if n_puts >= b["max_positions"]:
+        return []
+    cupo = b["max_positions"] - n_puts
+    ts = regime.get("ticker_status") or {}
+    return [sym for sym, st in ts.items()
+            if st.get("bear_choch") and sym not in abiertos][:cupo]
+
+
 def recovery_sizing(equity: float, floor_res: dict, cfg: dict) -> dict:
     """Tamaño permitido según la fase del piso (ver risk/floor.py).
 
@@ -373,7 +394,7 @@ def _manage_open_position(feed, builder, strat, pos):
     dte = (exps[-1] - datetime.utcnow().date()).days if exps else 30
     op = OptionsPosition(st, entry_premium, datetime.utcnow())
     cfg_ = get_config()
-    pec = premium_exit_cfg(cfg_)
+    pec = exit_cfg_for_position(pos, cfg_)
     reason = evaluate_exit(st, op, dte, spot,
                            tp_mult=pec["tp_mult"], sl_mult=pec["sl_mult"],
                            close_dte=pec["close_dte"])
@@ -409,6 +430,47 @@ def options_map_cfg(cfg):
         dte_min=reto.get("dte_min", 14),
         dte_max=reto.get("dte_max", 60),
     )
+
+def options_bear_cfg(cfg):
+    """Parámetros del motor bajista (put spreads sobre CHoCH bear).
+
+    Validado en la ronda 5 (AGENTS.md §40): `put_choch` con tp1.5/sl0.5 y
+    prima >= $100 da 75% de ventanas bajistas en positivo (mediana +6.8%) y
+    bate al cash (-1.3%). Los dos umbrales son parte del resultado, no
+    preferencias: por debajo de $100 de prima las 4 comisiones del spread se
+    comen la ventaja, y con el tp1.4/sl0.25 de los calls nunca cruza.
+    """
+    uni = (cfg.get("universo", {}) or {}).get("options_bear") or {}
+    return dict(
+        enabled=bool(uni.get("enabled", False)),
+        delta_long=float(uni.get("delta_long", 0.30)),
+        delta_short=float(uni.get("delta_short", 0.10)),
+        dte_min=int(uni.get("dte_min", 14)),
+        dte_max=int(uni.get("dte_max", 35)),
+        min_premium_net=float(uni.get("min_premium_net", 100.0)),
+        tp_mult=float(uni.get("tp_premium_mult", 1.5)),
+        sl_mult=float(uni.get("sl_premium_mult", 0.50)),
+        close_dte=int(uni.get("close_dte", 7)),
+        max_positions=int(uni.get("max_positions", 2)),
+    )
+
+
+def exit_cfg_for_position(pos: dict, cfg: dict) -> dict:
+    """Multiplicadores de salida SEGÚN EL TIPO de posición.
+
+    Los calls y los puts necesitan salidas distintas y no es un detalle: en la
+    ronda 5, `put_choch` con el tp1.4/sl0.25 de los calls nunca alcanza
+    ventaja, y con tp1.5/sl0.5 sí. Aplicar la misma salida a ambos anularía
+    el motor bajista.
+    """
+    es_put = (pos.get("kind") == "put"
+              or "put" in str(pos.get("structure", "")).lower())
+    if es_put:
+        b = options_bear_cfg(cfg)
+        return dict(tp_mult=b["tp_mult"], sl_mult=b["sl_mult"],
+                    close_dte=b["close_dte"])
+    return premium_exit_cfg(cfg)
+
 
 def premium_exit_cfg(cfg):
     """Multiplicadores de gestión de prima por posición (reto $100→$200):
@@ -711,6 +773,70 @@ def main():
                                 logger.exception("Fallo notificando apertura")
                             strat.reset()
                             save_state(state)
+
+            # 4b. MOTOR BAJISTA: put spreads sobre CHoCH bear (AGENTS.md §40).
+            #     Cubre el hueco que dejaba el bot long-only: en régimen bear
+            #     no abría nada. `put_choch` es lo único del corpus con
+            #     ventaja fuera de muestra (75% de ventanas bajistas en
+            #     positivo, mediana +6.8%, batiendo al cash).
+            try:
+                bcfg = options_bear_cfg(cfg)
+                candidatos = bear_entry_candidates(regime, state, cfg)
+                if candidatos and not (regime.get("floor") or {}).get("below_floor") \
+                        and not rm.is_halted():
+                    for sym in candidatos:
+                        try:
+                            st = builder.vertical_spread(
+                                sym, None, "bear",
+                                bcfg["delta_long"], bcfg["delta_short"],
+                                dte_min=bcfg["dte_min"], dte_max=bcfg["dte_max"])
+                        except Exception as e:  # noqa: BLE001
+                            logger.info("BEAR: sin estructura para %s (%s)", sym, e)
+                            continue
+                        prima_uno = abs(st.net_premium)
+                        n_contratos = 1
+                        if sizing.get("unlimited"):
+                            n_contratos = contracts_for_target(
+                                st, sizing["target_premium"], float(acct_cash))
+                        prima_total = prima_uno * n_contratos
+                        # Umbral medido en la ronda 5: por debajo de esta prima
+                        # las 4 comisiones del spread se comen la ventaja.
+                        if prima_total < bcfg["min_premium_net"]:
+                            logger.info(
+                                "BEAR: %s descartado, prima total %.2f < mínimo "
+                                "%.2f (la comisión anularía la ventaja)",
+                                sym, prima_total, bcfg["min_premium_net"])
+                            continue
+                        order_specs = _option_order_specs(
+                            st, cfg, contracts=n_contratos)
+                        submitted = [executor.submit_option_order(
+                            s["symbol"], s["side"], s["qty"],
+                            order_type=s["order_type"],
+                            limit_price=s["limit_price"]) for s in order_specs]
+                        state["positions"].append({
+                            "symbol": sym, "strategy": "bear_put_choch",
+                            "kind": "put",
+                            "structure": st.name,
+                            "net_premium": st.net_premium,
+                            "max_risk": st.max_risk,
+                            "legs": order_specs,
+                            "entry_orders": submitted,
+                            "entry_ts": datetime.utcnow().isoformat(),
+                        })
+                        logger.warning(
+                            "PUT SPREAD ABIERTO %s %s prima/contrato=%.2f "
+                            "contratos=%d prima_total=%.2f (régimen %s)",
+                            sym, st.name, prima_uno, n_contratos, prima_total,
+                            regime.get("regime"))
+                        try:
+                            notify_position_open(sym, "bear_put_choch", st.name,
+                                                 st.net_premium, st.max_risk,
+                                                 trading_mode())
+                        except Exception:  # noqa: BLE001
+                            logger.exception("Fallo notificando apertura bajista")
+                        save_state(state)
+            except Exception:  # noqa: BLE001
+                logger.exception("Fallo en el motor bajista; el tick continúa")
 
             # 5-6. gestionar posiciones abiertas (evaluar salida y cerrar)
             for i, p in enumerate(list(state["positions"])):

@@ -56,6 +56,31 @@ universo:
     min_price: 3.0
     min_avg_volume: 1_000_000  # más exigente: liquidez de opciones clave
     max_vol_pct: 100.0         # excluir tickers con vol. histórica > 100%
+  # ===================================================================
+  # MOTOR BAJISTA (put spreads sobre CHoCH bear) — ronda 5, 17 ago 2026
+  # Hasta ahora el bot era long-only y en regimen bear no hacia NADA.
+  # put_choch es lo unico del corpus con ventaja positiva, consistente y
+  # fuera de muestra: 75% de ventanas bajistas en positivo, mediana +6.8%,
+  # batiendo al cash (-1.3%).
+  # Dos condiciones vienen de la medicion y NO son opcionales:
+  #   - min_premium_net 100: por debajo, las 4 comisiones del spread ($2.60)
+  #     se comen la ventaja (a prima $15 son el 17% del capital arriesgado y
+  #     el resultado cae a -5.2%).
+  #   - tp 1.5 / sl 0.50: con el 1.4/0.25 de los calls NUNCA cruza el umbral.
+  # NO usar el motor `regime_aware` del backtest: es PEOR que quedarse en
+  # cash (12.5% de ventanas positivas frente al 37.5% del cash).
+  # ===================================================================
+  options_bear:
+    enabled: true
+    delta_long: 0.30
+    delta_short: 0.10
+    dte_min: 14
+    dte_max: 35
+    min_premium_net: 100.0     # umbral medido en la ronda 5
+    tp_premium_mult: 1.5
+    sl_premium_mult: 0.50
+    close_dte: 7
+    max_positions: 2
   # Parámetros de estructuras para el reto (usados por options_bridge):
   options_reto:
     direction: bull            # solo largos en fase 1 (sin pata corta expuesta)
