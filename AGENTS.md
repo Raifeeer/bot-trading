@@ -1752,3 +1752,78 @@ Se descargaron barras históricas reales de Alpaca IEX en 15 minutos para los oc
 La primera corrida tuvo un bug contable: la entrada no descontaba efectivo y duplicaba el mark-to-market. El bug fue corregido antes de interpretar resultados y la matriz se repitió completa. En los resultados corregidos, ninguna variante superó al baseline en al menos tres de cinco ventanas con drawdown no peor. Los filtros POC/VAH redujeron pérdidas en verano y últimos 30 días, pero sacrificaron retorno en primavera, recuperación y periodo completo. La decisión es `RESEARCH_ONLY`: Volume Profile no se añade al executor ni a `influence_entries`.
 
 Artefactos: `docs/volume_profile_backtest_2026-08-18.md`, `scripts/run_volume_profile_backtests.py`, `scripts/analyze_volume_profile_backtests.py`, `scripts/cache_volume_profile_intraday.py` y CSV/JSON bajo `/home/ubuntu/backtests/`. La producción permanece sin cambios.
+
+
+## 18. SMC ampliado — investigación y backtest 18 de agosto de 2026
+
+Se creó y validó la skill `/home/ubuntu/skills/smc-expanded/SKILL.md`, con referencia profunda en `/home/ubuntu/skills/smc-expanded/references/research.md`. La formalización cubre FVG, MSS, order blocks estrictos, breakers, mitigation, sweeps, BOS/CHoCH y guardarraíles contra look-ahead.
+
+Se implementó el módulo puro `strategies/smc_expanded.py` con tests deterministas en `tests/test_smc_expanded.py`. No se conectó a `bot.py` ni al executor. El backtest parcial usa únicamente barras 15m reales de Alpaca IEX para ocho símbolos, por lo que no valida la cascada MTF completa 1D/4H/15M/5M.
+
+Se probaron cinco variantes sobre `DayBreakout`: baseline, FVG filter, MSS filter, OB+sweep y confluence. Se usaron cinco ventanas, entradas 10:00–15:30 ET, Donchian 10, stop 2.5 ATR, máximo 20 barras, slippage 5 bps y comisión $0. Ninguna variante superó el baseline en al menos tres de cinco ventanas con drawdown no peor. MSS redujo drawdown, FVG ganó solo primavera/recuperación, confluence redujo drawdown pero sacrificó retorno y OB+sweep tuvo cobertura insuficiente (3.2 operaciones medias por ventana).
+
+Decisión: `RESEARCH_ONLY`; no activar SMC ampliado como filtro. El candidato MSS puede observarse en shadow en una futura ronda, pero no se promueve por el resultado actual. Informe: `docs/smc_expanded_backtest_2026-08-18.md`; resultados CSV/JSON bajo `/home/ubuntu/backtests/`. Producción permanece sin cambios.
+
+
+## 19. Williams %R — investigación y backtest 18 de agosto de 2026
+
+Se creó y validó la skill `/home/ubuntu/skills/williams-r/SKILL.md`, con referencia profunda en `/home/ubuntu/skills/williams-r/references/research.md`. La skill formaliza la fórmula, rangos 0/−20/−50/−80/−100, persistencia de sobrecompra/sobreventa, sensibilidad frente a RSI y guardarraíles de rango cero y look-ahead.
+
+Se implementó el módulo puro `strategies/williams_r.py` y tests en `tests/test_williams_r.py`. El backtest usa barras 15m reales de Alpaca IEX para ocho símbolos y compara `DayBreakout` baseline contra WR pullback, WR overbought filter, WR midline confirm, RSI pullback y RSI midline confirm, con periodos 8/14/28 y cinco ventanas. La matriz contiene 90 combinaciones, entrada tras cierre confirmado, Donchian 10, stop 2.5 ATR, máximo 20 barras, slippage 5 bps y comisión $0.
+
+Ninguna variante superó al baseline en el criterio de robustez. WR midline quedó cerca, con delta medio de retorno −0.02 puntos porcentuales y delta medio de drawdown +0.38 pp; WR pullback y overbought filter sacrificaron 4.57 y 4.36 pp de retorno medio, respectivamente. RSI tampoco mejoró de forma robusta. Decisión: `RESEARCH_ONLY`; no conectar a `bot.py`, no activar `influence_entries` y no desplegar cambios operativos.
+
+Informe: `docs/williams_r_backtest_2026-08-18.md`; resultados bajo `/home/ubuntu/backtests/`. Producción permanece sin cambios.
+
+
+## 20. VIX como filtro — investigación y backtest 18 de agosto de 2026
+
+Se creó y validó la skill `/home/ubuntu/skills/vix-filter/SKILL.md`, con referencia en `/home/ubuntu/skills/vix-filter/references/research.md`. La investigación usa metodología Cboe, term structure y SEC DERA; formaliza VIX como volatilidad implícita, no señal direccional.
+
+Se implementaron `strategies/vix_filter.py` y tests en `tests/test_vix_filter.py`. El cache usa VIXCLS diario de FRED y el backtest alinea estrictamente el último cierre VIX anterior a cada sesión de entrada. No se reconstruyó VIX con OHLCV ni se usó VIX3M por falta de serie histórica point-in-time fiable.
+
+Se probaron 13 variantes sobre DayBreakout, cinco ventanas y ocho símbolos 15m: niveles 15/20/25/30, percentiles rolling 60/70/80, shocks diarios 10/20/30%, z-score 2 y combinado 25+shock. Percentil 70 obtuvo delta medio de retorno +2.12 pp y superó al baseline en 3/5 ventanas; shock 10% obtuvo +1.69 pp y también 3/5. El efecto favorable se concentra en estas variantes y no es universal; las ventanas se solapan y no son muestras independientes.
+
+Decisión: `SHADOW_CANDIDATE`, no `PAPER_FILTER_CANDIDATE`. No se conectó a bot.py ni se habilitó para bloquear entradas. Antes de cualquier influencia debe pasar un walk-forward independiente, sensibilidad temporal, medición de oportunidades perdidas y validación con term structure si hay datos reales. Informe: `docs/vix_filter_backtest_2026-08-18.md`; resultados bajo `/home/ubuntu/backtests/`. Producción permanece sin cambios.
+
+
+## 21. Patrones chartistas objetivos — investigación y backtest 18 de agosto de 2026
+
+Se creó y validó la skill `/home/ubuntu/skills/chart-patterns/SKILL.md`, con referencia profunda en `/home/ubuntu/skills/chart-patterns/references/research.md`. Se formalizaron double bottom/top, triangle, flag y head-and-shoulders con pivots únicos confirmados, cierre fuera del nivel y buffer 0.1 ATR. No se usaron etiquetas visuales ni patrones sin breakout.
+
+Se implementó `strategies/chart_patterns.py` y tests en `tests/test_chart_patterns.py`. El motor `scripts/run_chart_pattern_backtests.py` comparó DayBreakout baseline con filtros, confluencia y señales standalone en cinco ventanas sobre ocho símbolos 15m Alpaca IEX, Donchian 10, stop 2.5 ATR, máximo 20 barras y slippage 5 bps.
+
+Los flags fueron el único grupo con mejora de retorno consistente: `flag_standalone` +4.32 pp medio y 5/5 ventanas; `flag_filter` +2.26 pp y 4/5. Ambos aumentaron el drawdown medio aproximadamente 4.8 pp. Double bottom, triangle, inverse H&S y confluencia empeoraron retorno o drawdown. Decisión: `RESEARCH_ONLY`; flag como candidato de segunda ronda shadow, no filtro operativo. Producción permanece sin cambios.
+
+Informe: `docs/chart_pattern_backtest_2026-08-18.md`; resultados bajo `/home/ubuntu/backtests/`.
+
+
+## 22. Filtros fundamentales swing — investigación y backtest 18 de agosto de 2026
+
+Se creó y validó `/home/ubuntu/skills/fundamental-swing/SKILL.md` con investigación SEC/FINRA/Fidelity/NBER. El backtest usa Company Facts y Submissions SEC, conservando `filed`, `accn` y snapshots as-of; excluye NOK por ausencia de facts us-gaap y TQQQ por ser ETF.
+
+Se implementó `scripts/cache_sec_fundamentals.py`, `scripts/build_fundamental_snapshots.py` y `scripts/run_fundamental_swing_backtests.py`. El motor compara SwingTrend exacto contra value quality, growth quality, fundamental rank y quality combo en cinco ventanas, con entrada siguiente, stop 3 ATR, target 6 ATR, máximo 20 días y slippage 5 bps.
+
+Ningún filtro superó al baseline en retorno en las cinco ventanas. El baseline promedió +4.83% y los filtros entre +1.27% y +3.20%; los filtros redujeron drawdown al operar menos, no por ventaja demostrada. Decisión: `RESEARCH_ONLY`, fuera de entradas y fuera de shadow hasta disponer de más años, mayor universo y normalización sectorial.
+
+Informe: `docs/fundamental_swing_backtest_2026-08-18.md`; resultados bajo `/home/ubuntu/backtests/fundamental_swing_backtests_2026-08-18*`.
+
+
+## 23. Gamma walls y niveles de opciones — auditoría de datos 18 de agosto de 2026
+
+Se creó y validó `/home/ubuntu/skills/gamma-walls/SKILL.md`, con investigación OCC/OIC/Pearson-Poteshman-White. Se implementó `strategies/gamma_walls.py` con puerta estricta de cobertura y tests en `tests/test_gamma_walls.py`.
+
+Los caches de opciones de defined-risk (73,119 filas) y Wheel (9,799 filas) solo contienen OHLCV/trade_count/vwap. Faltan open_interest, gamma, spot y multiplier; por tanto las cinco variantes `oi_only`, `gex_proxy`, `gamma_flip`, `call_wall_filter` y `put_wall_filter` quedaron en `REJECT_DATA`. El gate `scripts/run_gamma_walls_backtests.py` no imputó datos ni calculó un P&L falso.
+
+Decisión: gamma walls queda fuera de producción y sin shadow hasta disponer de snapshots históricos point-in-time de cadena, OI, IV/gamma, spot y multiplicador; idealmente también open/close classification. Informe: `docs/gamma_walls_backtest_2026-08-18.md`.
+
+
+## 24. Consolidación de estrategias faltantes de Drive — 18 de agosto de 2026
+
+Se completó la serie secuencial de evaluación definida en `docs/drive_strategy_evaluation_plan_2026-08-18.md`. Cada familia tuvo investigación, skill, reglas algorítmicas cuando los datos lo permitieron, backtest y decisión separada.
+
+Resultado: Volume Profile=`RESEARCH_ONLY`; SMC ampliado=`RESEARCH_ONLY` con MSS como candidato investigativo; Williams %R=`RESEARCH_ONLY`; patrones chartistas=`RESEARCH_ONLY` con flag como candidato investigativo; fundamental swing=`RESEARCH_ONLY`; gamma walls=`REJECT_DATA` por falta de OI/gamma/spot/multiplier históricos; VIX=`SHADOW_CANDIDATE` sin conexión al loop operativo por ahora.
+
+El informe consolidado es `docs/drive_strategy_evaluation_results_2026-08-18.md`. No se habilitó ninguna familia nueva para modificar entradas, sizing u órdenes. Polaris continúa PAPER en la revisión `polaris-bot-00086-n4n`, con RiskManager, floor, circuit breakers y flags de shadow como autoridad.
+
+La prioridad posterior queda limitada a un walk-forward no solapado de VIX, y quizá flag/MSS en segunda ronda con parámetros congelados. Gamma walls requiere datos históricos nuevos; no se debe imputar OI, gamma o dealer sign.
