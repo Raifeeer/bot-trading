@@ -1697,3 +1697,14 @@ La capa está integrada en `bot.py` tras la observabilidad de setups. Se dedupli
 Guardarraíles obligatorios: `mode=shadow`, `influence_entries=false`, `orders_allowed=false`. El módulo no importa `AlpacaExecutor`, no llama a `submit_option_order` y no puede modificar `state['positions']`, sizing, RiskManager, circuit breakers ni estrategia live. La capa solo observa; la autoridad final sigue siendo RiskManager + floor + circuit breakers.
 
 Tests nuevos `tests/test_defined_risk_shadow.py` fijan disponibilidad por régimen, bloqueo por piso y `orders_allowed=false`. La suite completa quedó en 105 tests: OK, con 1 skip y 2 expected failures heredados. El cambio está listo para validación de deploy, pero aún no debe habilitar influencia de entradas.
+
+
+## 23. Verificación de spreads shadow en producción — 18 de agosto de 2026
+
+La revisión `polaris-bot-00084-sgs` arrancó correctamente, pero `defined_risk_shadow` apareció como `disabled` en `tick_diagnostics` aunque el bootstrap indicaba la configuración activa. La causa fue un contrato de configuración: `bot.py` pasaba la sección interna (`{"enabled": ...}`), mientras `evaluate_defined_risk_shadow()` esperaba un wrapper raíz (`{"defined_risk_shadow": {...}}`).
+
+Se corrigió en `7e38fd4` aceptando ambas formas y se añadió una regresión en `tests/test_defined_risk_shadow.py`. La suite final quedó en 106 tests: OK, con 1 skip y 2 expected failures heredados; Ruff F/B/E9 y compilación pasan.
+
+La revisión `polaris-bot-00086-n4n` quedó lista y sirve el 100% del tráfico. Verificación sanitizada posterior al ciclo: `FIRESTORE_ENABLED=True`, `trading_mode=PAPER`, 0 posiciones, 0 órdenes, `defined_risk_shadow_observations` presente con 8 símbolos, `mode=shadow`, `orders_allowed=false`; Firestore confirmó los mismos campos en `polaris/2026-08-18`.
+
+Conteo real de producción en el primer ciclo: `bear_call_credit` 0 available / 2 unavailable / 6 blocked; `bull_put_credit` 0 / 8 / 0; `iron_condor` 0 / 8 / 0. El candidato bear-call quedó bloqueado por régimen en seis símbolos y sin cadena líquida disponible en dos; los otros dos no encontraron patas líquidas. Esto es una observación de disponibilidad de la cadena actual, no una orden fallida. No se activó ninguna influencia sobre entradas ni sizing.
