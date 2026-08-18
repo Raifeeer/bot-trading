@@ -1741,3 +1741,14 @@ La prioridad recomendada es: (1) construir un filtro VIX/volatilidad de índice 
 No se debe implementar todo a la vez ni asumir que el material educativo aumenta profits. Cada candidato requiere especificación sin ambigüedad, disponibilidad de datos históricos, backtest anti-look-ahead, costes/slippage, walk-forward y revisión humana. No se modificó la estrategia live por esta auditoría.
 
 Las notas de trabajo, fuentes de Drive y brechas detalladas están en `docs/drive_trading_audit_working_notes_2026-08-18.md`.
+
+
+## 17. Volume Profile — investigación y backtest 18 de agosto de 2026
+
+Se creó y validó la skill reusable `/home/ubuntu/skills/volume-profile/SKILL.md`, con referencia profunda en `/home/ubuntu/skills/volume-profile/references/research.md`. La skill formaliza POC/VPOC, VAH/VAL, HVN/LVN, sesiones RTH/ETH, bins, Value Area y guardarraíles de datos; no confunde volumen por precio con order flow.
+
+Se descargaron barras históricas reales de Alpaca IEX en 15 minutos para los ocho símbolos del universo, desde 2025-08-18 hasta 2026-08-18. El backtest integró Volume Profile sobre `DayBreakout` con 675 combinaciones: cinco variantes, bins 24/48/96, Value Area 68/70/80%, lookback 1/3/5 sesiones y cinco ventanas de mercado. Se aplicaron 5 bps de slippage, comisión $0, entrada 10:00–15:30 ET, Donchian 10, stop 2.5 ATR y máximo 20 barras.
+
+La primera corrida tuvo un bug contable: la entrada no descontaba efectivo y duplicaba el mark-to-market. El bug fue corregido antes de interpretar resultados y la matriz se repitió completa. En los resultados corregidos, ninguna variante superó al baseline en al menos tres de cinco ventanas con drawdown no peor. Los filtros POC/VAH redujeron pérdidas en verano y últimos 30 días, pero sacrificaron retorno en primavera, recuperación y periodo completo. La decisión es `RESEARCH_ONLY`: Volume Profile no se añade al executor ni a `influence_entries`.
+
+Artefactos: `docs/volume_profile_backtest_2026-08-18.md`, `scripts/run_volume_profile_backtests.py`, `scripts/analyze_volume_profile_backtests.py`, `scripts/cache_volume_profile_intraday.py` y CSV/JSON bajo `/home/ubuntu/backtests/`. La producción permanece sin cambios.
