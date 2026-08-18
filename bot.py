@@ -80,6 +80,7 @@ from options.strategy import OptionsStrategy
 from options.option_details import enrich_positions
 from risk.manager import RiskManager
 from execution.alpaca_executor import AlpacaExecutor, ExecutionError
+from strategies.setup_confluence import SETUP_NAMES, analyze_setup_confluence
 logger.info("BOOT: imports complete")
 
 
@@ -97,6 +98,50 @@ def _entry_context_key(data: dict, regime: dict) -> str:
     regime_name = (regime or {}).get("regime", "unknown")
     floor_below = bool((regime or {}).get("floor", {}).get("below_floor"))
     return f"{_latest_bar_key(data)}|{regime_name}|floor={floor_below}"
+
+
+def _setup_shadow_snapshot(cached: dict, tickers: list[str], setup_cfg: dict) -> dict:
+    """Evalúa todos los setups sobre barras cerradas sin enviar órdenes.
+
+    `cached` tiene la forma timeframe -> símbolo -> DataFrame. La función
+    reemplaza el snapshot anterior, no acumula histórico en el estado local.
+    ``influence_entries`` se registra como configuración, pero no concede
+    autoridad a la capa: el RiskManager y las estrategias existentes siguen
+    siendo la única ruta de órdenes hasta una promoción explícita.
+    """
+    if not setup_cfg.get("enabled", False):
+        return {"enabled": False, "mode": "disabled", "symbols": {}}
+    by_symbol = {}
+    for symbol in tickers:
+        frames = {
+            tf: symbol_data[symbol]
+            for tf, symbol_data in cached.items()
+            if isinstance(symbol_data, dict) and symbol in symbol_data
+        }
+        result = analyze_setup_confluence(symbol, frames)
+        by_symbol[symbol] = result
+    counts = {
+        setup: {"bull": 0, "bear": 0, "neutral": 0, "confirmed": 0}
+        for setup in (*SETUP_NAMES, "mtf_confluence")
+    }
+    for result in by_symbol.values():
+        for observation in result.get("observations", []):
+            setup = observation.get("setup")
+            if setup not in counts:
+                continue
+            direction = observation.get("direction", "neutral")
+            status = observation.get("status", "neutral")
+            counts[setup][direction] = counts[setup].get(direction, 0) + 1
+            if status == "confirmed":
+                counts[setup]["confirmed"] += 1
+    return {
+        "enabled": True,
+        "mode": setup_cfg.get("mode", "shadow"),
+        "influence_entries": bool(setup_cfg.get("influence_entries", False)),
+        "source_version": "setup-confluence-v1",
+        "counts": counts,
+        "symbols": by_symbol,
+    }
 
 
 def _enriched_positions(executor: AlpacaExecutor) -> list:
@@ -949,6 +994,21 @@ def main():
                         strat_diag["reasons"][reason] = strat_diag["reasons"].get(reason, 0) + 1
                         sym_diag["reasons"][reason] = sym_diag["reasons"].get(reason, 0) + 1
 
+            setup_cfg = cfg.get("setups", {}) or {}
+            setup_started = time.monotonic()
+            setup_snapshot = _setup_shadow_snapshot(cached, tickers, setup_cfg)
+            state["setup_observations"] = setup_snapshot
+            signal_stats["setup_confluence"] = {
+                "mode": setup_snapshot.get("mode"),
+                "symbols": len(setup_snapshot.get("symbols", {})),
+                "counts": setup_snapshot.get("counts", {}),
+            }
+            phase_times["setups_s"] = round(time.monotonic() - setup_started, 3)
+            if setup_cfg.get("influence_entries"):
+                logger.warning(
+                    "SETUPS: influence_entries solicitado pero bloqueado; "
+                    "la capa permanece shadow hasta promoción validada"
+                )
             phase_times["entries_s"] = round(time.monotonic() - cycle_started, 3)
 
             # 4b. MOTOR BAJISTA: put spreads sobre CHoCH bear (AGENTS.md §40).

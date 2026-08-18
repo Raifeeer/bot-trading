@@ -105,3 +105,35 @@ Para un ajuste propio, pasar `--baseline-json` y `--candidate-json` con el mismo
 El resultado debe evaluarse por retorno neto, drawdown peak-to-trough, número de operaciones, win rate, profit factor, sensibilidad a slippage y estabilidad fuera de muestra. El candidato no se promueve por tener mayor retorno aislado: debe mejorar o no degradar materialmente el drawdown, sobrevivir a costes, mantener suficiente muestra y superar una validación walk-forward. Todo ajuste que llegue a PAPER debe conservar una feature flag y permitir volver al baseline sin cambiar el `RiskManager`.
 
 El smoke A/B del 17 de agosto de 2026 comparó `regime_hold_cash_recent_2026` frente a `breakout55_recent_2026_r15` sobre `2026-04-01..2026-08-14`, con un único dataset y sin órdenes. El baseline terminó en `129.186` (+29.186%, 152 trades, drawdown -25.0933%); el candidato en `127.4964` (+27.4964%, 14 trades, drawdown -25.4729%). Es una comprobación del arnés, no evidencia para promover breakout. El artefacto está en `/home/ubuntu/backtests/ab_smoke_recent_2026_20260817T184708Z.csv` y su manifiesto JSON homónimo.
+
+
+## 10. Backtest de la capa completa de setups — 18 ago 2026
+
+El script `scripts/run_setup_backtests.py` evalúa los doce componentes de `strategies/setup_confluence.py`: `key_level`, `break_and_retest`, `order_block`, `bos`, `choch`, `liquidity_sweep`, `ema_cross`, `ema_cloud`, `vwap`, `volume_proxy`, `fibonacci_ote` y `trendline_channel`. La corrida es research-only y trabaja sobre el subyacente; no modela fills de opciones, bid/ask, assignment, latencia ni disponibilidad point-in-time de cadenas.
+
+### Procedimiento
+
+1. Cachear históricos reales en `/home/ubuntu/backtests/setup_history/*.pkl`; nunca crear barras sintéticas para completar un símbolo.
+2. Registrar en el manifiesto el universo esperado, el universo utilizado y cualquier ticker faltante.
+3. Para cada símbolo y ventana, mantener warmup anterior al inicio de la ventana para EMA/ATR/estructura, pero publicar retornos solo desde la fecha de inicio.
+4. Calcular la observación con filas `<= t` y aplicar la posición a la variación de cierre `t → t+1`.
+5. Descontar 5 bps por unidad de cambio de posición en `setup_moderate` y `setup_strict`; declarar que `buy_hold` es el control de exposición alcista, no un benchmark de opciones.
+6. Exportar métricas, dirección agregada, actividad por componente y un manifiesto JSON. Ejecutar después `scripts/analyze_setup_backtests.py`.
+7. Rechazar promoción si solo existe mejora en una ventana, si el drawdown no mejora materialmente, si el universo es incompleto sin declararlo, o si el resultado no sobrevive sensibilidad y walk-forward.
+
+### Resultado reproducible de la primera matriz
+
+La ejecución final usó siete de ocho símbolos porque `SOFI` no se pudo recuperar del proveedor disponible; el faltante se registra en `setup_confluence_backtests_2026-08-18.json`. Los resultados fueron:
+
+| Ventana | Buy-and-hold | Setup moderate | Setup strict |
+|---|---:|---:|---:|
+| Lateral 2025 | +25.9695%, DD −17.2397% | +0.3597%, DD −10.5601% | −3.1216%, DD −11.9175% |
+| Selloff 2026 | +22.9870%, DD −16.0482% | +5.1687%, DD −7.0323% | +4.4494%, DD −7.3239% |
+| Reciente 2026 | +61.1543%, DD −25.4978% | +15.1953%, DD −14.3550% | +18.1615%, DD −10.4369% |
+| Últimos 30 días | −4.7056%, DD −20.1163% | −2.8449%, DD −8.6640% | −1.4434%, DD −7.5748% |
+
+La conclusión es `RESEARCH_ONLY`: los setups redujeron drawdown en las cuatro ventanas, pero solo superaron retorno en la última ventana y ambos resultados fueron negativos. No habilitar `influence_entries`, no llamar a esto alfa y no usar la meta `$100 → $200` como criterio de promoción.
+
+El informe está en `docs/setup_confluence_backtest_2026-08-18.md`. Los artefactos son `setup_confluence_backtests_2026-08-18.csv`, `setup_confluence_direction_counts_2026-08-18.csv`, `setup_confluence_component_activity_2026-08-18.csv`, `setup_confluence_analysis_2026-08-18_comparison.csv`, `setup_confluence_analysis_2026-08-18_component_summary.csv` y `setup_confluence_backtests_2026-08-18.json` bajo `/home/ubuntu/backtests/`.
+
+El A/B de setups no debe ejecutarse todavía con `run_ab_comparison.py` sin un adaptador: ese arnés entiende motores de `run_scenario`, mientras que `analyze_setup_confluence` es un motor puro de observaciones. El adaptador futuro debe conservar un dataset compartido, commit, hash, ventanas, costes, slippage, train/validation/test y una bandera PAPER reversible.

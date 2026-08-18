@@ -89,3 +89,23 @@ Los artefactos de investigación ya no están vacíos: `/home/ubuntu/backtests/`
 Los motores `breakout20` y `breakout55` son de investigación únicamente. `regime_hold_cash` es el candidato más consistente por ventanas, pero el walk-forward más reciente termina negativo. El ensemble 70% régimen/30% breakout55 mejora la mediana y el drawdown, pero no elimina la ventana negativa; no hay cambio autorizado a producción.
 
 **Pendientes actualizados:** obtener datos point-in-time de cadenas de opciones y earnings; modelar fills bid/ask, liquidez, assignment y gaps; repetir walk-forward con más años y fuentes verificables; implementar el stream de equity de Alpaca antes de depender del stop intradiario; y corregir/confirmar la fuente del dashboard antes de cualquier redeploy. No cambiar la estrategia PAPER solo por resultados de una ventana.
+
+
+## 8. Capa de setups shadow — 18 de agosto de 2026
+
+El repositorio ahora incluye `strategies/setup_confluence.py`, un motor puro que formaliza los doce setups del PDF: Key Level, break-and-retest, order block, BOS, CHoCH, liquidity sweep, EMA cross, EMA cloud, VWAP, volumen proxy, Fibonacci/OTE y trendline/channel. Está conectado a `bot.py` mediante `_setup_shadow_snapshot()` y publica `state.setup_observations`, conteos por setup y timing `setups_s`.
+
+La configuración efectiva es `setups.enabled=true`, `mode=shadow` e `influence_entries=false`. Esta capa no puede decidir sizing, strikes, precio límite, circuit breaker ni endpoint de broker. `RiskManager`, floor, validación de cotizaciones y límites de posiciones siguen siendo la autoridad final. Si alguien modifica la bandera de influencia, el loop registra una advertencia y conserva el bloqueo de promoción.
+
+La validación local del cambio pasó 102 tests del repositorio, compilación y Ruff F/B/E9. El backtest direccional de la capa está en `docs/setup_confluence_backtest_2026-08-18.md`; el resultado se clasifica `RESEARCH_ONLY`. En cuatro ventanas, los setups redujeron drawdown frente a buy-and-hold, pero solo superaron retorno en los últimos 30 días, donde todos los escenarios fueron negativos. La corrida final utilizó siete símbolos; `SOFI` quedó faltante por inestabilidad/rate limiting del proveedor y el manifiesto lo declara. No promover, no activar `paper_filter` y no cambiar el perfil de riesgo por estos resultados.
+
+Para repetir la investigación:
+
+```bash
+cd /home/ubuntu/bot-trading
+export PYTHONPATH="$PWD"
+python3 scripts/run_setup_backtests.py
+python3 scripts/analyze_setup_backtests.py
+```
+
+Antes de desplegar una revisión con esta capa se debe confirmar que los artefactos de backtest están disponibles, revisar el diff, construir una imagen inmutable, preservar secretos/envs, verificar modo PAPER y observar al menos dos ciclos. Después del deploy, comprobar que Firestore contiene `setup_observations`, que Cloud Logging muestra `setups_s` y que `orders_executed` no aumenta por la capa shadow.

@@ -17,18 +17,40 @@ La presencia de un `*.md` no significa que la skill esté implementada. Se disti
 | `riesgo_skill.md` | Sí | `risk/manager.py`, `risk/floor.py`, `bot.py` | Sí | Sí | RiskManager, floor, breakers, sizing y límites son autoridad final. |
 | `smc_skill.md` | Sí | `strategies/smc.py`, `risk/regime.py` | Parcial | Parcial | CHoCH/put_choch está conectado vía régimen; `SMCStrategy` completa no se instancia en `build_strategies()`. |
 | `wheel_skill.md` | Sí | `strategies/options_income.py` | No | No | `WheelStrategy` existe como módulo, pero no aparece en `build_strategies()` live. |
-| `trading-setups` nueva | Skill reusable en `/home/ubuntu/skills` | Ninguno aún en Polaris | No | No | Especificación investigada; pendiente de implementar como shadow feature. |
+| `trading-setups` | Skill reusable en `/home/ubuntu/skills` | `strategies/setup_confluence.py`, `tests/test_setup_confluence.py` | Sí, `_setup_shadow_snapshot()` | Shadow sí; filtro no | Los 12 setups están implementados como observaciones puras; no autorizan órdenes y no tienen validación fuera de muestra de opciones. |
 
 ## Qué instancia actualmente `bot.py`
 
 `build_strategies()` instancia `opt_day_momentum`, `opt_day_breakout` y `opt_swing_trend` según `config.yaml`. `OptionsStrategy` envuelve esos motores para construir spreads. El clasificador de régimen se ejecuta en `_regime_snapshot()` y su resultado puede activar el motor bajista `put_choch`, pero no equivale a tener la `SMCStrategy` completa conectada.
 
+Además, `_setup_shadow_snapshot()` evalúa todos los setups sobre los DataFrames disponibles, guarda `setup_observations`, publica conteos resumidos y mide `setups_s`. La bandera efectiva es `mode=shadow` e `influence_entries=false`; el RiskManager y las puertas de ejecución no se modifican.
+
 ## Setups del PDF y cobertura
 
-El PDF `TRADING_SETUP.pdf` aporta HTF/LTF order blocks, liquidity sweep, EMA cross, VWAP, OB/breaker, EMA Cloud, Fibonacci, BSL/SSL, buying/selling volume y etiquetas KL. Los módulos actuales cubren parcialmente estructura/CHoCH, EMA/SMA, breakout y volumen de barras, pero no existe una implementación live equivalente y completa para VWAP+EMA Cloud+Fibonacci+liquidity sweep+KL+order-flow.
+El PDF `TRADING_SETUP.pdf` aporta HTF/LTF order blocks, liquidity sweep, EMA cross, VWAP, OB/breaker, EMA Cloud, Fibonacci, BSL/SSL, buying/selling volume y etiquetas KL. El motor de setups formaliza los doce nombres siguientes como observaciones direccionales o contextuales:
 
-La nueva skill `trading-setups` formaliza esos patrones como features `bull/bear/neutral`, pero no los conecta ni los convierte en órdenes. La integración debe comenzar con funciones puras, fixtures deterministas, shadow/PAPER, telemetría por símbolo/setup y A/B reproducible. Solo el `RiskManager`, el floor, los circuit breakers y la validación de ejecución pueden autorizar órdenes.
+| Setup | Implementación actual | Estado de validación |
+|---|---|---|
+| Key Level | Niveles previos/rolling, ruptura cerrada o sweep/reclaim | Test determinista; backtest proxy, no promoción |
+| Break-and-retest | Ruptura, retest, hold/fallo/expiración | Backtest proxy; requiere walk-forward |
+| Order block | Desplazamiento OHLCV y mitigación aproximada | Backtest proxy; no cadena de opciones |
+| BOS / CHoCH | Pivots confirmados y cambio estructural | Backtest proxy; no es el motor `put_choch` de riesgo |
+| Liquidity sweep | Sweep SSL/BSL y reclaim | Proxy OHLCV; no observa stops individuales |
+| EMA cross / EMA cloud | Relación y pendiente de EMAs | Shadow; posible correlación entre features |
+| VWAP | VWAP contextual según timeframe/feed | Shadow; requiere revisar sesiones y volumen |
+| Volume proxy | Proxy CLV × volumen | Shadow; no es order flow L2 |
+| Fibonacci/OTE | Anchors recientes y zona premium/discount | Shadow; sensible a anchors |
+| Trendline/channel | Contexto de canal y pendiente | Shadow contextual, no confirmación de entrada |
+| Confluencia MTF | Agregador estructural con conflicto neutral | Shadow; no validación de opciones |
 
-## Decisión
+La nueva skill `trading-setups` formaliza esos patrones como features `bull/bear/neutral`, pero no los convierte en órdenes. Solo el `RiskManager`, el floor, los circuit breakers y la validación de ejecución pueden autorizar órdenes.
 
-No se deben presentar las skills como conocimiento automáticamente activo. El siguiente trabajo es implementar una feature de setups en shadow, comenzando por un subconjunto objetivo: `BOS/CHoCH + order block`, `liquidity sweep + reclaim` y `premium/discount`. VWAP, EMA Cloud, volumen proxy, Fibonacci y KL se incorporarán como filtros con parámetros explícitos, no como predictores independientes.
+## Backtest y decisión
+
+El script `scripts/run_setup_backtests.py` usa cuatro ventanas, warmup histórico, anti-look-ahead y slippage de 5 bps por cambio de posición. La corrida final utilizó siete de ocho símbolos porque `SOFI` no pudo recuperarse de los proveedores disponibles; el manifiesto registra el faltante. Los setups redujeron drawdown frente a buy-and-hold en las cuatro ventanas, pero solo superaron el retorno en los últimos 30 días, donde todos los escenarios fueron negativos. La decisión es `RESEARCH_ONLY`: no habilitar `influence_entries` ni `paper_filter`.
+
+Los detalles están en `docs/setup_confluence_backtest_2026-08-18.md` y los CSV/JSON bajo `/home/ubuntu/backtests/`. El A/B futuro requiere un adaptador porque `run_ab_comparison.py` entiende `run_scenario`, no el motor puro `analyze_setup_confluence`.
+
+## Decisión operativa
+
+No se deben presentar las skills como conocimiento automáticamente activo ni como evidencia de rentabilidad. La capa de setups puede permanecer en shadow para medir cobertura, latencia, conflictos y frecuencia de neutralidad. Antes de probarla como filtro PAPER se exige recuperar o declarar el universo de datos, ejecutar un A/B emparejado con el baseline regime-aware, walk-forward, sensibilidad a costes y revisión humana. PAPER permanece obligatorio; REAL requiere confirmación explícita independiente.

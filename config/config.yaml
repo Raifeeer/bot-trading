@@ -104,6 +104,20 @@ data:
   refresh_interval_min: 5    # Frecuencia de actualización en vivo
   db: sqlite:///data/market.db
 
+# Capa de setups del PDF: evalúa todos los patrones en shadow y guarda
+# observaciones, pero no modifica entradas hasta una promoción A/B explícita.
+setups:
+  enabled: true
+  mode: shadow              # shadow | paper_filter (nunca habilita REAL)
+  influence_entries: false  # solo true tras walk-forward y revisión humana
+  min_structural_score: 0.55
+  min_confirmations: 2
+  max_signal_age_bars: 3
+  timeframes:
+    regime: 1d
+    setup: 15min
+    entry: 5min
+
 strategies:
   # ---------------------------------------------------------------------------
   # DAY TRADING: momentum intradía con filtro de volatilidad (velas 5 min)

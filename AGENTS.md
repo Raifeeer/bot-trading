@@ -1,6 +1,6 @@
 # PolarIS Trading Bot — Guía de Operación para Agentes
 
-> Documento de referencia para cualquier agente de IA que opere, diagnostique o extienda el sistema Polaris (bot de trading de opciones sobre Alpaca, desplegado en Google Cloud Run). Última actualización: 14 de agosto de 2026.
+> Documento de referencia para cualquier agente de IA que opere, diagnostique o extienda el sistema Polaris (bot de trading de opciones sobre Alpaca, desplegado en Google Cloud Run). Última actualización: 18 de agosto de 2026 UTC.
 
 ## 1. Qué es el sistema
 
@@ -1514,3 +1514,68 @@ Se revisaron las 9 skills existentes en `docs/skills/` contra el código y `buil
 Antes de finalizar `trading-setups` se investigaron fuentes sobre BOS, CHoCH, order blocks, liquidity sweeps, BSL/SSL, key levels/KL, EMA, VWAP, EMA Cloud, volumen, Fibonacci, premium/discount, OTE, confluencia multi-timeframe, data snooping y order-flow. La síntesis y las fuentes están en `/home/ubuntu/skills/trading-setups/references/setup-research.md` y en `docs/trading_setups_research_2026-08-18.md`. Las definiciones educativas se tratan como hipótesis: no autorizan órdenes, no demuestran predicción ni sustituyen validación point-in-time.
 
 La cobertura actual del PDF `TRADING_SETUP.pdf` es parcial. El siguiente trabajo recomendado es implementar en shadow una feature `trading_setups` con `bull/bear/neutral`, comenzando por BOS/CHoCH + order block y liquidity sweep + reclaim; después añadir premium/discount/Fibonacci, VWAP/EMA Cloud, volumen proxy y KL como filtros explícitos. Todo debe usar barras cerradas, timestamps as-of, tests deterministas, telemetría por símbolo/setup y A/B reproducible. No conectar a entradas PAPER hasta superar walk-forward, sensibilidad, costes y revisión de riesgo.
+
+
+## 17. Capa completa de setups del PDF — 18 de agosto de 2026
+
+### 17.1 Cobertura y arquitectura
+
+Se formalizaron e implementaron como observaciones puras los doce setups identificados en `TRADING SETUP.pdf`: `key_level`, `break_and_retest`, `order_block`, `bos`, `choch`, `liquidity_sweep`, `ema_cross`, `ema_cloud`, `vwap`, `volume_proxy`, `fibonacci_ote` y `trendline_channel`. El motor vive en `strategies/setup_confluence.py`, no consulta broker, no calcula sizing y no puede enviar órdenes. Todas las observaciones son serializables y contienen símbolo, setup, dirección, estado, score ordinal, timestamp de decisión, evidencia, invalidación y versión de fuente.
+
+La configuración añadida en `config/config.yaml` es deliberadamente conservadora:
+
+| Clave | Valor | Regla |
+|---|---:|---|
+| `setups.enabled` | `true` | Evalúa la capa auxiliar |
+| `setups.mode` | `shadow` | Publica observaciones sin influir en órdenes |
+| `setups.influence_entries` | `false` | No cambiar sin walk-forward, A/B y revisión humana |
+| `setups.min_structural_score` | `0.55` | Umbral documentado para futuras pruebas |
+| `setups.min_confirmations` | `2` | Umbral documentado para futuras pruebas |
+| `setups.timeframes` | `1d/15min/5min` | Contrato régimen/setup/entrada; la integración actual usa los frames disponibles |
+
+`bot.py` llama `_setup_shadow_snapshot()` después de cargar el cache de datos, guarda el resultado en `state["setup_observations"]`, publica conteos resumidos en la telemetría por ciclo y registra `setups_s`. Si alguien cambia `influence_entries`, el loop emite una advertencia y mantiene el bloqueo de promoción; esa bandera no concede autoridad al motor de setups.
+
+### 17.2 Corrección de Key Level
+
+La primera versión de `key_level` tendía a ser siempre neutral porque exigía proximidad al nivel y luego una ruptura más allá de la misma tolerancia en la misma barra. Se corrigió para congelar máximos/mínimos previos y rolling, detectar ruptura cerrada o sweep/reclaim, guardar evidencia e invalidación y conservar neutralidad cuando no existe reacción. Se añadió `test_key_level_detects_closed_break` para evitar regresión. El setup sigue siendo una observación contextual y no una orden.
+
+### 17.3 Validación local
+
+La validación del 18 de agosto terminó con **102 tests ejecutados**, `OK`, un test omitido y dos expected failures ya conocidos del repositorio. La compilación de `bot.py`, estrategias, riesgo, opciones, ejecución, datos, estado, tests y scripts pasó; Ruff F/B/E9 pasó sin hallazgos. Los tests específicos del motor de setups son cuatro y cubren cobertura de los doce nombres, neutralidad ante datos faltantes, detección de ruptura Key Level y ausencia de permisos de orden/sizing/riesgo en la salida.
+
+### 17.4 Backtest de setups
+
+Se ejecutó `scripts/run_setup_backtests.py` y `scripts/analyze_setup_backtests.py` con datos históricos reales cacheados y cuatro ventanas: lateral sep–dic 2025, selloff ene–abr 2026, reciente abr–ago 2026 y últimos 30 días disponibles. La decisión usa únicamente barras hasta `t` y aplica la posición a la variación de `t` a `t+1`; los escenarios de setups descuentan 5 bps por unidad de cambio de posición. El experimento es un proxy direccional del subyacente, no un P&L de opciones.
+
+La corrida final utilizó siete de los ocho símbolos esperados porque `SOFI` no pudo recuperarse de los proveedores disponibles y quedó registrado como faltante en el manifiesto. No se generaron datos sintéticos ni se sustituyó el ticker. Los resultados completos están en `docs/setup_confluence_backtest_2026-08-18.md` y en estos artefactos:
+
+| Artefacto | Ruta |
+|---|---|
+| Métricas por ventana/escenario | `/home/ubuntu/backtests/setup_confluence_backtests_2026-08-18.csv` |
+| Conteos bull/bear/neutral | `/home/ubuntu/backtests/setup_confluence_direction_counts_2026-08-18.csv` |
+| Actividad de cada componente | `/home/ubuntu/backtests/setup_confluence_component_activity_2026-08-18.csv` |
+| Comparación calculada | `/home/ubuntu/backtests/setup_confluence_analysis_2026-08-18_comparison.csv` |
+| Resumen por componente | `/home/ubuntu/backtests/setup_confluence_analysis_2026-08-18_component_summary.csv` |
+| Manifiesto y supuestos | `/home/ubuntu/backtests/setup_confluence_backtests_2026-08-18.json` |
+| Informe legible | `docs/setup_confluence_backtest_2026-08-18.md` |
+
+Resultado resumido:
+
+| Ventana | Buy-and-hold | Setup moderate | Setup strict | Lectura |
+|---|---:|---:|---:|---|
+| Lateral 2025 | +25.9695%, DD −17.2397% | +0.3597%, DD −10.5601% | −3.1216%, DD −11.9175% | Menor DD, mucho menor retorno |
+| Selloff 2026 | +22.9870%, DD −16.0482% | +5.1687%, DD −7.0323% | +4.4494%, DD −7.3239% | Menor DD, no supera retorno |
+| Reciente 2026 | +61.1543%, DD −25.4978% | +15.1953%, DD −14.3550% | +18.1615%, DD −10.4369% | Strict mejora DD, no retorno |
+| Últimos 30 días | −4.7056%, DD −20.1163% | −2.8449%, DD −8.6640% | −1.4434%, DD −7.5748% | Única ventana donde supera retorno; ambos negativos |
+
+La clasificación es **`RESEARCH_ONLY`**. No promover `setup_moderate` ni `setup_strict`, no activar `influence_entries`, no modificar RiskManager/floor/circuit breakers y no presentar la mejora de drawdown como rentabilidad esperada. El resultado sugiere una posible función de reducción de exposición que requiere una prueba A/B explícita contra el motor regime-aware, no una estrategia autónoma.
+
+### 17.5 Cobertura observada por componente
+
+En las cuatro ventanas y `setup_moderate`, cada componente tuvo 8,344 evaluaciones. La tasa direccional aproximada fue: VWAP 78.39%, EMA cross 62.91%, volume proxy 48.73%, EMA cloud 46.66%, BOS 33.84%, Fibonacci/OTE 33.31%, break-and-retest 16.07%, Key Level 15.24%, order block 15.20%, CHoCH 9.98%, liquidity sweep 6.74% y trendline channel 53.80% contextual. `trendline_channel` no se contó como activo porque su estado actual es `context`, no confirmación. Los conteos detallados están en el CSV de actividad; no confundir frecuencia direccional con calidad predictiva.
+
+### 17.6 Pendientes y criterio de promoción
+
+El arnés `scripts/run_ab_comparison.py` aún compara motores del contrato `run_scenario`; no debe ejecutarse como A/B de setups sin añadir un puente que evalúe `analyze_setup_confluence` sobre el mismo dataset. La siguiente ronda debe usar un dataset compartido, comparar baseline regime-aware contra filtro de setups, separar train/validation/test, incluir sensibilidad, slippage, coste equity, exposición y estabilidad por régimen, y mantener el test bloqueado durante la selección. Antes de cualquier `paper_filter`, hay que recuperar el histórico faltante de SOFI o repetir oficialmente con un universo declarado de siete símbolos, y revisar la definición de `trendline_channel`/VWAP por timeframe.
+
+Ningún resultado de esta sección justifica REAL. Polaris permanece PAPER. La meta ficticia `$100 → $200` es solo un escenario de investigación y no una promesa ni criterio de selección.
