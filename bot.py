@@ -725,7 +725,9 @@ def main():
     start_tg_bot()
     logger.info("BOOT: Telegram thread requested")
     try:
-        _call_with_timeout(executor.connect, 45.0, "Alpaca connect")
+        connect_timeout_s = max(
+            45.0, float(os.environ.get("ALPACA_CONNECT_TIMEOUT_SECONDS", "90")))
+        _call_with_timeout(executor.connect, connect_timeout_s, "Alpaca connect")
         account = _call_with_timeout(executor.account_snapshot, 30.0,
                                     "Alpaca account snapshot")
         equity0 = float(account["equity"])

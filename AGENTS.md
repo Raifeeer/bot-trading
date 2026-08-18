@@ -1845,3 +1845,10 @@ Se añadió `strategies/vix_shadow.py` y la sección `vix_shadow` de `config/con
 El contrato fuerza `mode=shadow`, `influence_entries=false` y `orders_allowed=false`, aunque una configuración antigua intente solicitar lo contrario. El snapshot se guarda en `state["vix_shadow_observations"]`, se resume en `tick_diagnostics["vix_shadow"]` y se persiste explícitamente en Firestore bajo `vix_shadow_observations`. La ruta no tiene acceso al executor ni al RiskManager para cambiar decisiones.
 
 La implementación incluye tests deterministas de cierre previo, datos faltantes, forma de configuración y neutralidad operativa. Antes del despliegue se validan E9/F/B en bot.py, compilación y la suite completa. El VIX queda como observabilidad; no se habilita como filtro de entradas.
+
+
+## 27. Arranque VIX shadow y timeout transitorio de Alpaca — 18 de agosto de 2026
+
+La imagen `4a2c643` cargó correctamente la configuración VIX shadow en Cloud Run, pero las instancias nuevas `polaris-bot-00087-hrb` y `polaris-bot-vixshadow` no llegaron al primer tick porque `Alpaca connect` superó 45 s. Los logs confirmaron el banner VIX (`enabled=True`, `mode=shadow`, `influence_entries=False`, `orders_allowed=False`) antes del fallo. Una consulta directa posterior a `https://paper-api.alpaca.markets/v2/account` respondió HTTP 200, por lo que el incidente se clasificó como timeout transitorio de arranque, no como error del módulo VIX.
+
+Se devolvió 100% del tráfico a `polaris-bot-00086-n4n`, que seguía completando ticks y escribiendo Firestore. Se añadió un timeout de conexión inicial configurable mediante `ALPACA_CONNECT_TIMEOUT_SECONDS`, con default seguro de 90 s y mínimo de 45 s, sin cambiar endpoints, credenciales, órdenes ni RiskManager. Antes de volver a promover VIX shadow se deben verificar dos ciclos completos; si el arranque vuelve a fallar, mantener 00086 y no dejar la revisión en tráfico.
