@@ -1827,3 +1827,12 @@ Resultado: Volume Profile=`RESEARCH_ONLY`; SMC ampliado=`RESEARCH_ONLY` con MSS 
 El informe consolidado es `docs/drive_strategy_evaluation_results_2026-08-18.md`. No se habilitó ninguna familia nueva para modificar entradas, sizing u órdenes. Polaris continúa PAPER en la revisión `polaris-bot-00086-n4n`, con RiskManager, floor, circuit breakers y flags de shadow como autoridad.
 
 La prioridad posterior queda limitada a un walk-forward no solapado de VIX, y quizá flag/MSS en segunda ronda con parámetros congelados. Gamma walls requiere datos históricos nuevos; no se debe imputar OI, gamma o dealer sign.
+
+
+## 25. Walk-forward VIX, MSS y flags — 18 de agosto de 2026
+
+Se ejecutó una segunda validación con cuatro folds no solapados. Cada variante fue seleccionada solo en el periodo de entrenamiento mediante `retorno + 0.50 * drawdown` y evaluada en el periodo posterior.
+
+Resultados de test: VIX seleccionó `shock_10` en 4/4 folds, ganó retorno en 2/4, con delta medio +0.13 pp y delta medio de drawdown +0.06 pp; queda como `SHADOW_CANDIDATE`, sin bloquear entradas. MSS ganó retorno en 0/4, tuvo delta medio −2.61 pp y fue reemplazado por baseline en los dos folds finales; queda `RESEARCH_ONLY`. Flags ganó retorno en 3/4, pero empeoró drawdown en 4/4, con delta medio +2.83 pp; queda `RESEARCH_ONLY`.
+
+Ninguna familia cumplió simultáneamente >=3/4 tests de retorno superior, >=2 mejoras de drawdown y delta medio de drawdown <=0. No se modificó bot.py, no se cambió `influence_entries`, no se desplegó una revisión nueva y no se autorizó ninguna orden. Informe: `docs/walk_forward_vix_smc_flags_2026-08-18.md`.
