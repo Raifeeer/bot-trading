@@ -36,6 +36,15 @@ logging.basicConfig(
 logger = logging.getLogger("bot")
 logger.info("BOOT: logging configured")
 
+DEFAULT_DEFINED_RISK_SHADOW_CFG = {
+    "enabled": True,
+    "mode": "shadow",
+    "influence_entries": False,
+    "orders_allowed": False,
+    "max_symbols": 8,
+    "max_spread_bps": 800.0,
+}
+
 from config import get_config
 from data.feed import MarketDataFeed
 
@@ -673,6 +682,12 @@ def main():
     logger.info("BOOT: entering main")
     cfg = get_config()
     logger.info("BOOT: config loaded")
+    risk_shadow_boot_cfg = dict(DEFAULT_DEFINED_RISK_SHADOW_CFG)
+    risk_shadow_boot_cfg.update(cfg.get("defined_risk_shadow", {}) or {})
+    logger.info(
+        "BOOT: defined-risk shadow enabled=%s mode=%s influence_entries=%s orders_allowed=%s",
+        risk_shadow_boot_cfg["enabled"], risk_shadow_boot_cfg["mode"],
+        risk_shadow_boot_cfg["influence_entries"], False)
     feed = MarketDataFeed(cfg["data"]["provider"])
     rm = RiskManager(cfg["risk"])
     executor = AlpacaExecutor(dry_run=args.dry_run)
@@ -1041,7 +1056,10 @@ def main():
             }
             phase_times["setups_s"] = round(time.monotonic() - setup_started, 3)
             risk_shadow_started = time.monotonic()
-            risk_shadow_cfg = cfg.get("defined_risk_shadow", {}) or {}
+            risk_shadow_cfg = dict(DEFAULT_DEFINED_RISK_SHADOW_CFG)
+            risk_shadow_cfg.update(cfg.get("defined_risk_shadow", {}) or {})
+            risk_shadow_cfg["influence_entries"] = False
+            risk_shadow_cfg["orders_allowed"] = False
             defined_risk_snapshot = _defined_risk_shadow_snapshot(
                 cached, tickers, regime, state, builder, risk_shadow_cfg)
             state["defined_risk_shadow_observations"] = defined_risk_snapshot
