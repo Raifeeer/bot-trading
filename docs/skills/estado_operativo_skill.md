@@ -121,3 +121,10 @@ Esta capa no abre ni modifica posiciones. `orders_allowed=false`, `influence_ent
 ## 10. VIX shadow — 18 de agosto de 2026
 
 La capa `vix_shadow` consulta `^VIX` mediante el feed real y usa exclusivamente el último cierre estrictamente anterior a la fecha de mercado. Registra `shock_10`, `percentile_70` y `level_25` como señales `would_block`, sin bloquear entradas reales. `mode=shadow`, `influence_entries=false` y `orders_allowed=false` se fuerzan en código, incluso si una configuración antigua intenta cambiar esas banderas. El resultado se guarda como `vix_shadow_observations`, se resume en `tick_diagnostics.vix_shadow` y mide `vix_shadow_s` en `CYCLE TIMING`.
+
+
+## 11. Verificación final de VIX shadow — 18 de agosto de 2026
+
+La revisión activa es `polaris-bot-vixshadow3`, basada en `379dc84`, con 100% del tráfico y CPU always-on. La conexión a Alpaca PAPER se completó y los ciclos posteriores escribieron Firestore correctamente. Se observó `vix_shadow_s` de aproximadamente 0.006–0.009 s después del primer ciclo, junto con `Tick OK` y cero órdenes.
+
+Firestore confirma `vix_shadow_observations` disponible, `mode=shadow`, `influence_entries=false`, `orders_allowed=false`, ocho símbolos, alineación al último cierre anterior y variantes `shock_10`, `percentile_70` y `level_25`. La consulta `^VIX` usa Alpaca como primer intento y yfinance real como fallback cuando Alpaca devuelve símbolo inválido. No se imputan barras ni se usa el valor para bloquear entradas.

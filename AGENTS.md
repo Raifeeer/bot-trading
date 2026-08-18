@@ -1852,3 +1852,12 @@ La implementación incluye tests deterministas de cierre previo, datos faltantes
 La imagen `4a2c643` cargó correctamente la configuración VIX shadow en Cloud Run, pero las instancias nuevas `polaris-bot-00087-hrb` y `polaris-bot-vixshadow` no llegaron al primer tick porque `Alpaca connect` superó 45 s. Los logs confirmaron el banner VIX (`enabled=True`, `mode=shadow`, `influence_entries=False`, `orders_allowed=False`) antes del fallo. Una consulta directa posterior a `https://paper-api.alpaca.markets/v2/account` respondió HTTP 200, por lo que el incidente se clasificó como timeout transitorio de arranque, no como error del módulo VIX.
 
 Se devolvió 100% del tráfico a `polaris-bot-00086-n4n`, que seguía completando ticks y escribiendo Firestore. Se añadió un timeout de conexión inicial configurable mediante `ALPACA_CONNECT_TIMEOUT_SECONDS`, con default seguro de 90 s y mínimo de 45 s, sin cambiar endpoints, credenciales, órdenes ni RiskManager. Antes de volver a promover VIX shadow se deben verificar dos ciclos completos; si el arranque vuelve a fallar, mantener 00086 y no dejar la revisión en tráfico.
+
+
+## 28. VIX shadow activo y verificado en PAPER — 18 de agosto de 2026
+
+La revisión final activa es `polaris-bot-vixshadow3`, basada en `379dc84`, con 100% del tráfico y CPU always-on (`cpu-throttling=false`). La revisión conectó correctamente a Alpaca PAPER tras ampliar el timeout configurable de arranque a 90 s (`ALPACA_CONNECT_TIMEOUT_SECONDS`), y registró `vix shadow enabled=True mode=shadow influence_entries=False orders_allowed=False`.
+
+Se observaron ciclos consecutivos entre 19:50 y 20:04 UTC con `Tick OK`, escritura en Firestore y cero órdenes/posiciones. `CYCLE TIMING` incluye `vix_shadow` de aproximadamente 0.006–0.009 s después del primer ciclo. Firestore contiene `vix_shadow_observations` con `mode=shadow`, `influence_entries=false`, `orders_allowed=false`, `available=true`, ocho símbolos, fecha de operación 2026-08-18 y cierre VIX usado 2026-08-17. Las variantes `shock_10`, `percentile_70` y `level_25` registraron `would_block=false`.
+
+La consulta de `^VIX` fue rechazada por Alpaca como símbolo inválido y el feed usó el fallback real de yfinance; no se rellenaron datos artificialmente. Las revisiones `00087`, `vixshadow` y `vixshadow2` se retiraron del tráfico por timeout inicial; `00086` quedó disponible como rollback. VIX permanece estrictamente shadow: no bloquea entradas, no cambia sizing, no cierra posiciones, no modifica el RiskManager ni accede al executor.
