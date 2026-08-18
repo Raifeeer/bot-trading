@@ -81,6 +81,7 @@ from options.option_details import enrich_positions
 from risk.manager import RiskManager
 from execution.alpaca_executor import AlpacaExecutor, ExecutionError
 from strategies.setup_confluence import SETUP_NAMES, analyze_setup_confluence
+from options.defined_risk_shadow import evaluate_defined_risk_shadow
 logger.info("BOOT: imports complete")
 
 
@@ -142,6 +143,41 @@ def _setup_shadow_snapshot(cached: dict, tickers: list[str], setup_cfg: dict) ->
         "counts": counts,
         "symbols": by_symbol,
     }
+
+
+def _defined_risk_shadow_snapshot(cached: dict, tickers: list[str], regime: dict, state: dict, builder: SpreadBuilder, shadow_cfg: dict) -> dict:
+    """Evalúa spreads candidatos sin crear órdenes ni cambiar decisiones.
+
+    Se deduplica por la última barra diaria disponible, régimen y estado del
+    piso: las cadenas no se vuelven a consultar cada minuto, pero la señal se
+    renueva al cambiar el contexto de mercado. El resultado conserva siempre
+    ``orders_allowed=False`` y ``influence_entries=False``.
+    """
+    if not shadow_cfg.get("enabled", False):
+        return {"enabled": False, "mode": "disabled", "orders_allowed": False, "symbols": {}}
+    daily = cached.get("1d") or {}
+    context_data = daily if daily else cached.get("15min", {}) or cached.get("5min", {}) or {}
+    context = f"{_latest_bar_key(context_data)}|{(regime or {}).get('regime', 'unknown')}|floor={(regime or {}).get('floor', {}).get('below_floor', False)}"
+    previous = state.get("defined_risk_shadow_observations")
+    if state.get("_defined_risk_shadow_context") == context and previous:
+        return previous
+    ticker_frames = {}
+    for symbol in tickers:
+        ticker_frames[symbol] = {
+            timeframe: symbol_data[symbol]
+            for timeframe, symbol_data in cached.items()
+            if isinstance(symbol_data, dict) and symbol in symbol_data
+        }
+    snapshot = evaluate_defined_risk_shadow(
+        builder.feed,
+        ticker_frames,
+        (regime or {}).get("regime", "cash"),
+        bool((regime or {}).get("floor", {}).get("below_floor")),
+        shadow_cfg,
+    )
+    snapshot["context_key"] = context
+    state["_defined_risk_shadow_context"] = context
+    return snapshot
 
 
 def _enriched_positions(executor: AlpacaExecutor) -> list:
@@ -1004,6 +1040,19 @@ def main():
                 "counts": setup_snapshot.get("counts", {}),
             }
             phase_times["setups_s"] = round(time.monotonic() - setup_started, 3)
+            risk_shadow_started = time.monotonic()
+            risk_shadow_cfg = cfg.get("defined_risk_shadow", {}) or {}
+            defined_risk_snapshot = _defined_risk_shadow_snapshot(
+                cached, tickers, regime, state, builder, risk_shadow_cfg)
+            state["defined_risk_shadow_observations"] = defined_risk_snapshot
+            signal_stats["defined_risk_shadow"] = {
+                "mode": defined_risk_snapshot.get("mode"),
+                "orders_allowed": False,
+                "symbols": len(defined_risk_snapshot.get("symbols", {})),
+                "counts": defined_risk_snapshot.get("counts", {}),
+            }
+            phase_times["defined_risk_shadow_s"] = round(
+                time.monotonic() - risk_shadow_started, 3)
             if setup_cfg.get("influence_entries"):
                 logger.warning(
                     "SETUPS: influence_entries solicitado pero bloqueado; "
@@ -1212,6 +1261,7 @@ def main():
                         "universe": cfg["universo"].get("tickers", []),
                         "tick_diagnostics": signal_stats,
                         "setup_observations": state.get("setup_observations", {}),
+                        "defined_risk_shadow_observations": state.get("defined_risk_shadow_observations", {}),
                         "decisions_today": [d for d in state["decisions"]
                                             if d.get("ts", "").startswith(
                                                 datetime.utcnow().strftime("%Y-%m-%d"))],
@@ -1240,10 +1290,11 @@ def main():
             phase_times["total_s"] = round(time.monotonic() - cycle_started, 3)
             signal_stats["phase_seconds"] = phase_times
             _hb["ts"].append(time.time())
-            logger.info("CYCLE TIMING id=%d total=%.3fs entries=%.3fs setups=%.3fs bear=%.3fs positions=%.3fs publish=%.3fs sleep=%.3fs",
+            logger.info("CYCLE TIMING id=%d total=%.3fs entries=%.3fs setups=%.3fs risk_shadow=%.3fs bear=%.3fs positions=%.3fs publish=%.3fs sleep=%.3fs",
                         cycle_id, phase_times["total_s"],
                         phase_times.get("entries_s", 0.0),
                         phase_times.get("setups_s", 0.0),
+                        phase_times.get("defined_risk_shadow_s", 0.0),
                         phase_times.get("bear_s", 0.0),
                         phase_times.get("positions_s", 0.0),
                         phase_times.get("publish_s", 0.0),

@@ -1686,3 +1686,14 @@ Iron condor 45 DTE/5% conservador mostró +0.59% en full_recent y drawdown −0.
 La decisión es `RESEARCH_ONLY`: no se activaron las estructuras en `bot.py`, `config.yaml`, Cloud Run ni PAPER. Antes de una segunda ronda se requieren bid/ask históricos, delta/IV point-in-time, timestamp de listing/cadena as-of, earnings/dividendos históricos y walk-forward separado. Las métricas de calendars/diagonals son particularmente aproximadas porque su valor depende de term structure e IV.
 
 El informe completo es `docs/defined_risk_options_backtest_2026-08-18.md`.
+
+
+## 22. Capa shadow de spreads de riesgo definido — 18 de agosto de 2026
+
+Se añadió `options/defined_risk_shadow.py` y la sección `defined_risk_shadow` de `config/config.yaml`. Evalúa por símbolo tres candidatos respaldados por la matriz: `bear_call_credit` (30 DTE, 5%/10% de strikes, gated en bear), `bull_put_credit` (45 DTE, gated en bull) e `iron_condor` (45 DTE, gated en cash/lateral). Usa cadenas y snapshots de Alpaca en solo lectura, guarda patas, strikes, vencimiento, bid/ask/mid, crédito/débito, riesgo máximo, beneficio máximo, DTE y razones de descarte.
+
+La capa está integrada en `bot.py` tras la observabilidad de setups. Se deduplica por última barra disponible, régimen y estado del piso para no consultar cadenas cada minuto. Se publica en Firestore como `defined_risk_shadow_observations` y se incluye en `tick_diagnostics`; añade `defined_risk_shadow_s` a `CYCLE TIMING`.
+
+Guardarraíles obligatorios: `mode=shadow`, `influence_entries=false`, `orders_allowed=false`. El módulo no importa `AlpacaExecutor`, no llama a `submit_option_order` y no puede modificar `state['positions']`, sizing, RiskManager, circuit breakers ni estrategia live. La capa solo observa; la autoridad final sigue siendo RiskManager + floor + circuit breakers.
+
+Tests nuevos `tests/test_defined_risk_shadow.py` fijan disponibilidad por régimen, bloqueo por piso y `orders_allowed=false`. La suite completa quedó en 105 tests: OK, con 1 skip y 2 expected failures heredados. El cambio está listo para validación de deploy, pero aún no debe habilitar influencia de entradas.

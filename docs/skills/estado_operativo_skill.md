@@ -109,3 +109,10 @@ python3 scripts/analyze_setup_backtests.py
 ```
 
 Antes de desplegar una revisión con esta capa se debe confirmar que los artefactos de backtest están disponibles, revisar el diff, construir una imagen inmutable, preservar secretos/envs, verificar modo PAPER y observar al menos dos ciclos. Después del deploy, comprobar que Firestore contiene `setup_observations`, que Cloud Logging muestra `setups_s` y que `orders_executed` no aumenta por la capa shadow.
+
+
+## 9. Capa shadow de spreads de riesgo definido — 18 de agosto de 2026
+
+Polaris evalúa ahora `bear_call_credit`, `bull_put_credit` e `iron_condor` como observaciones shadow sobre las cadenas de Alpaca. La información se guarda en Firestore bajo `defined_risk_shadow_observations` y aparece en `tick_diagnostics` junto con `defined_risk_shadow_s`.
+
+Esta capa no abre ni modifica posiciones. `orders_allowed=false`, `influence_entries=false` y `mode=shadow` son invariantes; no se deben cambiar sin walk-forward, revisión humana y un contrato explícito de promoción. Si falla la cadena de opciones o una cotización, el candidato queda `unavailable` o `error` por símbolo y el tick continúa.

@@ -118,6 +118,16 @@ setups:
     setup: 15min
     entry: 5min
 
+# Candidatos de spreads de riesgo definido. Solo observabilidad shadow:
+# no importa el executor, no crea órdenes y no puede cambiar entradas/riesgo.
+defined_risk_shadow:
+  enabled: true
+  mode: shadow
+  influence_entries: false
+  orders_allowed: false
+  max_symbols: 8
+  max_spread_bps: 800.0
+
 strategies:
   # ---------------------------------------------------------------------------
   # DAY TRADING: momentum intradía con filtro de volatilidad (velas 5 min)

@@ -54,3 +54,16 @@ Los detalles están en `docs/setup_confluence_backtest_2026-08-18.md` y los CSV/
 ## Decisión operativa
 
 No se deben presentar las skills como conocimiento automáticamente activo ni como evidencia de rentabilidad. La capa de setups puede permanecer en shadow para medir cobertura, latencia, conflictos y frecuencia de neutralidad. Antes de probarla como filtro PAPER se exige recuperar o declarar el universo de datos, ejecutar un A/B emparejado con el baseline regime-aware, walk-forward, sensibilidad a costes y revisión humana. PAPER permanece obligatorio; REAL requiere confirmación explícita independiente.
+
+
+## Spreads de riesgo definido — actualización 18 de agosto de 2026
+
+| Capacidad | Documento | Módulo | Conectada al loop | Activa para órdenes |
+|---|---|---|---|---|
+| Bear call credit shadow | Sí | `options/defined_risk_shadow.py` | Sí | No |
+| Bull put credit shadow | Sí | `options/defined_risk_shadow.py` | Sí | No |
+| Iron condor shadow | Sí | `options/defined_risk_shadow.py` | Sí | No |
+| Debit spreads nuevos | Sí, backtest | No live | No | No |
+| Calendars/diagonales | Sí, backtest | No live | No | No |
+
+La integración publica `defined_risk_shadow_observations`, `orders_allowed=false` e `influence_entries=false`. El módulo no tiene acceso al executor y no puede saltarse RiskManager, floor, circuit breakers ni validación de cotizaciones.
