@@ -202,7 +202,7 @@ def evaluate_defined_risk_shadow(feed, ticker_frames: dict[str, dict[str, Any]],
     ``orders_allowed=False``. Cualquier fallo de una cadena queda aislado en el
     símbolo/candidato correspondiente.
     """
-    shadow_cfg = cfg.get("defined_risk_shadow", {}) or {}
+    shadow_cfg = cfg.get("defined_risk_shadow", cfg) or {}
     if not shadow_cfg.get("enabled", False):
         return {"enabled": False, "mode": "disabled", "orders_allowed": False, "symbols": {}}
     max_spread_bps = float(shadow_cfg.get("max_spread_bps", 800.0))

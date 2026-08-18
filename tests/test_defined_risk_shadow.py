@@ -57,6 +57,14 @@ class DefinedRiskShadowTests(unittest.TestCase):
         self.assertEqual(bear_call["status"], "available")
         self.assertFalse(bear_call["orders_allowed"])
 
+    def test_inner_config_shape_used_by_bot_is_supported(self):
+        out = evaluate_defined_risk_shadow(
+            self.feed, self.frames, "bear", False,
+            self.cfg["defined_risk_shadow"])
+        self.assertTrue(out["enabled"])
+        self.assertEqual(out["mode"], "shadow")
+        self.assertFalse(out["orders_allowed"])
+
     def test_cash_regime_can_observe_condor_but_not_directional_candidates(self):
         out = evaluate_defined_risk_shadow(
             self.feed, self.frames, "cash", False, self.cfg)
