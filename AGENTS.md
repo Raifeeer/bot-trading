@@ -1579,3 +1579,22 @@ En las cuatro ventanas y `setup_moderate`, cada componente tuvo 8,344 evaluacion
 El arnés `scripts/run_ab_comparison.py` aún compara motores del contrato `run_scenario`; no debe ejecutarse como A/B de setups sin añadir un puente que evalúe `analyze_setup_confluence` sobre el mismo dataset. La siguiente ronda debe usar un dataset compartido, comparar baseline regime-aware contra filtro de setups, separar train/validation/test, incluir sensibilidad, slippage, coste equity, exposición y estabilidad por régimen, y mantener el test bloqueado durante la selección. Antes de cualquier `paper_filter`, hay que recuperar el histórico faltante de SOFI o repetir oficialmente con un universo declarado de siete símbolos, y revisar la definición de `trendline_channel`/VWAP por timeframe.
 
 Ningún resultado de esta sección justifica REAL. Polaris permanece PAPER. La meta ficticia `$100 → $200` es solo un escenario de investigación y no una promesa ni criterio de selección.
+
+
+### 17.7 Despliegue y verificación final en PAPER
+
+El primer deploy de la capa fue `polaris-bot-00081-6ns`. La observación local existía y el log mostraba `setup_confluence`, pero la comprobación directa de Firestore reveló que `setup_observations` no estaba incluido en el payload publicado. Se corrigió con el commit `0308314` añadiendo `"setup_observations": state.get("setup_observations", {})` al snapshot; no se modificó ninguna puerta de riesgo ni el modo de trading.
+
+La revisión final es `polaris-bot-00083-f7s`, commit `0308314`, con 100% del tráfico en Cloud Run us-central1. Se construyó con Cloud Build exitoso y se verificó el service account operativo `173223792589-compute@developer.gserviceaccount.com`. La cuenta sigue en `PAPER` y el endpoint de Cloud Run conserva el servicio esperado.
+
+Se observaron tres ciclos consecutivos de la revisión final:
+
+| Ciclo | Total | Setups | Firestore | Resultado |
+|---:|---:|---:|---|---|
+| 1 | 4.207 s | 0.236 s | Escrito | `Tick OK`, equity 99,288.65, 0 posiciones |
+| 2 | 0.722 s | 0.233 s | Escrito | `Tick OK`, 0 órdenes; estrategias `same_bar_context` |
+| 3 | 0.663 s | 0.235 s | Escrito | `Tick OK`, 0 órdenes; estrategias `same_bar_context` |
+
+La verificación sanitizada de `diag/state` confirmó `setup_observations`, modo `shadow`, `influence_entries=false` y ocho símbolos observados. La lectura autenticada de Firestore `polaris/2026-08-18` confirmó `updated_at=2026-08-18T01:46:48.534483+00:00`, `trading_mode=PAPER`, `firestore_setup_present=true`, modo `shadow`, `influence_entries=false`, ocho símbolos, cero posiciones y cero órdenes. La ausencia de operaciones no es un fallo de la capa: el snapshot operativo conserva `_floor_below=true` con equity 99,288.65 frente al piso 99,900, por lo que las entradas permanecen bloqueadas por diseño; además, las estrategias reportan `not_tradable` en el primer ciclo y `same_bar_context` en los siguientes.
+
+El log visible de cada ciclo ahora incluye `setups=...s` dentro de `CYCLE TIMING`. No habilitar `influence_entries`, no relajar el floor para crear actividad y no interpretar `Tick OK` como rentabilidad. La clasificación operativa de esta mejora es `HEALTHY_BLOCKED` para entradas por el piso, con la capa de setups funcionando en shadow y publicación Firestore verificada.

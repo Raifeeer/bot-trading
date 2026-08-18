@@ -93,3 +93,18 @@ Los artefactos producidos son el [CSV de métricas](../backtests/setup_confluenc
 [5]: ../strategies/setup_confluence.py "Motor puro de confluencia de setups"
 [6]: ../docs/skills/backtest_skill.md "Metodología de backtesting de Polaris"
 [7]: /home/ubuntu/skills/trading-setups/SKILL.md "Skill local de formalización de setups"
+
+
+## Verificación final de producción
+
+La primera revisión `polaris-bot-00081-6ns` evaluó y guardó las observaciones localmente, pero una comprobación directa de Firestore detectó que el payload no incluía `setup_observations`. El defecto se corrigió con el commit `0308314`, añadiendo explícitamente el campo al snapshot; no se modificaron las puertas de riesgo ni el modo PAPER.
+
+La revisión final `polaris-bot-00083-f7s` quedó activa al 100% del tráfico en Cloud Run. Se observaron tres ciclos consecutivos con `Tick OK`, escritura confirmada en Firestore y el nuevo campo visible en `CYCLE TIMING`:
+
+| Ciclo | Total | `setups_s` | Resultado |
+|---:|---:|---:|---|
+| 1 | 4.207 s | 0.236 s | Firestore escrito; equity 99,288.65; 0 posiciones |
+| 2 | 0.722 s | 0.233 s | Firestore escrito; 0 órdenes; `same_bar_context` |
+| 3 | 0.663 s | 0.235 s | Firestore escrito; 0 órdenes; `same_bar_context` |
+
+La lectura autenticada de `polaris/2026-08-18` confirmó `trading_mode=PAPER`, `setup_observations` presente, `mode=shadow`, `influence_entries=false`, ocho símbolos, cero posiciones y cero órdenes. El bot está operativo y monitoreando, pero las entradas permanecen bloqueadas correctamente porque equity 99,288.65 está por debajo del floor 99,900; por eso la ausencia de operaciones debe clasificarse como `HEALTHY_BLOCKED`, no como fallo del motor shadow.
