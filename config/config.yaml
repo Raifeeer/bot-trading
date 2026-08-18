@@ -128,6 +128,20 @@ defined_risk_shadow:
   max_symbols: 8
   max_spread_bps: 800.0
 
+# Filtro VIX de la segunda validación walk-forward. Solo registra qué habría
+# bloqueado una entrada; nunca bloquea ni modifica el flujo operativo.
+vix_shadow:
+  enabled: true
+  mode: shadow
+  influence_entries: false
+  orders_allowed: false
+  source_symbol: "^VIX"
+  history_days: 400
+  variants:
+    - shock_10
+    - percentile_70
+    - level_25
+
 strategies:
   # ---------------------------------------------------------------------------
   # DAY TRADING: momentum intradía con filtro de volatilidad (velas 5 min)

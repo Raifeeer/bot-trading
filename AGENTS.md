@@ -1836,3 +1836,12 @@ Se ejecutó una segunda validación con cuatro folds no solapados. Cada variante
 Resultados de test: VIX seleccionó `shock_10` en 4/4 folds, ganó retorno en 2/4, con delta medio +0.13 pp y delta medio de drawdown +0.06 pp; queda como `SHADOW_CANDIDATE`, sin bloquear entradas. MSS ganó retorno en 0/4, tuvo delta medio −2.61 pp y fue reemplazado por baseline en los dos folds finales; queda `RESEARCH_ONLY`. Flags ganó retorno en 3/4, pero empeoró drawdown en 4/4, con delta medio +2.83 pp; queda `RESEARCH_ONLY`.
 
 Ninguna familia cumplió simultáneamente >=3/4 tests de retorno superior, >=2 mejoras de drawdown y delta medio de drawdown <=0. No se modificó bot.py, no se cambió `influence_entries`, no se desplegó una revisión nueva y no se autorizó ninguna orden. Informe: `docs/walk_forward_vix_smc_flags_2026-08-18.md`.
+
+
+## 26. VIX shadow conectado — 18 de agosto de 2026
+
+Se añadió `strategies/vix_shadow.py` y la sección `vix_shadow` de `config/config.yaml`. La capa consulta `^VIX` mediante el feed existente, alinea el último cierre estrictamente anterior a la fecha de mercado y registra `shock_10`, `percentile_70` y `level_25` como observaciones `would_block`.
+
+El contrato fuerza `mode=shadow`, `influence_entries=false` y `orders_allowed=false`, aunque una configuración antigua intente solicitar lo contrario. El snapshot se guarda en `state["vix_shadow_observations"]`, se resume en `tick_diagnostics["vix_shadow"]` y se persiste explícitamente en Firestore bajo `vix_shadow_observations`. La ruta no tiene acceso al executor ni al RiskManager para cambiar decisiones.
+
+La implementación incluye tests deterministas de cierre previo, datos faltantes, forma de configuración y neutralidad operativa. Antes del despliegue se validan E9/F/B en bot.py, compilación y la suite completa. El VIX queda como observabilidad; no se habilita como filtro de entradas.

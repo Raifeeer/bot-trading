@@ -116,3 +116,8 @@ Antes de desplegar una revisión con esta capa se debe confirmar que los artefac
 Polaris evalúa ahora `bear_call_credit`, `bull_put_credit` e `iron_condor` como observaciones shadow sobre las cadenas de Alpaca. La información se guarda en Firestore bajo `defined_risk_shadow_observations` y aparece en `tick_diagnostics` junto con `defined_risk_shadow_s`.
 
 Esta capa no abre ni modifica posiciones. `orders_allowed=false`, `influence_entries=false` y `mode=shadow` son invariantes; no se deben cambiar sin walk-forward, revisión humana y un contrato explícito de promoción. Si falla la cadena de opciones o una cotización, el candidato queda `unavailable` o `error` por símbolo y el tick continúa.
+
+
+## 10. VIX shadow — 18 de agosto de 2026
+
+La capa `vix_shadow` consulta `^VIX` mediante el feed real y usa exclusivamente el último cierre estrictamente anterior a la fecha de mercado. Registra `shock_10`, `percentile_70` y `level_25` como señales `would_block`, sin bloquear entradas reales. `mode=shadow`, `influence_entries=false` y `orders_allowed=false` se fuerzan en código, incluso si una configuración antigua intenta cambiar esas banderas. El resultado se guarda como `vix_shadow_observations`, se resume en `tick_diagnostics.vix_shadow` y mide `vix_shadow_s` en `CYCLE TIMING`.

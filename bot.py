@@ -44,6 +44,15 @@ DEFAULT_DEFINED_RISK_SHADOW_CFG = {
     "max_symbols": 8,
     "max_spread_bps": 800.0,
 }
+DEFAULT_VIX_SHADOW_CFG = {
+    "enabled": True,
+    "mode": "shadow",
+    "influence_entries": False,
+    "orders_allowed": False,
+    "source_symbol": "^VIX",
+    "history_days": 400,
+    "variants": ["shock_10", "percentile_70", "level_25"],
+}
 
 from config import get_config
 from data.feed import MarketDataFeed
@@ -90,6 +99,7 @@ from options.option_details import enrich_positions
 from risk.manager import RiskManager
 from execution.alpaca_executor import AlpacaExecutor, ExecutionError
 from strategies.setup_confluence import SETUP_NAMES, analyze_setup_confluence
+from strategies.vix_shadow import evaluate_vix_shadow
 from options.defined_risk_shadow import evaluate_defined_risk_shadow
 logger.info("BOOT: imports complete")
 
@@ -187,6 +197,20 @@ def _defined_risk_shadow_snapshot(cached: dict, tickers: list[str], regime: dict
     snapshot["context_key"] = context
     state["_defined_risk_shadow_context"] = context
     return snapshot
+
+
+def _vix_shadow_snapshot(feed, tickers: list[str], shadow_cfg: dict) -> dict:
+    """Calcula observaciones VIX sin conceder autoridad operativa.
+
+    El cierre de VIX se alinea estrictamente al día anterior de la bolsa. Las
+    banderas de influencia y órdenes se fuerzan a False aunque una configuración
+    antigua o defectuosa las solicite.
+    """
+    safe_cfg = dict(DEFAULT_VIX_SHADOW_CFG)
+    safe_cfg.update(shadow_cfg or {})
+    safe_cfg["influence_entries"] = False
+    safe_cfg["orders_allowed"] = False
+    return evaluate_vix_shadow(feed, tickers, safe_cfg)
 
 
 def _enriched_positions(executor: AlpacaExecutor) -> list:
@@ -688,6 +712,12 @@ def main():
         "BOOT: defined-risk shadow enabled=%s mode=%s influence_entries=%s orders_allowed=%s",
         risk_shadow_boot_cfg["enabled"], risk_shadow_boot_cfg["mode"],
         risk_shadow_boot_cfg["influence_entries"], False)
+    vix_shadow_boot_cfg = dict(DEFAULT_VIX_SHADOW_CFG)
+    vix_shadow_boot_cfg.update(cfg.get("vix_shadow", {}) or {})
+    logger.info(
+        "BOOT: vix shadow enabled=%s mode=%s influence_entries=%s orders_allowed=%s variants=%s",
+        vix_shadow_boot_cfg["enabled"], vix_shadow_boot_cfg["mode"],
+        False, False, vix_shadow_boot_cfg["variants"])
     feed = MarketDataFeed(cfg["data"]["provider"])
     rm = RiskManager(cfg["risk"])
     executor = AlpacaExecutor(dry_run=args.dry_run)
@@ -1076,6 +1106,23 @@ def main():
                     "SETUPS: influence_entries solicitado pero bloqueado; "
                     "la capa permanece shadow hasta promoción validada"
                 )
+            vix_shadow_started = time.monotonic()
+            vix_shadow_cfg = dict(DEFAULT_VIX_SHADOW_CFG)
+            vix_shadow_cfg.update(cfg.get("vix_shadow", {}) or {})
+            vix_shadow_snapshot = _vix_shadow_snapshot(
+                feed, tickers, vix_shadow_cfg)
+            state["vix_shadow_observations"] = vix_shadow_snapshot
+            signal_stats["vix_shadow"] = {
+                "mode": vix_shadow_snapshot.get("mode"),
+                "available": vix_shadow_snapshot.get("available", False),
+                "symbols": len(vix_shadow_snapshot.get("symbols", {})),
+                "variants": vix_shadow_snapshot.get("variants", {}),
+                "would_block": vix_shadow_snapshot.get("counts", {}).get("would_block", {}),
+                "orders_allowed": False,
+                "influence_entries": False,
+            }
+            phase_times["vix_shadow_s"] = round(
+                time.monotonic() - vix_shadow_started, 3)
             phase_times["entries_s"] = round(time.monotonic() - cycle_started, 3)
 
             # 4b. MOTOR BAJISTA: put spreads sobre CHoCH bear (AGENTS.md §40).
@@ -1280,6 +1327,7 @@ def main():
                         "tick_diagnostics": signal_stats,
                         "setup_observations": state.get("setup_observations", {}),
                         "defined_risk_shadow_observations": state.get("defined_risk_shadow_observations", {}),
+                        "vix_shadow_observations": state.get("vix_shadow_observations", {}),
                         "decisions_today": [d for d in state["decisions"]
                                             if d.get("ts", "").startswith(
                                                 datetime.utcnow().strftime("%Y-%m-%d"))],
@@ -1308,10 +1356,11 @@ def main():
             phase_times["total_s"] = round(time.monotonic() - cycle_started, 3)
             signal_stats["phase_seconds"] = phase_times
             _hb["ts"].append(time.time())
-            logger.info("CYCLE TIMING id=%d total=%.3fs entries=%.3fs setups=%.3fs risk_shadow=%.3fs bear=%.3fs positions=%.3fs publish=%.3fs sleep=%.3fs",
+            logger.info("CYCLE TIMING id=%d total=%.3fs entries=%.3fs setups=%.3fs vix_shadow=%.3fs risk_shadow=%.3fs bear=%.3fs positions=%.3fs publish=%.3fs sleep=%.3fs",
                         cycle_id, phase_times["total_s"],
                         phase_times.get("entries_s", 0.0),
                         phase_times.get("setups_s", 0.0),
+                        phase_times.get("vix_shadow_s", 0.0),
                         phase_times.get("defined_risk_shadow_s", 0.0),
                         phase_times.get("bear_s", 0.0),
                         phase_times.get("positions_s", 0.0),
