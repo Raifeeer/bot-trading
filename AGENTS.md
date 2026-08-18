@@ -1598,3 +1598,42 @@ Se observaron tres ciclos consecutivos de la revisión final:
 La verificación sanitizada de `diag/state` confirmó `setup_observations`, modo `shadow`, `influence_entries=false` y ocho símbolos observados. La lectura autenticada de Firestore `polaris/2026-08-18` confirmó `updated_at=2026-08-18T01:46:48.534483+00:00`, `trading_mode=PAPER`, `firestore_setup_present=true`, modo `shadow`, `influence_entries=false`, ocho símbolos, cero posiciones y cero órdenes. La ausencia de operaciones no es un fallo de la capa: el snapshot operativo conserva `_floor_below=true` con equity 99,288.65 frente al piso 99,900, por lo que las entradas permanecen bloqueadas por diseño; además, las estrategias reportan `not_tradable` en el primer ciclo y `same_bar_context` en los siguientes.
 
 El log visible de cada ciclo ahora incluye `setups=...s` dentro de `CYCLE TIMING`. No habilitar `influence_entries`, no relajar el floor para crear actividad y no interpretar `Tick OK` como rentabilidad. La clasificación operativa de esta mejora es `HEALTHY_BLOCKED` para entradas por el piso, con la capa de setups funcionando en shadow y publicación Firestore verificada.
+
+
+## 18. Backtest integrado de setups con la configuración actual — 18 de agosto de 2026
+
+Se ejecutó una ronda nueva donde los setups no se trataron como estrategia independiente. Se probaron como filtro auxiliar sobre dos referencias: (1) la política `regime_hold_cash` actual documentada —bull implica exposición semanal, bear/cash implica efectivo, límite de dos posiciones y detector de crash—; y (2) el código exacto de `strategies.swing_trading.SwingTrend`, uno de los motores live que `bot.py` instancia para `opt_swing_trend`.
+
+La primera referencia se implementó en `scripts/run_current_setup_integration_backtests.py`. Probó `baseline_current` contra filtros diarios, semanales y MTF, con variantes moderate/strict y selección restringida. La segunda referencia se implementó en `scripts/run_live_swing_setup_backtests.py` y usó SMA20/50, filtro SMA200, stop/target por ATR y gestión de hold del motor SwingTrend, añadiendo los mismos filtros de setups.
+
+### 18.1 Datos y límites
+
+El histórico real disponible fue diario, con siete símbolos: AMD, BB, F, NOK, PLTR, TQQQ y TSLA. `SOFI` quedó faltante por recuperación inestable del proveedor y se declaró en los manifiestos. No se generaron barras sintéticas. Las ventanas fueron lateralidad sep–dic 2025, selloff ene–abr 2026, reciente abr–ago 2026 y últimos 30 días hasta 14 ago 2026.
+
+Se respetó anti-look-ahead: cada régimen y setup usó únicamente barras hasta el día de decisión; las velas semanales incompletas se excluyeron; los retornos se marcaron diariamente y se realizaron en rebalanceos semanales. Se aplicó 0.2% de coste round-trip de equity y 5 bps de slippage por lado. Como no hay cadenas históricas point-in-time, bid/ask ni fills de opciones, los retornos son proxy de exposición al subyacente, no P&L de spreads. DTE 10–45, deltas 0.25/0.10, TP 1.4/SL 0.25 y riesgo máximo 5% quedaron registrados como configuración; no se usaron para fabricar P&L de opciones.
+
+### 18.2 Resultado de política de régimen + setups
+
+| Ventana | Baseline actual | Setup diario moderado | Setup semanal moderado | Setup MTF moderado |
+|---|---:|---:|---:|---:|
+| Lateral 2025 | 0.00%, DD 0.00% | 0.00%, DD 0.00% | 0.00%, DD 0.00% | 0.00%, DD 0.00% |
+| Selloff 2026 | +0.91%, DD −0.11% | −0.17%, DD −0.47% | 0.00%, DD 0.00% | 0.00%, DD 0.00% |
+| Reciente 2026 | +4.20%, DD −2.39% | **+5.33%, DD −0.92%** | +1.79%, DD −1.42% | +3.09%, DD −0.70% |
+| Últimos 30 días | −0.89%, DD −0.90% | **0.00%, DD 0.00%** | −0.66%, DD −0.67% | **0.00%, DD 0.00%** |
+
+El filtro diario moderado mejora retorno en dos ventanas, empeora en una y queda igual en una sin exposición; mejora drawdown en tres. Su resultado positivo principal está concentrado en la ventana reciente y no se reproduce en el selloff.
+
+### 18.3 Resultado del SwingTrend live exacto + setups
+
+| Ventana | SwingTrend baseline | Setup diario moderado | Setup semanal moderado | Setup MTF moderado |
+|---|---:|---:|---:|---:|
+| Lateral 2025 | 0.00%, DD 0.00% | 0.00%, DD 0.00% | 0.00%, DD 0.00% | 0.00%, DD 0.00% |
+| Selloff 2026 | **+2.12%, DD −1.06%** | +2.03%, DD −0.74% | 0.00%, DD 0.00% | 0.00%, DD 0.00% |
+| Reciente 2026 | **+4.45%, DD −0.48%** | +3.76%, DD −0.48% | +0.15%, DD −0.48% | +0.15%, DD −0.48% |
+| Últimos 30 días | **+0.67%, DD −0.13%** | 0.00%, DD 0.00% | 0.00%, DD 0.00% | 0.00%, DD 0.00% |
+
+En el motor live exacto, ninguna variante con setups aumentó el retorno frente al baseline cuando hubo operaciones. El filtro diario redujo operaciones y profit; los filtros semanales/MTF fueron demasiado restrictivos. Muestras pequeñas, especialmente en la ventana reciente, impiden tomar el win rate como evidencia suficiente.
+
+La clasificación final es **`RESEARCH_ONLY`**. Mantener `setups.mode=shadow` e `influence_entries=false`. No cambiar floor, RiskManager, circuit breakers ni estrategia PAPER por estos resultados. Para una siguiente ronda de promoción sería necesario recuperar históricos intradía 5m/15m para DayMomentum/DayBreakout y cadenas de opciones point-in-time con bid/ask/fills.
+
+Los artefactos se encuentran en `/home/ubuntu/backtests/`: `current_setup_integration_2026-08-18_*` y `live_swing_setup_2026-08-18_*`; el informe legible está en `docs/current_setup_integration_backtest_2026-08-18.md`.

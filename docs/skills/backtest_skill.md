@@ -137,3 +137,16 @@ La conclusión es `RESEARCH_ONLY`: los setups redujeron drawdown en las cuatro v
 El informe está en `docs/setup_confluence_backtest_2026-08-18.md`. Los artefactos son `setup_confluence_backtests_2026-08-18.csv`, `setup_confluence_direction_counts_2026-08-18.csv`, `setup_confluence_component_activity_2026-08-18.csv`, `setup_confluence_analysis_2026-08-18_comparison.csv`, `setup_confluence_analysis_2026-08-18_component_summary.csv` y `setup_confluence_backtests_2026-08-18.json` bajo `/home/ubuntu/backtests/`.
 
 El A/B de setups no debe ejecutarse todavía con `run_ab_comparison.py` sin un adaptador: ese arnés entiende motores de `run_scenario`, mientras que `analyze_setup_confluence` es un motor puro de observaciones. El adaptador futuro debe conservar un dataset compartido, commit, hash, ventanas, costes, slippage, train/validation/test y una bandera PAPER reversible.
+
+
+## 11. Integración de setups sobre la estrategia actual — 18 ago 2026
+
+Cuando el usuario pida saber si los setups ayudan al bot actual, no basta con ejecutar una estrategia de setups aislada. El experimento debe incluir al menos un baseline que conserve la política de Polaris y un candidato que solo añada el filtro de setups, sin cambiar riesgo, número máximo de posiciones, sizing ni lógica de ejecución.
+
+En la ronda del 18 de agosto se probaron dos referencias. `scripts/run_current_setup_integration_backtests.py` conserva `regime_hold_cash`: bull → exposición semanal; bear/cash → efectivo; detector de crash y máximo de dos posiciones. `scripts/run_live_swing_setup_backtests.py` utiliza el código real `SwingTrend` de `strategies/swing_trading.py`: SMA20/50, filtro SMA200, stop y objetivo por ATR.
+
+Las variantes cubren setups diarios, semanales con velas cerradas y MTF diaria+semanal. Se comparan umbrales moderate/strict y se registran retorno neto, máximo drawdown, trades, win rate, profit factor, señales y tiempo en mercado. El resultado debe leerse en dos dimensiones: retorno incremental frente al baseline y drawdown incremental. Una variante que termina con más dinero pero con drawdown mucho mayor no es automáticamente mejor; una que reduce drawdown pero gana menos tampoco prueba que aumente profits.
+
+Resultado de esta ronda: sobre la política regime-hold/cash, el filtro diario moderado dio +5.33% frente a +4.20% en la ventana reciente y redujo drawdown de −2.39% a −0.92%, pero perdió −0.17% frente a +0.91% en el selloff. Sobre el SwingTrend live exacto, el baseline superó a todas las variantes con setups en retorno: +2.12% vs +2.03% en el selloff, +4.45% vs +3.76% en la ventana reciente y +0.67% vs 0.00% en los últimos 30 días. La clasificación es `RESEARCH_ONLY`; no promover.
+
+Debido a la ausencia de opciones históricas point-in-time, estos resultados usan proxy de exposición al subyacente. No presentar el resultado como P&L de spreads. La siguiente etapa, antes de una feature `paper_filter`, debe conseguir históricos intradía para los motores 5m/15m, cadenas point-in-time con bid/ask/fills, o declarar explícitamente que el test sigue siendo un proxy.
