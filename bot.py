@@ -1211,6 +1211,7 @@ def main():
                         "strategies": list(strats.keys()),
                         "universe": cfg["universo"].get("tickers", []),
                         "tick_diagnostics": signal_stats,
+                        "setup_observations": state.get("setup_observations", {}),
                         "decisions_today": [d for d in state["decisions"]
                                             if d.get("ts", "").startswith(
                                                 datetime.utcnow().strftime("%Y-%m-%d"))],
