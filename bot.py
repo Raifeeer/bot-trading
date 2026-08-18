@@ -1239,9 +1239,10 @@ def main():
             phase_times["total_s"] = round(time.monotonic() - cycle_started, 3)
             signal_stats["phase_seconds"] = phase_times
             _hb["ts"].append(time.time())
-            logger.info("CYCLE TIMING id=%d total=%.3fs entries=%.3fs bear=%.3fs positions=%.3fs publish=%.3fs sleep=%.3fs",
+            logger.info("CYCLE TIMING id=%d total=%.3fs entries=%.3fs setups=%.3fs bear=%.3fs positions=%.3fs publish=%.3fs sleep=%.3fs",
                         cycle_id, phase_times["total_s"],
                         phase_times.get("entries_s", 0.0),
+                        phase_times.get("setups_s", 0.0),
                         phase_times.get("bear_s", 0.0),
                         phase_times.get("positions_s", 0.0),
                         phase_times.get("publish_s", 0.0),
