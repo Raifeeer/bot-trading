@@ -1505,3 +1505,12 @@ Los tiempos observados fueron:
 El ciclo 1 hizo el escaneo completo; los ciclos posteriores reutilizaron el mismo contexto de barra y registraron `same_bar_context`, evitando revaluar señales y duplicar órdenes. La gestión de posiciones, publicación y heartbeat continuaron ejecutándose. No se observaron tracebacks en la validación de la revisión.
 
 El entorno efectivo conserva `DATA_PROVIDER=alpaca` para la cascada configurada, `APCA_API_BASE_URL=paper` y el nuevo `POLL_SECONDS=60`. Esta mejora no cambia las estrategias, el sizing, el piso ni los circuit breakers. El objetivo de la cadencia rápida es detectar una barra nueva antes, no fabricar entradas sobre la misma barra.
+
+
+## Auditoría de skills y nueva skill trading-setups — 2026-08-18
+
+Se revisaron las 9 skills existentes en `docs/skills/` contra el código y `build_strategies()` del loop. La matriz completa está en `docs/skill_coverage_2026-08-18.md`. En resumen: datos, régimen S78, riesgo y el contrato Telegram/Firestore participan en producción; backtesting, infraestructura y estado operativo son procedimientos; `SMCStrategy` y `WheelStrategy` existen como módulos pero no son motores live principales; y la nueva skill `trading-setups` es por ahora una especificación de investigación, no una señal activa.
+
+Antes de finalizar `trading-setups` se investigaron fuentes sobre BOS, CHoCH, order blocks, liquidity sweeps, BSL/SSL, key levels/KL, EMA, VWAP, EMA Cloud, volumen, Fibonacci, premium/discount, OTE, confluencia multi-timeframe, data snooping y order-flow. La síntesis y las fuentes están en `/home/ubuntu/skills/trading-setups/references/setup-research.md` y en `docs/trading_setups_research_2026-08-18.md`. Las definiciones educativas se tratan como hipótesis: no autorizan órdenes, no demuestran predicción ni sustituyen validación point-in-time.
+
+La cobertura actual del PDF `TRADING_SETUP.pdf` es parcial. El siguiente trabajo recomendado es implementar en shadow una feature `trading_setups` con `bull/bear/neutral`, comenzando por BOS/CHoCH + order block y liquidity sweep + reclaim; después añadir premium/discount/Fibonacci, VWAP/EMA Cloud, volumen proxy y KL como filtros explícitos. Todo debe usar barras cerradas, timestamps as-of, tests deterministas, telemetría por símbolo/setup y A/B reproducible. No conectar a entradas PAPER hasta superar walk-forward, sensibilidad, costes y revisión de riesgo.
