@@ -1708,3 +1708,36 @@ Se corrigió en `7e38fd4` aceptando ambas formas y se añadió una regresión en
 La revisión `polaris-bot-00086-n4n` quedó lista y sirve el 100% del tráfico. Verificación sanitizada posterior al ciclo: `FIRESTORE_ENABLED=True`, `trading_mode=PAPER`, 0 posiciones, 0 órdenes, `defined_risk_shadow_observations` presente con 8 símbolos, `mode=shadow`, `orders_allowed=false`; Firestore confirmó los mismos campos en `polaris/2026-08-18`.
 
 Conteo real de producción en el primer ciclo: `bear_call_credit` 0 available / 2 unavailable / 6 blocked; `bull_put_credit` 0 / 8 / 0; `iron_condor` 0 / 8 / 0. El candidato bear-call quedó bloqueado por régimen en seis símbolos y sin cadena líquida disponible en dos; los otros dos no encontraron patas líquidas. Esto es una observación de disponibilidad de la cadena actual, no una orden fallida. No se activó ninguna influencia sobre entradas ni sizing.
+
+
+## 16. Auditoría profunda de Google Drive ABACUS — 18 de agosto de 2026
+
+Se catalogó el inventario completo de Drive y se auditó la carpeta `ABACUS` (`1kDsdHqhMTo1l0S0sC8D5aCOZb-L2aTBt`), que contiene los documentos educativos y operativos principales: `TRADING PLAN - ABACUS PRO.pdf`, `TRADING SETUP.pdf`, `The Wheel.pdf`, `Smart Money Concepts I`, `Supply & Demand III`, `multitimeframe market structure`, documentos de volatilidad/volumen, temporalidades, tendencias, soportes/resistencias, Williams %R, Risk-Reward/Day Trading, fundamentos P/E/ventas/price target, planes fechados de activos y material CSP/covered calls.
+
+### 16.1 Estado confirmado documento → código → operación
+
+| Familia | Estado real | Qué falta o qué no se debe asumir |
+|---|---|---|
+| SMC / Supply & Demand / Market Structure | Parcial; `strategies/smc.py` y CHoCH de régimen formalizan swings, CHoCH y zonas básicas | `SMCStrategy` no se instancia en `build_strategies()`; faltan Breaker, Killer Block, FVG, OB 1:2/fresh y validación completa de estructura |
+| TRADING SETUP | Los 12 setups están conectados como shadow | No autorizan órdenes; son proxies OHLCV y no tienen validación de opciones point-in-time |
+| TRADING PLAN ABACUS PRO | Documento de reglas; indicadores dispersos en el bot | No existe cascada live D/4H/2H/1H/30M/15M/5M/1M completa; faltan premarket/gaps, Volume Profile/VPOC/HVN/LVN, confirmación de order flow y ventanas exactas del plan |
+| The Wheel / CSP-CC | Skill y módulo sin live | Faltan assignment, roll y persistencia completa; backtest no superó al baseline |
+| Risk-Reward / Break & Retest | Break-and-retest está en shadow; RiskManager está activo | No es un filtro live; el plan discrecional no se convirtió en motor exacto |
+| Volatilidad y Volumen | ATR, volumen relativo y filtros de volatilidad existen | VIX, beta, divergencia de volumen y Volume Profile/VPOC/HVN/LVN no son entradas live |
+| Temporalidades | Live 5m/15m/1d; SMC parcial 1d/4h/15m/1m | No hay sincronización MTF completa en la ruta live |
+| Tendencias y patrones | Régimen bull/bear/cash y medias móviles activas | No existe librería objetiva de velas ni double top/bottom, H&S, wedges, flags, rectangles, pennants o triángulos |
+| Fundamentos / P-E / Price Target / Conference Calls | Documentados, no usados como filtro live | Requieren datos point-in-time, control de revisiones y reglas cuantificables para evitar look-ahead |
+| Gamma walls / put support / VIX / US10Y | Solo aparecen en un `Plan de Juego` fechado | No son una estrategia reusable; requieren historial point-in-time de opciones, volatilidad y macro |
+| Plan Magnificent7/TQQQ | Niveles históricos fechados y stops ilustrativos | Puede inspirar un test genérico, pero sus precios no deben reutilizarse como reglas actuales |
+
+### 16.2 Evidencia de la operación actual
+
+`bot.py` instancia solo `opt_day_momentum`, `opt_day_breakout` y `opt_swing_trend`. `config.yaml` mantiene `setups.mode=shadow`, `setups.influence_entries=false`, `defined_risk_shadow.mode=shadow`, `defined_risk_shadow.orders_allowed=false` e `influence_entries=false`. No hay ruta live para `SMCStrategy` completa, `WheelStrategy`, Williams %R, VIX, gamma walls, Volume Profile o patrones chartistas.
+
+### 16.3 Prioridad de investigación
+
+La prioridad recomendada es: (1) construir un filtro VIX/volatilidad de índice solo si se dispone de historia point-in-time; (2) investigar Volume Profile/VPOC/HVN/LVN con barras intradía y sesiones RTH/ETH correctamente delimitadas; (3) formalizar SMC completo —Breaker/Killer Block/FVG y validación de OB— con reglas deterministas; (4) comparar Williams %R 14 contra RSI como filtro, no añadirlo por duplicación; (5) probar patrones chartistas solo con definiciones algorítmicas objetivas; (6) evaluar fundamentales/PE/ventas únicamente como filtro swing con datos point-in-time.
+
+No se debe implementar todo a la vez ni asumir que el material educativo aumenta profits. Cada candidato requiere especificación sin ambigüedad, disponibilidad de datos históricos, backtest anti-look-ahead, costes/slippage, walk-forward y revisión humana. No se modificó la estrategia live por esta auditoría.
+
+Las notas de trabajo, fuentes de Drive y brechas detalladas están en `docs/drive_trading_audit_working_notes_2026-08-18.md`.
