@@ -161,3 +161,12 @@ Se ejecutó `scripts/cache_wheel_option_history.py` con Alpaca en solo lectura y
 El escenario `wheel_base` con $100,000 obtuvo +5.33% de retorno medio en 5 ventanas, 5/5 ventanas positivas y drawdown medio −0.35%, pero superó buy-and-hold solo en 2/5. En la ventana full recent hizo +12.84% frente a +57.99% de buy-and-hold; en summer trend hizo +6.24% mientras buy-and-hold perdió −14.08%. El escenario stress llegó a −8.71% de peor drawdown y acumuló 71 data gaps; no seleccionar parámetros por ese resultado.
 
 La sensibilidad con $100 produjo cero operaciones, porque la Wheel cash-secured exige colateral para comprar 100 acciones. Con $1,000 la actividad fue muy limitada. Para comparar contra el bot, informar siempre cash, buy-and-hold, retorno total, drawdown, asignaciones, stock P&L, primas, rolles, data gaps, capital comprometido y tiempo en cada fase. No promover por retorno de una sola ventana.
+
+
+## 13. Matriz de spreads y estructuras de riesgo definido — 18 ago 2026
+
+Para comparar alternativas a The Wheel se debe probar una matriz que cruce familia, DTE, ancho, régimen y gestión de salidas. La ronda actual usó 10 familias —debit spreads, credit spreads, iron condor, butterfly, calendar y diagonal—, DTE 14/30/45, moneyness 5%/10%, gestión conservadora/base/agresiva y regímenes gated/neutral_ok, en cinco ventanas. Se ejecutaron 1,800 combinaciones con 3,626 contratos seleccionados y 73,119 barras Alpaca.
+
+La selección principal de full_recent fue bull call debit 45 DTE/5%/conservadora/gated con +4.62% y drawdown −0.77%, pero tuvo 37 data gaps y no debe promoverse. La variante más consistente fue bear call credit 30 DTE/10%/conservadora/gated: +0.46% medio en cinco ventanas, 4/5 positivas, peor retorno 0.00%, drawdown medio −0.10% y 12 data gaps; full_recent +0.89% frente a buy-and-hold +57.99%. Es defensiva, no una mejora de profits.
+
+Iron condor 45 DTE/5% conservador y put diagonal 14 DTE/10% conservador son candidatos secundarios. Calendars y butterflies fueron débiles en la muestra. No seleccionar por max retorno en una ventana: exigir retorno positivo o no negativo en la mayoría de ventanas, data gaps bajos, drawdown acotado, profit factor no dependiente de cero pérdidas y prueba walk-forward con bid/ask, IV/delta point-in-time, listing timestamp y eventos corporativos as-of.

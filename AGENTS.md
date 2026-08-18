@@ -1671,3 +1671,18 @@ El escenario base con capital $100,000 fue positivo en 5/5 ventanas: retorno med
 Sensibilidad de capital: con $100 no hubo operaciones en ninguna ventana porque la regla cash-secured exige colateral para 100 acciones; con $1,000 la actividad fue limitada y el full recent llegó a ~+1.68% en el mejor escenario, muy por debajo del buy-and-hold de referencia. Esto confirma que The Wheel clásica no es compatible con el reto ficticio $100→$200 sobre el universo actual sin margin o una estructura distinta, que cambiaría el riesgo.
 
 La decisión es **`RESEARCH_ONLY`**. No existe `wheel.enabled` activo, no se conecta `WheelStrategy` a `build_strategies()`, no se despliega a Cloud Run y no se modifica `influence_entries=false`. Antes de una fase PAPER se requieren cadenas/quotes point-in-time, earnings/dividendos as-of, early assignment, reconciliación idempotente de NTA Alpaca, lotes persistentes de 100 acciones, colateral real y roll como dos órdenes. El informe completo es `docs/the_wheel_research_backtest_2026-08-18.md`.
+
+
+## 21. Matriz de estrategias de opciones de riesgo definido — 18 de agosto de 2026
+
+Se añadió `scripts/cache_defined_risk_option_history.py`, `scripts/run_defined_risk_backtests.py` y `scripts/analyze_defined_risk_backtests.py`. La matriz usó barras históricas reales de opciones Alpaca en solo lectura: 3,626 contratos seleccionados, 3,448 con barras y 73,119 barras diarias para AMD, BB, F, NOK, PLTR, TQQQ y TSLA entre 2026-04-01 y 2026-08-07.
+
+Se probaron 10 familias: bull call debit, bear put debit, bull put credit, bear call credit, iron condor, call butterfly, call calendar, put calendar, call diagonal y put diagonal. Se cruzaron DTE 14/30/45, anchos/moneyness 5%/10%, gestión conservadora/base/agresiva, régimen gated/neutral_ok y cinco ventanas. Total: 1,800 combinaciones. Se mantuvo riesgo definido por estructura, comisión $0.65 por contrato/lado y slippage 2%/5%/10%.
+
+El mayor retorno full_recent fue bull_call_debit 45 DTE, 5% y gestión conservadora gated: +4.62%, drawdown −0.77%, pero con 37 data gaps; no es candidato de promoción. La shortlist de consistencia identificó bear_call_credit 30 DTE, 10%, gestión conservadora gated: retorno medio +0.46% en cinco ventanas, 4/5 positivas, peor retorno 0.00%, drawdown medio −0.10% y 12 data gaps. Su retorno full_recent fue +0.89%, frente a buy-and-hold +57.99%; por tanto es defensivo, no una mejora de profit frente al benchmark.
+
+Iron condor 45 DTE/5% conservador mostró +0.59% en full_recent y drawdown −0.08% con pocas operaciones; put_diagonal 14 DTE/10% conservador mostró +0.42% full_recent y drawdown −0.27% con 1 data gap. Calendars y butterflies tuvieron peor comportamiento agregado en este proxy. Ningún candidato demostró mejora consistente sobre buy-and-hold o el baseline actual.
+
+La decisión es `RESEARCH_ONLY`: no se activaron las estructuras en `bot.py`, `config.yaml`, Cloud Run ni PAPER. Antes de una segunda ronda se requieren bid/ask históricos, delta/IV point-in-time, timestamp de listing/cadena as-of, earnings/dividendos históricos y walk-forward separado. Las métricas de calendars/diagonals son particularmente aproximadas porque su valor depende de term structure e IV.
+
+El informe completo es `docs/defined_risk_options_backtest_2026-08-18.md`.
