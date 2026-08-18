@@ -68,3 +68,12 @@ El flujo de decisión combinado es: las señales SMC (sección 3 de `docs/skills
 ## 6. Criterios de uso por el agente
 
 Antes de montar cualquier estructura Wheel verificar: (1) el régimen global permite operar (solo bull/CHoCH-rebote tienen luz verde para entradas nuevas); (2) el subyacente está fuera de `earnings_horizon_days` (2 días antes de earnings no se entra — el material advierte de la volatilidad de earnings y el filtro lo bloquea automáticamente); (3) la prima neta cabe en el presupuesto del perfil activo; (4) el delta del strike no excede 0.30 para la pata vendida salvo spreads de rebote; (5) existe TP/SL de prima configurado. Nunca vender premium en cash-secured puts sobre tickers con vol. anualizada >100%.
+
+
+## 7. Auditoría del PDF fuente y estado de integración — 18 ago 2026
+
+La fuente primaria del material revisado es `The Wheel.pdf` en Google Drive, archivo de 9 páginas. El documento describe el ciclo CSP → asignación de 100 acciones → covered call → acciones llamadas → reinicio; menciona selección según capital, análisis técnico/fundamental, evitar earnings/noticias de alto impacto, ROC aproximado de 1–2% mensual sobre colateral, deltas de 0.20 o menores y roll/recompra como defensa.
+
+Esta skill cubre esas reglas y añade parámetros de Polaris y resultados de investigación. La existencia de esta skill no significa que el bot opere The Wheel. El módulo relacionado `strategies/options_income.py` contiene `WheelStrategy`, estados CSP/CC, filtros de earnings/SMA200, DTE 21–45, delta máximo 0.20 y ROC mínimo 1%, pero no está instanciado por `bot.py::build_strategies()`.
+
+Estado real: **documentada = sí; módulo = sí; conectada al loop = no; activa en PAPER = no**. La configuración live instancia `opt_day_momentum`, `opt_day_breakout` y `opt_swing_trend`, además del motor bajista separado; no existe `wheel.enabled`. Antes de activar Wheel se necesita persistencia y reconciliación de acciones asignadas, control de colateral por lotes de 100 acciones, gestión de exercise/assignment, roll como operación de dos patas, filtros point-in-time de earnings/noticias y pruebas PAPER específicas. No cablear el módulo automáticamente ni tratar sus reglas educativas como una autorización de órdenes.

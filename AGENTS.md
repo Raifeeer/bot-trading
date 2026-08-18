@@ -1637,3 +1637,18 @@ En el motor live exacto, ninguna variante con setups aumentó el retorno frente 
 La clasificación final es **`RESEARCH_ONLY`**. Mantener `setups.mode=shadow` e `influence_entries=false`. No cambiar floor, RiskManager, circuit breakers ni estrategia PAPER por estos resultados. Para una siguiente ronda de promoción sería necesario recuperar históricos intradía 5m/15m para DayMomentum/DayBreakout y cadenas de opciones point-in-time con bid/ask/fills.
 
 Los artefactos se encuentran en `/home/ubuntu/backtests/`: `current_setup_integration_2026-08-18_*` y `live_swing_setup_2026-08-18_*`; el informe legible está en `docs/current_setup_integration_backtest_2026-08-18.md`.
+
+
+## 19. Auditoría del documento The Wheel — 18 de agosto de 2026
+
+Se localizó en Google Drive el archivo exacto **`The Wheel.pdf`**, ID `1mmBkMnY34t5dr0Y-kCR4awjHXuBskO3B`, PDF de 9 páginas. Su contenido describe el ciclo cash-secured put → posible asignación de 100 acciones → covered call → acciones llamadas → reinicio; recomienda seleccionar acciones según capital, análisis técnico/fundamental, evitar earnings/noticias de alto impacto, buscar aproximadamente 1–2% mensual de ROC sobre colateral, usar deltas de 0.20 o menores y utilizar roll/recompra cuando la posición se mueve en contra.
+
+La skill de repositorio **sí existe** en `docs/skills/wheel_skill.md`. No existe una skill reutilizable separada bajo `/home/ubuntu/skills/` con nombre wheel. La skill del repositorio cubre el documento y amplía sus reglas con parámetros de Polaris, gestión TP/SL, DTE, comisiones, integración SMC y límites derivados de backtests. Debe leerse como especificación documentada e investigación, no como prueba de que el bot la ejecute.
+
+El módulo **sí existe** en `strategies/options_income.py` como `WheelStrategy`. Implementa estados CSP/CC, filtro de earnings, filtro SMA200, selección de puts delta ≤0.20, ROC mensual mínimo de 1%, DTE 21–45, construcción de cash-secured puts y covered calls. Sin embargo, el módulo no implementa todavía un ciclo live completo de asignación/roll persistente equivalente a una cuenta de acciones asignadas: `scan_universe`, `csp_structure` y `cc_structure` existen, pero no están conectados al loop principal.
+
+### Estado real de ejecución
+
+`bot.py::build_strategies()` instancia únicamente `opt_day_momentum`, `opt_day_breakout` y `opt_swing_trend`, según `config.yaml`. El motor bajista `options_bear` se ejecuta aparte cuando el régimen es bear. No instancia `WheelStrategy`, no existe una sección `wheel.enabled` en la configuración activa y no hay señales Wheel en el flujo de entrada live. El sistema actual opera spreads de opciones derivados de señales de momentum, breakout y swing; no vende CSP desnudos/cash-secured puts ni covered calls como rueda.
+
+La matriz de cobertura debe conservar esta distinción: Wheel documentada = sí; módulo existente = sí; conectada al loop = no; activa en PAPER = no; ciclo de asignación/roll probado con datos point-in-time = no. No activar ni cablear Wheel automáticamente: requiere primero un diseño de estado persistente, reconciliación de acciones asignadas, control de colateral 100 acciones, eventos de assignment/exercise, roll con dos órdenes y validación específica en PAPER.
