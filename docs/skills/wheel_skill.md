@@ -77,3 +77,12 @@ La fuente primaria del material revisado es `The Wheel.pdf` en Google Drive, arc
 Esta skill cubre esas reglas y añade parámetros de Polaris y resultados de investigación. La existencia de esta skill no significa que el bot opere The Wheel. El módulo relacionado `strategies/options_income.py` contiene `WheelStrategy`, estados CSP/CC, filtros de earnings/SMA200, DTE 21–45, delta máximo 0.20 y ROC mínimo 1%, pero no está instanciado por `bot.py::build_strategies()`.
 
 Estado real: **documentada = sí; módulo = sí; conectada al loop = no; activa en PAPER = no**. La configuración live instancia `opt_day_momentum`, `opt_day_breakout` y `opt_swing_trend`, además del motor bajista separado; no existe `wheel.enabled`. Antes de activar Wheel se necesita persistencia y reconciliación de acciones asignadas, control de colateral por lotes de 100 acciones, gestión de exercise/assignment, roll como operación de dos patas, filtros point-in-time de earnings/noticias y pruebas PAPER específicas. No cablear el módulo automáticamente ni tratar sus reglas educativas como una autorización de órdenes.
+
+
+## 8. Skill reutilizable y backtest con opciones históricas — 18 ago 2026
+
+La skill reutilizable para futuras tareas está en `/home/ubuntu/skills/the-wheel/SKILL.md`, validada con `quick_validate.py`. Incluye las referencias `research.md` y `polaris-alpaca.md`, con fuentes OCC/OIC, Cboe, Alpaca y límites de datos.
+
+El backtest de esta ronda utilizó barras históricas reales de opciones Alpaca: 467 contratos seleccionados, 451 con barras y 9,799 barras diarias sobre AMD, BB, F, NOK, PLTR, TQQQ y TSLA entre abril y agosto 2026. Se probaron cinco escenarios y cinco ventanas. El escenario base con capital $100,000 obtuvo +5.33% medio en 5/5 ventanas positivas, pero superó buy-and-hold solo 2/5; en full recent hizo +12.84% frente a +57.99% de buy-and-hold. En summer trend hizo +6.24% frente a −14.08% del buy-and-hold. Con $100 no hubo operaciones: el colateral de 100 acciones hace inviable la Wheel clásica para ese tamaño.
+
+La selección por moneyness 5%/10% sustituye delta histórica ausente; faltan bid/ask point-in-time, listing timestamp y early assignment observado. Clasificación: `RESEARCH_ONLY`. No activar Wheel en Polaris sin reconciliación persistente de NTA/assignment, lotes de 100 acciones, colateral real, dividendos/earnings as-of, roll idempotente y pruebas PAPER.

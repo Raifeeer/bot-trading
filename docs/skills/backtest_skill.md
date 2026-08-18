@@ -150,3 +150,14 @@ Las variantes cubren setups diarios, semanales con velas cerradas y MTF diaria+s
 Resultado de esta ronda: sobre la política regime-hold/cash, el filtro diario moderado dio +5.33% frente a +4.20% en la ventana reciente y redujo drawdown de −2.39% a −0.92%, pero perdió −0.17% frente a +0.91% en el selloff. Sobre el SwingTrend live exacto, el baseline superó a todas las variantes con setups en retorno: +2.12% vs +2.03% en el selloff, +4.45% vs +3.76% en la ventana reciente y +0.67% vs 0.00% en los últimos 30 días. La clasificación es `RESEARCH_ONLY`; no promover.
 
 Debido a la ausencia de opciones históricas point-in-time, estos resultados usan proxy de exposición al subyacente. No presentar el resultado como P&L de spreads. La siguiente etapa, antes de una feature `paper_filter`, debe conseguir históricos intradía para los motores 5m/15m, cadenas point-in-time con bid/ask/fills, o declarar explícitamente que el test sigue siendo un proxy.
+
+
+## 12. Backtest de The Wheel con barras históricas de opciones — 18 ago 2026
+
+Para The Wheel no es suficiente un backtest de subyacente o un cálculo de ROC de prima. La ronda reproducible debe descargar contratos y barras históricas point-in-time cuando sea posible, seleccionar vencimiento/moneyness con información as-of, vender CSP, modelar assignment y crear lotes de 100 acciones, vender CC cubiertas, modelar call assignment/retención de stock, roll como cierre+apertura y aplicar comisiones y slippage.
+
+Se ejecutó `scripts/cache_wheel_option_history.py` con Alpaca en solo lectura y `scripts/run_wheel_backtests.py` sobre siete símbolos y cinco ventanas recientes. La API entregó 467 contratos seleccionados, 451 con barras y 9,799 barras diarias. La delta histórica no estaba disponible as-of; se usó moneyness 5%/10% como proxy declarado. Faltan bid/ask históricos, timestamp de listing y early assignment observable; el resultado es `RESEARCH_ONLY`, no P&L institucional ni aprobación live.
+
+El escenario `wheel_base` con $100,000 obtuvo +5.33% de retorno medio en 5 ventanas, 5/5 ventanas positivas y drawdown medio −0.35%, pero superó buy-and-hold solo en 2/5. En la ventana full recent hizo +12.84% frente a +57.99% de buy-and-hold; en summer trend hizo +6.24% mientras buy-and-hold perdió −14.08%. El escenario stress llegó a −8.71% de peor drawdown y acumuló 71 data gaps; no seleccionar parámetros por ese resultado.
+
+La sensibilidad con $100 produjo cero operaciones, porque la Wheel cash-secured exige colateral para comprar 100 acciones. Con $1,000 la actividad fue muy limitada. Para comparar contra el bot, informar siempre cash, buy-and-hold, retorno total, drawdown, asignaciones, stock P&L, primas, rolles, data gaps, capital comprometido y tiempo en cada fase. No promover por retorno de una sola ventana.

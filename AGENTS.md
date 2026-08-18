@@ -1652,3 +1652,22 @@ El módulo **sí existe** en `strategies/options_income.py` como `WheelStrategy`
 `bot.py::build_strategies()` instancia únicamente `opt_day_momentum`, `opt_day_breakout` y `opt_swing_trend`, según `config.yaml`. El motor bajista `options_bear` se ejecuta aparte cuando el régimen es bear. No instancia `WheelStrategy`, no existe una sección `wheel.enabled` en la configuración activa y no hay señales Wheel en el flujo de entrada live. El sistema actual opera spreads de opciones derivados de señales de momentum, breakout y swing; no vende CSP desnudos/cash-secured puts ni covered calls como rueda.
 
 La matriz de cobertura debe conservar esta distinción: Wheel documentada = sí; módulo existente = sí; conectada al loop = no; activa en PAPER = no; ciclo de asignación/roll probado con datos point-in-time = no. No activar ni cablear Wheel automáticamente: requiere primero un diseño de estado persistente, reconciliación de acciones asignadas, control de colateral 100 acciones, eventos de assignment/exercise, roll con dos órdenes y validación específica en PAPER.
+
+
+## 20. Skill e investigación profunda de The Wheel — 18 de agosto de 2026
+
+Se creó y validó la skill reutilizable `/home/ubuntu/skills/the-wheel/SKILL.md` mediante el flujo de `skill-creator`. Sus referencias son `references/research.md` y `references/polaris-alpaca.md`. La skill cubre CSP, assignment, covered calls, roll, ROC vs retorno total, datos point-in-time, sesgos de backtest, requisitos de Alpaca y guardarraíles de integración.
+
+La investigación verificó fuentes OCC/OIC sobre CSP y covered calls, exercise americano, assignment temprano, dividendos y exercise-by-exception; Cboe sobre metodología de put-write; Feldman/Roy sobre benchmarks buy-write/put-write; y documentación oficial de Alpaca sobre niveles, ejercicio y polling de actividades no comerciales. La evidencia respalda tratar Wheel como exposición de equity con prima limitada y downside sustancial, no como ingreso pasivo garantizado.
+
+### 20.1 Backtest con barras históricas reales de opciones
+
+Se añadieron `scripts/cache_wheel_option_history.py`, `scripts/run_wheel_backtests.py` y `scripts/analyze_wheel_backtests.py`. Se consultó Alpaca en modo lectura para contratos y barras; no se colocaron órdenes. El cache utilizó siete símbolos del universo disponible —AMD, BB, F, NOK, PLTR, TQQQ, TSLA—, 467 contratos seleccionados, 451 con barras y 9,799 barras diarias entre abril y agosto de 2026. `SOFI` no se incluyó porque el histórico de subyacente requerido no estaba disponible en el cache.
+
+El backtest prueba cinco escenarios: conservador, base, early profit, roll defense y stress; y cinco ventanas: spring selloff, early recovery, summer trend, latest 30d y full recent. La selección usa el contrato disponible más cercano a 21–45 DTE y 5%/10% OTM; el delta histórico point-in-time no estaba disponible y moneyness se declara como proxy. Se usan fills OHLC con slippage paramétrico, comisión de $0.65 por contrato/lado, assignment ITM a vencimiento y fallback a intrinsic cuando falta barra. Early assignment, bid/ask histórico y fecha de listing siguen siendo limitaciones.
+
+El escenario base con capital $100,000 fue positivo en 5/5 ventanas: retorno medio +5.33%, peor retorno +0.62%, drawdown medio −0.35% y peor drawdown −0.62%. Solo superó buy-and-hold en 2/5 ventanas: summer trend +6.24% frente a buy-and-hold −14.08%, latest 30d +6.27% frente a −7.90%; en full recent hizo +12.84% frente a +57.99% de buy-and-hold. El escenario stress mostró peor drawdown −8.71% y 71 data gaps agregados; no se usa para promoción.
+
+Sensibilidad de capital: con $100 no hubo operaciones en ninguna ventana porque la regla cash-secured exige colateral para 100 acciones; con $1,000 la actividad fue limitada y el full recent llegó a ~+1.68% en el mejor escenario, muy por debajo del buy-and-hold de referencia. Esto confirma que The Wheel clásica no es compatible con el reto ficticio $100→$200 sobre el universo actual sin margin o una estructura distinta, que cambiaría el riesgo.
+
+La decisión es **`RESEARCH_ONLY`**. No existe `wheel.enabled` activo, no se conecta `WheelStrategy` a `build_strategies()`, no se despliega a Cloud Run y no se modifica `influence_entries=false`. Antes de una fase PAPER se requieren cadenas/quotes point-in-time, earnings/dividendos as-of, early assignment, reconciliación idempotente de NTA Alpaca, lotes persistentes de 100 acciones, colateral real y roll como dos órdenes. El informe completo es `docs/the_wheel_research_backtest_2026-08-18.md`.
