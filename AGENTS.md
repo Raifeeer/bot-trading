@@ -1963,3 +1963,18 @@ Se ejecutaron 192 variantes diarias con `scripts/run_relative_strength_backtests
 El ranking produce ventajas fuertes en algunos folds recientes, pero la ventaja no sobrevive el control completo: `rs_h60_k2_r5_bull_long_only_all_c5` obtiene +7.27% en full_available frente a +14.62% de `baseline_regime_s78`; `h20 k1` termina en −9.32%; `long_short` en +3.37%. El walk-forward de cuatro folds de 60 sesiones muestra dos folds favorables, un fold sin exposición por gate bull y un fold sin exposición/neutral; no hay mejora uniforme. El equal-weight histórico es +138.11% con DD −25.88%, por lo que se conserva como control descriptivo y no como promesa replicable.
 
 Decisión: `RESEARCH_ONLY`; no conectar a `bot.py`, no añadir `relative_strength_shadow_observations`, no habilitar cortas y no desplegar. Antes de reconsiderarlo se requiere ledger de exposición por símbolo, sensibilidad excluyendo el mejor ticker, benchmark SPY/QQQ point-in-time y una validación específica de opciones. La revisión PAPER se mantiene `polaris-bot-brshadow0724650`.
+
+
+## 2026-08-19 — Trend pullback / continuación EMA-VWAP
+
+Se investigó la hipótesis de continuidad tras retroceso hacia EMA/VWAP y se creó la skill `/home/ubuntu/skills/trend-pullback-continuation/SKILL.md`, con referencias en `references/research.md`. La evidencia externa de time-series momentum se usó únicamente para guardarraíles; no se extrapoló como prueba de alpha intradía en acciones u opciones.
+
+Se implementó `strategies/trend_pullback_continuation.py` como detector puro vectorizado, fail-closed y sin executor. Exige EMA rápida/lenta alineadas, pendiente, impulso mínimo en ATR, retroceso controlado, ruptura del micro extremo y opcionalmente volumen/VWAP. `tests/test_trend_pullback_continuation.py` cubre bull, bear observacional, volumen, una señal por sesión y datos inválidos. `tests/test_trend_pullback_shadow.py` cubre el wrapper operativo.
+
+El arnés `scripts/run_trend_pullback_backtests.py` ejecutó 144 variantes y 798 filas sobre caches reales 5m/15m; el simulador segmentado reutiliza la semántica de entrada siguiente, stop/target, máximo de barras y 5 bps por lado. La cobertura usable fue PLTR, F, TSLA, AMD, NOK, BB y TQQQ; SOFI quedó fuera por falta de cache intradía.
+
+El baseline DayBreakout S78 obtuvo +8.485% y DD −3.097% en full_available. EMA9/21+VWAP sin volumen obtuvo +9.223% pero DD −4.403% y 268 trades. La variante seleccionada para shadow, EMA9/21+VWAP+volumen 1.2x, obtuvo +8.390%, DD −2.148% y 134 trades. En cinco folds no solapados de 20 sesiones, superó el retorno del baseline en 3/5 y mejoró DD en 4/5; no es evidencia suficiente para filtro operativo, pero sí para observación PAPER.
+
+Se añadió `trend_pullback_shadow` a `config/config.yaml` y un wrapper en `bot.py`. Configuración: 15min, EMA9/21, VWAP alineado, volumen mínimo 1.2x, long-only, `allow_shorts=false`. El wrapper fuerza `mode=shadow`, `influence_entries=false` y `orders_allowed=false`, persiste `trend_pullback_shadow_observations`, añade `trend_pullback_shadow` a `signal_stats` y cronometra `trend_pullback_shadow_s`. Faltantes y errores son observables por símbolo y fail-closed.
+
+Decisión: **SHADOW PAPER**, no promoción operativa. Antes de cualquier influencia futura se requiere más acumulación, walk-forward más largo, leave-one-symbol-out, ledger de exposición y validación específica de opciones. Cloud Run no debe recibir cambios hasta suite completa y revisión de invariantes.

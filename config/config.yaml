@@ -178,6 +178,34 @@ bearish_breakdown_shadow:
   stop_buffer_atr: 0.10
   reward_risk: 2.0
 
+# Continuación tras retroceso hacia EMA/VWAP. Solo observabilidad shadow;
+# no filtra entradas ni puede crear órdenes.
+trend_pullback_shadow:
+  enabled: true
+  mode: shadow
+  influence_entries: false
+  orders_allowed: false
+  timeframe: 15min
+  direction: long
+  ema_fast: 9
+  ema_slow: 21
+  atr_period: 14
+  trend_slope_bars: 3
+  impulse_lookback: 5
+  pullback_lookback: 3
+  impulse_atr: 0.75
+  vwap_tolerance_atr: 0.50
+  break_buffer_atr: 0.05
+  stop_buffer_atr: 0.10
+  reward_risk: 2.0
+  volume_lookback: 20
+  volume_min: 1.20
+  require_volume: true
+  require_vwap_alignment: true
+  allow_shorts: false
+  session_start: "09:30"
+  session_end: "15:30"
+
 strategies:
   # ---------------------------------------------------------------------------
   # DAY TRADING: momentum intradía con filtro de volatilidad (velas 5 min)

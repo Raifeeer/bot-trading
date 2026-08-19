@@ -63,6 +63,32 @@ DEFAULT_STRUCTURE_MTF_SHADOW_CFG = {
     "pivot_order": 3,
     "tolerance": 0.001,
 }
+DEFAULT_TREND_PULLBACK_SHADOW_CFG = {
+    "enabled": True,
+    "mode": "shadow",
+    "influence_entries": False,
+    "orders_allowed": False,
+    "timeframe": "15min",
+    "direction": "long",
+    "ema_fast": 9,
+    "ema_slow": 21,
+    "atr_period": 14,
+    "trend_slope_bars": 3,
+    "impulse_lookback": 5,
+    "pullback_lookback": 3,
+    "impulse_atr": 0.75,
+    "vwap_tolerance_atr": 0.50,
+    "break_buffer_atr": 0.05,
+    "stop_buffer_atr": 0.10,
+    "reward_risk": 2.0,
+    "volume_lookback": 20,
+    "volume_min": 1.20,
+    "require_volume": True,
+    "require_vwap_alignment": True,
+    "allow_shorts": False,
+    "session_start": "09:30",
+    "session_end": "15:30",
+}
 DEFAULT_BEARISH_BREAKDOWN_SHADOW_CFG = {
     "enabled": True,
     "mode": "shadow",
@@ -128,6 +154,7 @@ from strategies.setup_confluence import SETUP_NAMES, analyze_setup_confluence
 from strategies.vix_shadow import evaluate_vix_shadow
 from strategies.structure_mtf import evaluate_universe_structure
 from strategies.bearish_breakdown_retest import evaluate_breakdown_retest
+from strategies.trend_pullback_continuation import evaluate_trend_pullback
 from options.defined_risk_shadow import evaluate_defined_risk_shadow
 logger.info("BOOT: imports complete")
 
@@ -368,6 +395,78 @@ def _bearish_breakdown_shadow_snapshot(cached: dict, tickers: list[str], shadow_
         "timeframe": timeframe,
         "parameters": {key: value for key, value in safe_cfg.items()
                         if key not in {"enabled", "mode", "influence_entries", "orders_allowed"}},
+        "counts": counts,
+        "symbols": observations,
+        "risk_authority": "risk_manager_only",
+    }
+
+
+def _trend_pullback_shadow_snapshot(cached: dict, tickers: list[str], shadow_cfg: dict) -> dict:
+    """Evalúa continuaciones EMA/VWAP sin conceder autoridad operativa."""
+    safe_cfg = dict(DEFAULT_TREND_PULLBACK_SHADOW_CFG)
+    safe_cfg.update(shadow_cfg or {})
+    safe_cfg["mode"] = "shadow"
+    safe_cfg["influence_entries"] = False
+    safe_cfg["orders_allowed"] = False
+    if not safe_cfg.get("enabled", False):
+        return {
+            "enabled": False,
+            "mode": "disabled",
+            "influence_entries": False,
+            "orders_allowed": False,
+            "symbols": {},
+            "counts": {},
+        }
+    timeframe = str(safe_cfg.get("timeframe", "15min"))
+    bars_by_symbol = cached.get(timeframe) or {}
+    parameter_keys = (
+        "timeframe", "direction", "ema_fast", "ema_slow", "atr_period",
+        "trend_slope_bars", "impulse_lookback", "pullback_lookback",
+        "impulse_atr", "vwap_tolerance_atr", "break_buffer_atr",
+        "stop_buffer_atr", "reward_risk", "volume_lookback", "volume_min",
+        "require_volume", "require_vwap_alignment", "allow_shorts",
+        "session_start", "session_end",
+    )
+    parameters = {key: safe_cfg[key] for key in parameter_keys if key in safe_cfg}
+    minimum_bars = max(
+        int(safe_cfg.get("ema_slow", 21)),
+        int(safe_cfg.get("atr_period", 14)),
+        int(safe_cfg.get("volume_lookback", 20)) + 1,
+        int(safe_cfg.get("impulse_lookback", 5)) + int(safe_cfg.get("pullback_lookback", 3)) + 2,
+    )
+    observations = {}
+    counts = {"confirmed": 0, "no_setup": 0, "insufficient_data": 0, "missing_data": 0, "error": 0}
+    for symbol in tickers:
+        frame = bars_by_symbol.get(symbol) if isinstance(bars_by_symbol, dict) else None
+        if frame is None or getattr(frame, "empty", True):
+            observation = {"signal": "none", "status": "missing_data", "direction": "neutral", "timeframe": timeframe}
+        elif len(frame) < minimum_bars:
+            observation = {"signal": "none", "status": "insufficient_data", "direction": "neutral", "timeframe": timeframe, "bars": len(frame), "minimum_bars": minimum_bars}
+        else:
+            try:
+                observation = evaluate_trend_pullback(frame, symbol=symbol, **parameters)
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("TREND PULLBACK SHADOW: fallo evaluando %s", symbol)
+                observation = {"signal": "none", "status": "error", "direction": "neutral", "timeframe": timeframe, "error_type": type(exc).__name__}
+        observation = dict(observation)
+        status = observation.get("status", "error")
+        counts[status] = counts.get(status, 0) + 1
+        observation.update({
+            "symbol": symbol,
+            "mode": "shadow",
+            "influence_entries": False,
+            "orders_allowed": False,
+            "observational_only": True,
+        })
+        observations[symbol] = observation
+    return {
+        "enabled": True,
+        "mode": "shadow",
+        "influence_entries": False,
+        "orders_allowed": False,
+        "source_version": "trend-pullback-continuation-v1",
+        "timeframe": timeframe,
+        "parameters": {key: value for key, value in safe_cfg.items() if key not in {"enabled", "mode", "influence_entries", "orders_allowed"}},
         "counts": counts,
         "symbols": observations,
         "risk_authority": "risk_manager_only",
@@ -879,6 +978,13 @@ def main():
         "BOOT: vix shadow enabled=%s mode=%s influence_entries=%s orders_allowed=%s variants=%s",
         vix_shadow_boot_cfg["enabled"], vix_shadow_boot_cfg["mode"],
         False, False, vix_shadow_boot_cfg["variants"])
+    trend_pullback_boot_cfg = dict(DEFAULT_TREND_PULLBACK_SHADOW_CFG)
+    trend_pullback_boot_cfg.update(cfg.get("trend_pullback_shadow", {}) or {})
+    logger.info(
+        "BOOT: trend pullback shadow enabled=%s mode=%s influence_entries=%s "
+        "orders_allowed=%s timeframe=%s direction=%s",
+        trend_pullback_boot_cfg["enabled"], "shadow", False, False,
+        trend_pullback_boot_cfg["timeframe"], trend_pullback_boot_cfg["direction"])
     structure_mtf_boot_cfg = dict(DEFAULT_STRUCTURE_MTF_SHADOW_CFG)
     structure_mtf_boot_cfg.update(cfg.get("structure_mtf_shadow", {}) or {})
     logger.info(
@@ -1327,6 +1433,26 @@ def main():
             if (cfg.get("bearish_breakdown_shadow", {}) or {}).get("influence_entries"):
                 logger.warning(
                     "BREAKDOWN SHADOW: influence_entries solicitado pero bloqueado; "
+                    "la capa permanece shadow hasta promoción validada"
+                )
+            trend_pullback_started = time.monotonic()
+            trend_pullback_cfg = dict(DEFAULT_TREND_PULLBACK_SHADOW_CFG)
+            trend_pullback_cfg.update(cfg.get("trend_pullback_shadow", {}) or {})
+            trend_pullback_snapshot = _trend_pullback_shadow_snapshot(
+                cached, tickers, trend_pullback_cfg)
+            state["trend_pullback_shadow_observations"] = trend_pullback_snapshot
+            signal_stats["trend_pullback_shadow"] = {
+                "mode": trend_pullback_snapshot.get("mode"),
+                "symbols": len(trend_pullback_snapshot.get("symbols", {})),
+                "counts": trend_pullback_snapshot.get("counts", {}),
+                "orders_allowed": False,
+                "influence_entries": False,
+            }
+            phase_times["trend_pullback_shadow_s"] = round(
+                time.monotonic() - trend_pullback_started, 3)
+            if (cfg.get("trend_pullback_shadow", {}) or {}).get("influence_entries"):
+                logger.warning(
+                    "TREND PULLBACK SHADOW: influence_entries solicitado pero bloqueado; "
                     "la capa permanece shadow hasta promoción validada"
                 )
             phase_times["entries_s"] = round(time.monotonic() - cycle_started, 3)

@@ -202,3 +202,14 @@ La skill está en `/home/ubuntu/skills/relative-strength-rotation/SKILL.md`. El 
 El backtest probó 192 variantes y produjo `relative_strength_backtests_2026-08-19.csv`, `relative_strength_backtest_comparison_2026-08-19.csv`, `relative_strength_backtest_variant_summary_2026-08-19.csv`, `relative_strength_backtest_sensitivity_2026-08-19.csv` y el manifiesto JSON. El walk-forward no solapado está en `relative_strength_walkforward_2026-08-19.csv` y tiene cuatro folds consecutivos de 60 sesiones.
 
 Decisión: `RESEARCH_ONLY`. Aunque algunas variantes h60/top-2/gate bull mejoran dos folds recientes, en full_available quedan debajo de `baseline_regime_s78`, y el gate deja el sistema en cash durante varios folds. No crear configuración live, no publicar observaciones shadow y no desplegar. Cloud Run sigue en `polaris-bot-brshadow0724650` al 100% PAPER.
+
+
+## 18. Trend pullback / continuación EMA-VWAP — 19 de agosto de 2026
+
+La skill reusable está en `/home/ubuntu/skills/trend-pullback-continuation/SKILL.md`. El detector puro está en `strategies/trend_pullback_continuation.py`; el wrapper shadow está en `bot.py`; tests: `tests/test_trend_pullback_continuation.py` y `tests/test_trend_pullback_shadow.py`.
+
+El backtest `scripts/run_trend_pullback_backtests.py` produjo `trend_pullback_backtests_2026-08-19.csv`, trades, comparación y resumen de variantes. Se evaluaron 144 variantes 5m/15m con EMA 9/21, 12/26, 20/50, VWAP, volumen, gates none/bull/directional y long/both. La variante seleccionada para shadow es 15m EMA9/21 + VWAP alineado + volumen 1.2x + long-only. En full_available: +8.390% y DD −2.148% contra DayBreakout +8.485% y DD −3.097%. Walk-forward de cinco folds de 20 sesiones: retorno mejor en 3/5 y drawdown mejor en 4/5.
+
+Se añadió `trend_pullback_shadow` a `config/config.yaml`. La capa no influye en entradas, no crea órdenes y fuerza las banderas shadow. Publica `trend_pullback_shadow_observations`, `signal_stats.trend_pullback_shadow` y `CYCLE TIMING.trend_pullback_shadow_s`. La configuración es long-only y no habilita cortas.
+
+**Pendiente inmediato:** ejecutar suite completa, crear commit, desplegar una revisión PAPER separada, mover el 100% del tráfico solo después de comprobar que la nueva revisión está lista y verificar Firestore, timing y cero órdenes. La revisión anterior sigue siendo `polaris-bot-brshadow0724650` hasta completar esos pasos.
