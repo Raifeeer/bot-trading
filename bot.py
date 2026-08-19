@@ -1664,6 +1664,8 @@ def main():
                             "structure_mtf_shadow_observations", {}),
                         "bearish_breakdown_shadow_observations": state.get(
                             "bearish_breakdown_shadow_observations", {}),
+                        "trend_pullback_shadow_observations": state.get(
+                            "trend_pullback_shadow_observations", {}),
                         "decisions_today": [d for d in state["decisions"]
                                             if d.get("ts", "").startswith(
                                                 datetime.utcnow().strftime("%Y-%m-%d"))],
@@ -1692,7 +1694,7 @@ def main():
             phase_times["total_s"] = round(time.monotonic() - cycle_started, 3)
             signal_stats["phase_seconds"] = phase_times
             _hb["ts"].append(time.time())
-            logger.info("CYCLE TIMING id=%d total=%.3fs entries=%.3fs setups=%.3fs vix_shadow=%.3fs structure_mtf=%.3fs risk_shadow=%.3fs breakdown_shadow=%.3fs bear=%.3fs positions=%.3fs publish=%.3fs sleep=%.3fs",
+            logger.info("CYCLE TIMING id=%d total=%.3fs entries=%.3fs setups=%.3fs vix_shadow=%.3fs structure_mtf=%.3fs risk_shadow=%.3fs breakdown_shadow=%.3fs trend_pullback_shadow=%.3fs bear=%.3fs positions=%.3fs publish=%.3fs sleep=%.3fs",
                         cycle_id, phase_times["total_s"],
                         phase_times.get("entries_s", 0.0),
                         phase_times.get("setups_s", 0.0),
@@ -1700,6 +1702,7 @@ def main():
                         phase_times.get("structure_mtf_shadow_s", 0.0),
                         phase_times.get("defined_risk_shadow_s", 0.0),
                         phase_times.get("bearish_breakdown_shadow_s", 0.0),
+                        phase_times.get("trend_pullback_shadow_s", 0.0),
                         phase_times.get("bear_s", 0.0),
                         phase_times.get("positions_s", 0.0),
                         phase_times.get("publish_s", 0.0),
