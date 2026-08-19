@@ -9,51 +9,57 @@ FASE 1 — RECUPERACIÓN (`recuperacion`)
     ganar— que lo dejaba inmóvil de forma permanente (17 ago 2026).
 
 FASE 2 — RETO (`reto`)
-    Al tocar `challenge_target` por primera vez, la fase queda ARMADA de
-    forma permanente y pasa a regir el piso del reto ($99,900): a partir de
-    ahí la cuenta se comporta como si solo tuviera $100 y no puede bajar de
-    ese piso.
+    Al tocar `challenge_target` ($100,000), la cuenta pasa a regir el piso del
+    reto ($99,900). Si la equity vuelve a caer por debajo del objetivo, el modo
+    de recuperación vuelve a estar permitido hasta recuperar los $100,000; el
+    piso de recuperación ($99,000) sigue protegiendo la cuenta.
 
-Por qué la fase se ARMA y no se recalcula: si dependiera solo de comparar
-equity con el objetivo, romper el piso del reto devolvería al bot a modo
-recuperación —que tiene un piso más bajo— y el piso de $99,900 no protegería
-nada. El latch (`_challenge_armed`) hace que la protección sea de una sola
-dirección. Vive en el estado del bot y se reconstruye desde Firestore al
-arrancar, porque el JSON local es efímero (ver AGENTS.md §34).
+El estado `_challenge_armed` se conserva en Firestore para trazabilidad, pero
+    `recovery_override_below_target` hace que el piso efectivo se calcule según
+    la equity actual mientras está por debajo del objetivo. Así se evita el
+    bloqueo circular en el que la cuenta necesita operar para recuperar, pero
+    no puede operar porque el piso del reto quedó por encima de la equity.
 
 El evento se notifica por Telegram solo al cruzar un umbral, no en cada tick.
 """
 import logging
+from typing import Any
 
 logger = logging.getLogger("risk.floor")
 
 DEFAULT_FLOOR_CFG = {
-    # Piso del reto $100 -> $200; rige una vez armada la fase.
+    # Piso del reto $100 -> $200 cuando equity está en/sobre el objetivo.
     "equity_floor": 99900.0,
-    # Al alcanzarlo se arma el reto de forma permanente.
     "challenge_target": 100000.0,
     # Piso de seguridad durante la recuperación. El equity de producción
     # observado el 17-08-2026 fue $99,288.65; $99,000 deja margen operativo
     # real sin eliminar el guard-rail ni el breaker diario de $400.
     "recovery_floor": 99000.0,
+    # Permite recuperar desde debajo del objetivo aunque exista un latch
+    # histórico de reto. Nunca permite operar bajo recovery_floor.
+    "recovery_override_below_target": True,
 }
 
 
-def _cfg(cfg: dict = None) -> dict:
+def _cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     return {**DEFAULT_FLOOR_CFG, **(cfg or {})}
 
 
-def active_floor(equity: float, bot_state: dict, cfg: dict = None) -> tuple:
+def active_floor(equity: float, bot_state: dict, cfg: dict[str, Any] | None = None) -> tuple[float, str, bool]:
     """Devuelve (piso_vigente, fase, reto_armado) sin mutar el estado."""
     c = _cfg(cfg)
-    armed = bool(bot_state.get("_challenge_armed")) or \
-        float(equity) >= float(c["challenge_target"])
+    target = float(c["challenge_target"])
+    below_target = float(equity) < target
+    override = bool(c.get("recovery_override_below_target", True))
+    armed = bool(bot_state.get("_challenge_armed")) or float(equity) >= target
+    if override and below_target:
+        armed = False
     if armed:
         return float(c["equity_floor"]), "reto", True
     return float(c["recovery_floor"]), "recuperacion", False
 
 
-def check_floor(equity: float, bot_state: dict, cfg: dict = None) -> dict:
+def check_floor(equity: float, bot_state: dict, cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     """Devuelve el estado del piso para el tick actual.
 
     Claves: below_floor, crossed, reason, phase, floor, target,
@@ -65,7 +71,9 @@ def check_floor(equity: float, bot_state: dict, cfg: dict = None) -> dict:
     equity = float(equity)
 
     was_armed = bool(bot_state.get("_challenge_armed"))
-    just_armed = (not was_armed) and equity >= target
+    override = bool(c.get("recovery_override_below_target", True))
+    effective_was_armed = was_armed and not (override and equity < target)
+    just_armed = (not effective_was_armed) and equity >= target
     if just_armed:
         bot_state["_challenge_armed"] = True
         logger.warning("RETO ARMADO: equity %.2f alcanzó el objetivo %.2f; "
@@ -78,8 +86,12 @@ def check_floor(equity: float, bot_state: dict, cfg: dict = None) -> dict:
     crossed = (below != was_below) or just_armed
     bot_state["_floor_below"] = below
 
-    base = dict(phase=phase, floor=floor, target=target,
-                challenge_armed=armed)
+    base = {
+        "phase": phase,
+        "floor": floor,
+        "target": target,
+        "challenge_armed": armed,
+    }
 
     if just_armed:
         return dict(base, below_floor=below, crossed=True,

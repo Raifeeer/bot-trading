@@ -1,15 +1,9 @@
-"""Piso de equity en dos fases: recuperación -> reto, con latch permanente.
+"""Piso de equity: recuperación bajo $100,000 y reto sobre el objetivo.
 
-Decisión del dueño (17 ago 2026): con la cuenta en $99,689 y el piso del reto
-en $99,900 el bot quedaba bloqueado en círculo (necesitaba ganar para operar y
-operar para ganar). Se introduce una fase de RECUPERACIÓN con un piso más bajo
-y objetivo $100,000; al tocarlo, el reto $100->$200 queda ARMADO de forma
-permanente y rige el piso de $99,900.
-
-Lo que estos tests protegen sobre todo es el latch: sin él, romper el piso del
-reto devolvería al bot a modo recuperación —que tiene un piso más bajo— y el
-piso de $99,900 no protegería nada. El recovery_floor actual es $99,000 para
-permitir recuperar desde el equity de producción observado ($99,288.65).
+Mientras equity < $100,000 rige recovery_floor=$99,000 para evitar el bloqueo
+circular observado con la cuenta de producción. Al tocar $100,000 se activa el
+piso de reto=$99,900. El latch se conserva para trazabilidad, pero debajo del
+objetivo la fase efectiva vuelve a recuperación segura.
 """
 import os
 import sys
@@ -17,7 +11,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from risk.floor import check_floor, active_floor, DEFAULT_FLOOR_CFG  # noqa: E402
+from risk.floor import DEFAULT_FLOOR_CFG, active_floor, check_floor
 
 CFG = dict(DEFAULT_FLOOR_CFG)
 
@@ -62,23 +56,29 @@ class TestChallengeArming(unittest.TestCase):
         r2 = check_floor(100_050.0, state, CFG)
         self.assertFalse(r2["crossed"])
 
-    def test_latch_survives_drop_below_target(self):
-        """CLAVE: tras armar el reto, caer bajo $100k NO devuelve a
-        recuperación — si lo hiciera, el piso de $99,900 sería inútil."""
+    def test_latch_allows_recovery_below_target(self):
+        """El latch histórico no debe crear un bloqueo circular bajo $100k."""
         state = {}
         check_floor(100_000.0, state, CFG)   # arma
         r = check_floor(99_950.0, state, CFG)
-        self.assertEqual(r["phase"], "reto")
-        self.assertEqual(r["floor"], 99_900.0)
+        self.assertEqual(r["phase"], "recuperacion")
+        self.assertEqual(r["floor"], 99_000.0)
         self.assertFalse(r["below_floor"])
+        self.assertFalse(r["challenge_armed"])
+        self.assertTrue(state["_challenge_armed"], "latch de trazabilidad")
 
-        # Y romper el piso del reto bloquea, sin relajarse al piso bajo.
-        r2 = check_floor(99_850.0, state, CFG)
-        self.assertEqual(r2["phase"], "reto")
-        self.assertEqual(r2["floor"], 99_900.0)
+        # El piso de recuperación sigue bloqueando por debajo de $99,000.
+        r2 = check_floor(98_950.0, state, CFG)
+        self.assertEqual(r2["phase"], "recuperacion")
+        self.assertEqual(r2["floor"], 99_000.0)
         self.assertTrue(r2["below_floor"])
-        self.assertNotEqual(r2["floor"], 99_000.0,
-                            "no debe relajarse al piso de recuperación")
+
+        # Al recuperar el objetivo vuelve a regir el piso del reto.
+        r3 = check_floor(100_000.0, state, CFG)
+        self.assertEqual(r3["phase"], "reto")
+        self.assertEqual(r3["floor"], 99_900.0)
+        self.assertFalse(r3["below_floor"])
+        self.assertTrue(r3["challenge_armed"])
 
     def test_equity_above_target_arms_even_without_prior_state(self):
         """Arranque en frío con equity ya sobre el objetivo: fase reto."""

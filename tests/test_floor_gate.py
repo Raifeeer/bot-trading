@@ -9,28 +9,29 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from risk.floor import check_floor  # noqa: E402
-from state import firestore_state  # noqa: E402
+from risk.floor import check_floor
+from state import firestore_state
 
 
 class TestFloorGate(unittest.TestCase):
     def test_below_floor_detected_and_crossed_once(self):
-        # Reto ya ARMADO: rige el piso de $99,900 (fase 2). Sin armar, estos
-        # valores caen en fase de recuperación, cuyo piso es $99,400 y por
-        # tanto no los bloquea — ver tests/test_floor_two_phase.py.
+        # Aunque exista un latch histórico, bajo $100,000 rige la recuperación
+        # con piso $99,000. Solo se bloquea por debajo de ese nivel.
         state = {"_challenge_armed": True}
-        r1 = check_floor(99_800.0, state)
+        r1 = check_floor(98_800.0, state)
         self.assertTrue(r1["below_floor"])
         self.assertTrue(r1["crossed"])
+        self.assertEqual(r1["floor"], 99_000.0)
+        self.assertEqual(r1["phase"], "recuperacion")
         self.assertIn("PISO ROTADO", r1["reason"])
 
         # Segundo tick aún bajo el piso: no debe re-disparar el aviso.
-        r2 = check_floor(99_850.0, state)
+        r2 = check_floor(98_850.0, state)
         self.assertTrue(r2["below_floor"])
         self.assertFalse(r2["crossed"])
 
-        # Recupera el piso: crossed=True una sola vez.
-        r3 = check_floor(100_000.0, state)
+        # Recupera el piso de recuperación: crossed=True una sola vez.
+        r3 = check_floor(99_050.0, state)
         self.assertFalse(r3["below_floor"])
         self.assertTrue(r3["crossed"])
         self.assertIn("PISO RECUPERADO", r3["reason"])
@@ -42,13 +43,13 @@ class TestFloorGate(unittest.TestCase):
         """Reproduce exactamente la condición de bot.py (línea ~552-554):
         `sig.tradable and regime=='bull' and not below_floor`."""
         state = {"_challenge_armed": True}
-        floor_res = check_floor(99_500.0, state)
+        floor_res = check_floor(98_500.0, state)
         regime = {"regime": "bull", "floor": floor_res}
 
         sig_tradable = True
         gate_open = (sig_tradable and regime.get("regime") == "bull"
                      and not (regime.get("floor") or {}).get("below_floor"))
-        self.assertFalse(gate_open, "el piso debe bloquear nuevas entradas")
+        self.assertFalse(gate_open, "el piso de recuperación debe bloquear bajo $99,000")
 
     def test_new_entry_gate_allows_when_above_floor(self):
         state = {}
