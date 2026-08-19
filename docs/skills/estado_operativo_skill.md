@@ -161,3 +161,24 @@ Confirmar la revisión nueva, dos ciclos completos, `bearish_breakdown_shadow_ob
 La revisión activa final es `polaris-bot-brshadow0724650`, con 100% del tráfico PAPER. Usa el digest inmutable `sha256:fedf44ffe0725ed3db53c1f1f9fbc208adbcfc0928e3c3439b542956464f5fca`; `polaris-bot-floor217e0b2` queda como rollback. Cloud Run confirmó `Ready`, `Active`, `ContainerHealthy`, minScale=1, maxScale=1, CPU always-on, `DATA_PROVIDER=alpaca`, `APCA_API_BASE_URL=paper` y secretos Alpaca conservados.
 
 Se observaron tres ciclos consecutivos con `Tick OK` y sin tracebacks: 16:02:20, 16:03:21 y 16:04:23 UTC. `CYCLE TIMING` incluyó `breakdown_shadow` de 0.160 s, 0.175 s y 0.168 s. Firestore `polaris/2026-08-19` confirmó `updated_at=2026-08-19T16:04:22.766280+00:00`, equity `$99,288.27`, `trading_mode=PAPER`, posiciones 0, órdenes ejecutadas 0, `mode=shadow`, `influence_entries=false`, `orders_allowed=false`, ocho símbolos y cinco confirmaciones bearish frente a tres `no_setup`. La capa es `HEALTHY_NO_SIGNAL` para ejecución live y `SHADOW_CANDIDATE` para observación; la estrategia sigue `RESEARCH_ONLY` para promoción.
+
+
+## 15. Opening Range Breakout — investigación 19 de agosto de 2026
+
+Se creó y validó `/home/ubuntu/skills/opening-range-breakout/SKILL.md`, con referencias en `references/research.md`. La skill formaliza rangos de 5/15/30 minutos desde las 09:30 ET, barras cerradas, entrada en la apertura siguiente, ATR/volumen desplazados, slippage y estados shadow. El detector puro vive en `strategies/opening_range_breakout.py` y sus cuatro tests están en `tests/test_opening_range_breakout.py`.
+
+La matriz ORB usa caches reales Alpaca IEX de 5m/15m y diario, ocho símbolos disponibles y cinco/seis ventanas según timeframe. Se probaron 60 variantes con 5 bps de slippage por lado, sin overnight y sin P&L de opciones. El informe es `docs/orb_backtest_2026-08-19.md`; los artefactos se encuentran bajo `/home/ubuntu/backtests/orb_backtests_2026-08-19*`, `orb_backtest_comparison_2026-08-19.csv` y `orb_backtest_variant_summary_2026-08-19.csv`.
+
+Decisión: `RESEARCH_ONLY`. `orb_5min_r5_short_vol12_none` y `orb_5min_r5_short_novol_directional` ganaron en varias ventanas recientes, pero perdieron en la cobertura completa 5m y mostraron drawdown material; las variantes 15m quedaron por debajo del baseline medio. No integrar ORB en `bot.py`, no crear configuración live, no publicar en Firestore y no desplegarlo. Antes de reconsiderar: ampliar el histórico 5m, ejecutar folds walk-forward no solapados y reconstruir un filtro `Stocks in Play` point-in-time.
+
+Reproducción:
+
+```bash
+cd /home/ubuntu/bot-trading
+export PYTHONPATH="$PWD"
+python3 scripts/run_orb_backtests.py
+python3 scripts/analyze_orb_backtests.py
+pytest -q tests/test_opening_range_breakout.py
+```
+
+La revisión PAPER activa sigue siendo `polaris-bot-brshadow0724650`; el motor bearish continúa shadow y las capas ORB no forman parte del runtime productivo.
