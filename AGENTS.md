@@ -1890,3 +1890,11 @@ Se identificaron 630 patas candidatas 0DTE y 528 1DTE, pero no hay quotes intrad
 La estrategia de earnings-event también quedó `REJECT_DATA`: `data/earnings.py` usa el calendario actual de yfinance con caché de 24 horas y no reconstruye fechas históricas as-of; el cache de opciones no contiene IV/bid-ask ni quotes post-evento. No se inventaron resultados ni se habilitaron rutas operativas.
 
 Ninguna estrategia online nueva se implementó en producción. Polaris continúa en PAPER; VIX y estructura MTF permanecen shadow; RiskManager, piso de equity, crash lock y circuit breakers conservan autoridad final.
+
+## 2026-08-19 — Corrección del bloqueo circular del piso
+
+Se confirmó en Firestore que `_challenge_armed=true` estaba haciendo que la fase efectiva permaneciera en `reto`, con piso $99,900 y equity $99,288.27, bloqueando todas las entradas aunque el objetivo de recuperación era volver a $100,000. Se corrigió `risk/floor.py` y `config/config.yaml` con `recovery_override_below_target=true`: mientras equity < $100,000 rige `phase=recuperacion` y `recovery_floor=$99,000`; al volver a tocar $100,000 vuelve a regir el piso $99,900. El latch histórico se conserva para trazabilidad, pero ya no genera un bloqueo circular.
+
+Se añadieron regresiones a `tests/test_floor_two_phase.py` y `tests/test_floor_gate.py`. La suite terminó con 129 tests OK, 1 omitido y 2 expected failures heredados; compilación y Ruff focalizado pasaron. El commit es `217e0b2`.
+
+La imagen se desplegó como `polaris-bot-floor217e0b2` con 100% de tráfico PAPER. Cloud Run confirmó al arrancar: equity=$99,288.27, fase=recuperacion, floor=$99,000, reto_armado=False, below=False. El primer ciclo terminó con `Tick OK`, pero no abrió operaciones: régimen bear con crash=True y las tres estrategias live devolvieron `not_tradable`; el snapshot persistió orders=0 y positions=0. Se mantuvieron intactos el RiskManager, el cap de sizing, el breaker diario de $400, max_open_positions=2, no-pyramiding, no-averaging y todas las capas shadow.
