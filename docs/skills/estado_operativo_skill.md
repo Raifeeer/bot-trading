@@ -249,3 +249,12 @@ La revisión activa contiene el commit `c4f3ff4` y recibe 100% del tráfico. BOO
 Firestore real `polaris/2026-08-19` confirmó a las 20:10:26Z: `PAPER`, equity `$99,288.27`, 0 posiciones, 0 órdenes; Breakout20/55 con 8 símbolos, 7 confirmadas, 1 no_setup y 0 errores. `gate_allowed=0` en la observación porque el régimen actual no era bull. `CYCLE TIMING` incluye la nueva fase.
 
 La revisión se considera HEALTHY_SHADOW. El primer ciclo largo es de arranque/reconciliación heredado; los ciclos posteriores son sub-4 segundos. Mantener observación hasta acumular más sesiones y validar solapamiento contra DayBreakout antes de cualquier promoción.
+
+
+## 22. Failure/retest de breakout — 19 de agosto de 2026
+
+Skill: `/home/ubuntu/skills/failure-retest-breakout/SKILL.md`. Detector y arneses: `strategies/failure_retest_breakout.py`, `scripts/run_failure_retest_backtests.py`, `scripts/analyze_failure_retest_backtests.py`, `scripts/run_failure_retest_walkforward.py`; tests en `tests/test_failure_retest_breakout.py`.
+
+Matriz: 72 variantes, 402 filas y 5,454 trades sobre 7 símbolos. Estados: accepted, failed y expired; retest 1/3/5 barras, tolerancia 0.25 ATR, lookbacks 10/20/55, volumen 0/1.0x, gate none/bull. Mejor variante full 15m LB55 retest5 sin volumen gate bull: +0.995%, DD −0.836%, frente a baseline +8.485%, DD −3.097%. Walk-forward: inferior en folds de tendencia fuerte; no supera a DayBreakout.
+
+Decisión: `RESEARCH_ONLY`; no se añadió a producción ni shadow. Cloud Run permanece en `polaris-bot-br5520c4f3` PAPER con Breakout20/55 shadow activo, trend pullback shadow activo y breakdown shadow activo. No modificar la revisión por este estudio.

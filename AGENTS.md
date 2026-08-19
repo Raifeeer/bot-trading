@@ -2022,3 +2022,14 @@ La imagen del commit `c4f3ff4` se construyó como digest `sha256:84104671d8d82aa
 Se verificaron tres ciclos completos con `Tick OK`. El primer ciclo tardó 145.050 s por el coste heredado del arranque/reconciliación; los ciclos siguientes tardaron 1.661 s y 3.238 s. La nueva capa tardó 0.136–0.156 s por ciclo. El estado real de Firestore `polaris/2026-08-19`, actualizado `2026-08-19T20:10:26Z`, mostró `trading_mode=PAPER`, equity `$99,288.27`, 0 posiciones y 0 órdenes ejecutadas.
 
 Firestore persistió `breakout_20_55_shadow_observations` con 8 símbolos, `confirmed=7`, `no_setup=1`, `error=0`, `missing_data=0`, `insufficient_data=0` y `gate_allowed=0` en el ciclo observado porque el régimen vigente no era bull. La telemetría también apareció en `signal_stats` y `CYCLE TIMING` como `breakout_20_55_shadow`. La capa no tiene autoridad para abrir órdenes.
+
+
+## 2026-08-19 — Failure/retest de breakout
+
+Se investigó la clasificación posterior a una ruptura: `break_confirmed`, `retest_touched`, `accepted`, `failed` y `expired`. Se creó la skill `/home/ubuntu/skills/failure-retest-breakout/SKILL.md` con fuentes en `docs/failure_retest_research_sources_2026-08-19.md`. El objetivo es medir calidad de rupturas, no asumir que un retest sea rentable ni convertir fallos en cortas.
+
+Se implementaron `strategies/failure_retest_breakout.py`, `tests/test_failure_retest_breakout.py`, `scripts/run_failure_retest_backtests.py`, `scripts/analyze_failure_retest_backtests.py` y `scripts/run_failure_retest_walkforward.py`. La matriz ejecutó 72 variantes, 402 filas y 5,454 trades sobre 7 símbolos intradía.
+
+La mejor configuración 15m con gate bull —LB55, retest 5, sin volumen— obtuvo solo +0.995% full frente a +8.485% de DayBreakout S78, aunque redujo DD a −0.836%. El walk-forward mostró −0.066% vs +0.822% en fold 2, +0.955% vs +8.948% en fold 4 y +0.102% vs −1.038% en fold 5. Dos folds tuvieron poca actividad. La mejora de drawdown proviene principalmente de menor exposición y entradas tardías.
+
+Decisión: **RESEARCH_ONLY**. No se integra en bot.py/config.yaml ni se despliega. Puede retomarse como métrica de calidad del DayBreakout —porcentaje de aceptación/fallo por régimen— antes que como motor de entrada. Las cortas permanecen bloqueadas.
