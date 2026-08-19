@@ -145,7 +145,7 @@ def snapshot(frame: pd.DataFrame, order: int = 3) -> dict[str, object]:
     bos = None
     mss = False
     recent_swings = swings[-8:]
-    for idx, price, is_high in reversed(recent_swings):
+    for _idx, price, is_high in reversed(recent_swings):
         if is_high and float(last["close"]) > price:
             bos = "bull"
             break

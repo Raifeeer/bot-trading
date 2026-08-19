@@ -276,3 +276,12 @@ Se evaluó el detector `strategies/intraday_mean_reversion.py` con 36 variantes 
 Resultado full 15m: baseline S78 +8.485%, DD −3.097%; mejor mean-reversion 2.0/0.25 bull +0.602%, DD −0.557%, 25 trades. Walk-forward: −0.234% vs +0.822% en fold 2, +0.722% vs +8.948% en fold 4 y +0.120% vs −1.038% en fold 5; folds quietos sin señales. La variante 5m de mejor promedio no tiene comparación full equivalente y PF medio 0.951.
 
 Decisión: `RESEARCH_ONLY`; no desplegar, no configurar live ni crear shadow. Si se retoma, usarlo como telemetría de persistencia de extensiones bajo VWAP por régimen, no como filtro de entradas. La revisión Cloud Run PAPER no cambia por este estudio.
+
+
+## Auditoría conjunta de capas shadow — 2026-08-19
+
+La revisión activa auditada es `polaris-bot-br5520c4f3`, con 100% de tráfico PAPER, minScale/maxScale 1/1 y CPU always-on. Firestore `polaris/2026-08-19` publicó equity `$99,288.27`, 0 posiciones y 0 órdenes. En los logs recientes se observaron 24 `Tick OK` y 24 `CYCLE TIMING`, sin tracebacks, sin `Error en el loop` y sin errores shadow.
+
+Conteos del ciclo Firestore: bearish breakdown 5 confirmed/3 no_setup; trend pullback 4/4; Breakout20/55 7/1; todos con datos completos y sin errores. Confirmaciones por símbolo: AMD bearish+breakout; BB bearish+trend; F bearish+breakout; NOK trend+breakout; PLTR trend+breakout; SOFI bearish+breakout; TQQQ trend+breakout; TSLA bearish+breakout. La unión es 8/8 y la triple intersección es vacía; no hubo señal confirmada única de una capa. Mantenerlas como observación y no combinarlas para autorizar entradas.
+
+Se endurecieron los wrappers de setup_confluence, VIX y defined-risk en `bot.py` para forzar `mode=shadow`, `influence_entries=false` y `orders_allowed=false` también en respuestas delegadas peligrosas y rutas disabled. Se añadió `tests/test_shadow_contracts.py`. Validación: 16 tests focalizados, suite completa 173 passed/1 skipped/2 xfailed heredados, Ruff F/B/E9 y compilación limpios. Pendiente: commit y deploy separado del parche, readiness, dos ciclos y verificación Firestore antes de mover tráfico.

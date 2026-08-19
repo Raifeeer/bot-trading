@@ -2055,3 +2055,21 @@ La matriz ejecutó 36 variantes, 204 filas y 8,498 trades sobre 7 símbolos intr
 Walk-forward 15m: la variante 2.0/0.25 bull perdió frente a baseline en fold 2 (−0.234% vs +0.822%) y fold 4 (+0.722% vs +8.948%), no tuvo señales en folds quietos y solo mejoró en fold 5 con dos trades (+0.120% vs −1.038%). La tasa de extensiones sin reclaim fue alta. El detector bloquea confirmaciones cuyo VWAP objetivo está debajo de la entrada, mantiene long-only y es fail-closed.
 
 Decisión: **RESEARCH_ONLY**. No integrar en bot.py/config.yaml, no crear shadow live y no desplegar. Puede retomarse como métrica de persistencia de extensiones por régimen, no como motor de entrada. Producción continúa sin cambios en la revisión PAPER activa.
+
+
+## 2026-08-19 — Auditoría conjunta de capas shadow y endurecimiento de contratos
+
+Se auditó la revisión activa `polaris-bot-br5520c4f3` con 100% de tráfico, minScale/maxScale 1/1, CPU always-on y Alpaca PAPER. Firestore `polaris/2026-08-19` se actualizó a `2026-08-19T20:46:46.673843+00:00`, equity `$99,288.27`, 0 posiciones y 0 órdenes. Los logs auditados contienen 24 `Tick OK`, 24 `CYCLE TIMING`, 0 tracebacks, 0 `Error en el loop` y 0 errores reportados por capas shadow.
+
+El snapshot real mostró bearish breakdown 5 confirmadas/3 no_setup, trend pullback 4/4 y Breakout20/55 7/1; todos con `mode=shadow`, `influence_entries=false` y `orders_allowed=false`. El solapamiento por símbolo fue completo: bearish∩trend={BB}, bearish∩breakout={AMD,F,SOFI,TSLA}, trend∩breakout={NOK,PLTR,TQQQ}; triple intersección vacía. La suma de 16 confirmaciones se reduce a una unión de 8 símbolos: cada símbolo confirmado aparece en dos capas y ninguno aporta una confirmación única en este ciclo. No activar confluencia; medir estabilidad temporal y calidad marginal antes de añadir motores.
+
+La auditoría de código detectó que setup_confluence, VIX y defined-risk no forzaban de forma uniforme `mode=shadow`, `influence_entries=false` y `orders_allowed=false` en todas las rutas, especialmente cuando el delegado devolvía una configuración peligrosa o una capa estaba disabled. Se corrigió `bot.py` para forzar esas banderas en los snapshots habilitados y disabled, y se añadió `tests/test_shadow_contracts.py`. La suite focalizada quedó en 16 tests; la suite completa en 173 passed, 1 skipped y 2 expected failures heredados. Ruff F/B/E9 y compilación pasan.
+
+El conflicto Telegram HTTP 409 (2 apariciones), el símbolo `^VIX` inválido en Alpaca (2 apariciones, fallback real a yfinance) y 82 warnings de feed/API quedaron clasificados como ruido conocido; no bloquearon ciclos ni generaron órdenes. El informe completo es `docs/shadow_layers_audit_2026-08-19.md`. El endurecimiento es seguro, pero aún debe versionarse y desplegarse en una revisión separada PAPER con readiness y dos ciclos antes de mover tráfico.
+
+
+### Parche de contratos shadow validado — 2026-08-19
+
+El endurecimiento de `bot.py` fue ampliado para que `setup_confluence`, VIX y defined-risk fuercen siempre `mode=shadow`, `influence_entries=false` y `orders_allowed=false`, incluidos los caminos disabled y las respuestas devueltas por módulos delegados. Se añadieron regresiones en `tests/test_shadow_contracts.py` y se corrigieron tres avisos Ruff B007 preexistentes sin cambiar lógica: variables de loop no usadas en `run_fundamental_swing_backtests.py`, `run_smc_expanded_backtests.py` y `strategies/smc_expanded.py`.
+
+La validación final pasó YAML (`yaml_shadow_config_ok`), compilación completa, Ruff F/B/E9 en cero y **173 tests passed, 1 skipped, 2 xfailed heredados**. El parche es de seguridad/contrato, no cambia estrategias, floor, sizing, executor, secrets ni el modo PAPER. Debe desplegarse como revisión separada con tráfico controlado y verificarse en dos ciclos antes de reemplazar `polaris-bot-br5520c4f3`.

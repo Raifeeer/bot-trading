@@ -206,7 +206,13 @@ def _setup_shadow_snapshot(cached: dict, tickers: list[str], setup_cfg: dict) ->
     siendo la única ruta de órdenes hasta una promoción explícita.
     """
     if not setup_cfg.get("enabled", False):
-        return {"enabled": False, "mode": "disabled", "symbols": {}}
+        return {
+            "enabled": False,
+            "mode": "disabled",
+            "influence_entries": False,
+            "orders_allowed": False,
+            "symbols": {},
+        }
     by_symbol = {}
     for symbol in tickers:
         frames = {
@@ -232,8 +238,9 @@ def _setup_shadow_snapshot(cached: dict, tickers: list[str], setup_cfg: dict) ->
                 counts[setup]["confirmed"] += 1
     return {
         "enabled": True,
-        "mode": setup_cfg.get("mode", "shadow"),
-        "influence_entries": bool(setup_cfg.get("influence_entries", False)),
+        "mode": "shadow",
+        "influence_entries": False,
+        "orders_allowed": False,
         "source_version": "setup-confluence-v1",
         "counts": counts,
         "symbols": by_symbol,
@@ -249,7 +256,13 @@ def _defined_risk_shadow_snapshot(cached: dict, tickers: list[str], regime: dict
     ``orders_allowed=False`` y ``influence_entries=False``.
     """
     if not shadow_cfg.get("enabled", False):
-        return {"enabled": False, "mode": "disabled", "orders_allowed": False, "symbols": {}}
+        return {
+            "enabled": False,
+            "mode": "disabled",
+            "influence_entries": False,
+            "orders_allowed": False,
+            "symbols": {},
+        }
     daily = cached.get("1d") or {}
     context_data = daily if daily else cached.get("15min", {}) or cached.get("5min", {}) or {}
     context = f"{_latest_bar_key(context_data)}|{(regime or {}).get('regime', 'unknown')}|floor={(regime or {}).get('floor', {}).get('below_floor', False)}"
@@ -270,6 +283,11 @@ def _defined_risk_shadow_snapshot(cached: dict, tickers: list[str], regime: dict
         bool((regime or {}).get("floor", {}).get("below_floor")),
         shadow_cfg,
     )
+    snapshot.update({
+        "mode": "shadow",
+        "influence_entries": False,
+        "orders_allowed": False,
+    })
     snapshot["context_key"] = context
     state["_defined_risk_shadow_context"] = context
     return snapshot
@@ -284,9 +302,16 @@ def _vix_shadow_snapshot(feed, tickers: list[str], shadow_cfg: dict) -> dict:
     """
     safe_cfg = dict(DEFAULT_VIX_SHADOW_CFG)
     safe_cfg.update(shadow_cfg or {})
+    safe_cfg["mode"] = "shadow"
     safe_cfg["influence_entries"] = False
     safe_cfg["orders_allowed"] = False
-    return evaluate_vix_shadow(feed, tickers, safe_cfg)
+    snapshot = evaluate_vix_shadow(feed, tickers, safe_cfg)
+    snapshot.update({
+        "mode": "shadow",
+        "influence_entries": False,
+        "orders_allowed": False,
+    })
+    return snapshot
 
 
 def _structure_mtf_shadow_snapshot(cached: dict, tickers: list[str],

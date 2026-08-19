@@ -54,7 +54,7 @@ def _load_fundamentals() -> pd.DataFrame:
 def _make_flags(fundamentals: pd.DataFrame) -> pd.DataFrame:
     df = fundamentals.copy()
     date_groups = []
-    for date, group in df.groupby("decision_date"):
+    for _date, group in df.groupby("decision_date"):
         group = group.copy()
         valid_pe = group["pe"].where(group["pe"] > 0)
         valid_de = group["de"].where(group["de"] >= 0)

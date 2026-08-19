@@ -102,7 +102,7 @@ def _simulate(frame: pd.DataFrame, features: dict[int, dict[str, object]],
     curve: list[tuple[pd.Timestamp, float]] = []
     last_day = None
     last_mark = allocation
-    for i, (ts, row) in enumerate(data.iterrows()):
+    for _i, (ts, row) in enumerate(data.iterrows()):
         original_i = frame.index.get_loc(ts)
         if last_day is not None and ts.date() != last_day:
             curve.append((pd.Timestamp(last_day, tz=ts.tz), last_mark))
