@@ -2013,3 +2013,12 @@ La variante congelada para observación es `breakout_15min_lb55_vol10_bull`: 15m
 Se añadió `breakout_20_55_shadow` a `config/config.yaml` y el wrapper a `bot.py`. El wrapper fuerza `mode=shadow`, `influence_entries=false`, `orders_allowed=false`, `allow_shorts=false`; registra `would_pass_gate`, persiste `breakout_20_55_shadow_observations`, actualiza `signal_stats` y `CYCLE TIMING`. La suite previa a deploy quedó en 160 passed, 1 skipped y 2 xfailed; Ruff y skill validation pasan.
 
 **Pendiente inmediato:** crear commit, desplegar revisión PAPER separada, verificar BOOT/CYCLE TIMING/Firestore y cero órdenes antes de considerar la integración activa. Ninguna señal Breakout20/55 puede modificar entradas.
+
+
+### Verificación PAPER de Breakout20/55 — revisión `polaris-bot-br5520c4f3`
+
+La imagen del commit `c4f3ff4` se construyó como digest `sha256:84104671d8d82aadc4be003d7a3f731b6f4b772c78698e896c6fd35fd863661f` y se desplegó en Cloud Run con 100% de tráfico. El arranque confirmó `enabled=true`, `mode=shadow`, `influence_entries=false`, `orders_allowed=false`, `timeframe=15min`, `lookback=55`, `volume_min=1.0` y `gate=bull`.
+
+Se verificaron tres ciclos completos con `Tick OK`. El primer ciclo tardó 145.050 s por el coste heredado del arranque/reconciliación; los ciclos siguientes tardaron 1.661 s y 3.238 s. La nueva capa tardó 0.136–0.156 s por ciclo. El estado real de Firestore `polaris/2026-08-19`, actualizado `2026-08-19T20:10:26Z`, mostró `trading_mode=PAPER`, equity `$99,288.27`, 0 posiciones y 0 órdenes ejecutadas.
+
+Firestore persistió `breakout_20_55_shadow_observations` con 8 símbolos, `confirmed=7`, `no_setup=1`, `error=0`, `missing_data=0`, `insufficient_data=0` y `gate_allowed=0` en el ciclo observado porque el régimen vigente no era bull. La telemetría también apareció en `signal_stats` y `CYCLE TIMING` como `breakout_20_55_shadow`. La capa no tiene autoridad para abrir órdenes.
