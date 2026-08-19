@@ -2033,3 +2033,14 @@ Se implementaron `strategies/failure_retest_breakout.py`, `tests/test_failure_re
 La mejor configuración 15m con gate bull —LB55, retest 5, sin volumen— obtuvo solo +0.995% full frente a +8.485% de DayBreakout S78, aunque redujo DD a −0.836%. El walk-forward mostró −0.066% vs +0.822% en fold 2, +0.955% vs +8.948% en fold 4 y +0.102% vs −1.038% en fold 5. Dos folds tuvieron poca actividad. La mejora de drawdown proviene principalmente de menor exposición y entradas tardías.
 
 Decisión: **RESEARCH_ONLY**. No se integra en bot.py/config.yaml ni se despliega. Puede retomarse como métrica de calidad del DayBreakout —porcentaje de aceptación/fallo por régimen— antes que como motor de entrada. Las cortas permanecen bloqueadas.
+
+
+## 2026-08-19 — Relative-strength priority overlay
+
+Se evaluó un overlay distinto de la rotación pura: conservar DayBreakout y filtrar sus señales long por líderes cross-sectional diarios, usando cierres disponibles hasta el día anterior. Se creó `strategies/relative_strength_priority.py` y sus tests, junto con `scripts/run_relative_strength_priority_backtests.py` y `scripts/analyze_relative_strength_priority_backtests.py`.
+
+Se probaron 16 variantes sobre 7 símbolos: horizontes 20/60 sesiones, top-k 1/2, retorno positivo o ranking relativo y gate none/bull. El baseline DayBreakout S78 terminó +8.485% full con DD −3.097%. La mejor variante full, H60/K2 con gate bull, terminó +3.219%, DD −1.495%, 42 trades, delta −5.266 pp. H20/K2 bull terminó +2.963%, DD −4.025%. Sin gate, el resultado empeoró marcadamente; H20/K2 terminó −0.769% y DD −10.791%.
+
+La mejora reciente se explica principalmente por no operar cuando el régimen no era bull; la ventana reciente tenía solo dos trades de baseline. El ledger agregado también mostró concentración fuerte: NOK +$35,775 y BB −$95,926 en las variantes combinadas, por lo que no es evidencia de alpha independiente.
+
+Decisión: **RESEARCH_ONLY**. No añadir filtro live, no crear capa shadow y no desplegar. Si se retoma, exigir universo más amplio, benchmark externo y leave-one-symbol-out antes de usarlo para priorizar entradas. Producción permanece en la revisión PAPER `polaris-bot-br5520c4f3`.

@@ -258,3 +258,12 @@ Skill: `/home/ubuntu/skills/failure-retest-breakout/SKILL.md`. Detector y arnese
 Matriz: 72 variantes, 402 filas y 5,454 trades sobre 7 símbolos. Estados: accepted, failed y expired; retest 1/3/5 barras, tolerancia 0.25 ATR, lookbacks 10/20/55, volumen 0/1.0x, gate none/bull. Mejor variante full 15m LB55 retest5 sin volumen gate bull: +0.995%, DD −0.836%, frente a baseline +8.485%, DD −3.097%. Walk-forward: inferior en folds de tendencia fuerte; no supera a DayBreakout.
 
 Decisión: `RESEARCH_ONLY`; no se añadió a producción ni shadow. Cloud Run permanece en `polaris-bot-br5520c4f3` PAPER con Breakout20/55 shadow activo, trend pullback shadow activo y breakdown shadow activo. No modificar la revisión por este estudio.
+
+
+## Relative-strength priority overlay — 19 de agosto de 2026
+
+El overlay filtra señales existentes de DayBreakout por líderes diarios as-of; no construye cartera ni modifica el executor. Se probaron 16 variantes H20/H60, top-k 1/2, ranking relativo/retorno positivo y gate none/bull sobre 7 símbolos.
+
+Resultado full: baseline S78 +8.485%, DD −3.097%; mejor overlay H60/K2 bull +3.219%, DD −1.495%, delta −5.266 pp. Sin gate, H20/K2 terminó −0.769%, DD −10.791%. Las mejoras recientes proceden de menor exposición y no de selección robusta.
+
+Decisión: `RESEARCH_ONLY`; no configurar, no shadow y no deploy. La revisión PAPER continua siendo `polaris-bot-br5520c4f3`, con Breakout20/55 shadow, trend pullback shadow y bearish breakdown shadow. Guardar el informe en `docs/relative_strength_priority_overlay_backtest_2026-08-19.md` y los CSV en `/home/ubuntu/backtests/relative_strength_priority_*`.
