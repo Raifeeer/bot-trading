@@ -2000,3 +2000,16 @@ La matriz ejecutó 72 variantes y 402 filas sobre PLTR, F, TSLA, AMD, NOK, BB y 
 El walk-forward de cinco folds no solapados no mostró ventaja estable. RSI2<30 bull quedó por debajo del baseline en los tres folds con actividad; RSI5<20 bull solo mejoró un fold y cayó de forma importante en otro. No se añadió capa shadow a `bot.py` ni a `config.yaml` porque el motor no supera el criterio de robustez mínimo.
 
 Decisión: **RESEARCH_ONLY**. Producción conserva la revisión `polaris-bot-tpshadowf6eb11b` y no recibe cambios RSI. Antes de retomar esta línea se exige muestra nueva, leave-one-symbol-out, separación de crash/regímenes y validación de fills de opciones.
+
+
+## 2026-08-19 — Breakout20/55 con volumen
+
+Se investigó la diferencia entre el DayBreakout actual de 10 barras y canales Donchian de 20/55 con volumen. Se creó la skill `/home/ubuntu/skills/breakout-20-55-volume/SKILL.md` y sus fuentes en `/home/ubuntu/bot-trading/docs/breakout_20_55_research_sources_2026-08-19.md`. La evidencia externa respalda estudiar trend following/canales, pero no transfiere automáticamente parámetros diarios de futuros a acciones intradía.
+
+Se implementaron `strategies/breakout_20_55_volume.py`, tests del detector y wrapper, y los arneses `scripts/run_breakout_20_55_backtests.py`, `scripts/analyze_breakout_20_55_backtests.py` y `scripts/run_breakout_20_55_walkforward.py`. La matriz ejecutó 24 variantes y 138 filas sobre PLTR, F, TSLA, AMD, NOK, BB y TQQQ; SOFI quedó fuera por falta de cache intradía.
+
+La variante congelada para observación es `breakout_15min_lb55_vol10_bull`: 15m, canal previo de 55 barras, volumen mínimo 1.0x, gate bull, una señal por sesión, long-only, stop/target teóricos y entrada siguiente. Full_available: +9.542% y DD −2.945% frente a DayBreakout S78 +8.485% y DD −3.097%. En seis ventanas, fue mejor en retorno y drawdown bajo el criterio usado en 4/6. En walk-forward de cinco folds, hubo dos folds sin señales y, entre los tres con actividad del baseline, superó retorno y mejoró DD en 2/3; pierde en fold 2. Es una señal suficiente para shadow, no para filtro operativo.
+
+Se añadió `breakout_20_55_shadow` a `config/config.yaml` y el wrapper a `bot.py`. El wrapper fuerza `mode=shadow`, `influence_entries=false`, `orders_allowed=false`, `allow_shorts=false`; registra `would_pass_gate`, persiste `breakout_20_55_shadow_observations`, actualiza `signal_stats` y `CYCLE TIMING`. La suite previa a deploy quedó en 160 passed, 1 skipped y 2 xfailed; Ruff y skill validation pasan.
+
+**Pendiente inmediato:** crear commit, desplegar revisión PAPER separada, verificar BOOT/CYCLE TIMING/Firestore y cero órdenes antes de considerar la integración activa. Ninguna señal Breakout20/55 puede modificar entradas.

@@ -231,3 +231,12 @@ La skill está en `/home/ubuntu/skills/rsi-bounce-sma200/SKILL.md`. El detector 
 Se evaluaron 72 variantes y 402 filas sobre 7 símbolos con caches reales 5m/15m, 5 bps por lado, RSI 2/5/14, umbrales 20/25/30, SMA200/SMA50 y gates none/bull. Baseline DayBreakout S78 15m: +8.485%, DD −3.097% full_available. Mejor variante 15m RSI2<30 + gate bull: +6.292%, DD −3.266%, 130 trades. Las variantes 5m con mejores promedios tienen solo 4–12 trades y no tienen baseline full comparable.
 
 Walk-forward de cinco folds no solapados: la variante RSI2<30 bull quedó por debajo del baseline en los tres folds con actividad; RSI5<20 bull solo mejoró un fold. Decisión: `RESEARCH_ONLY`; no se añadió a bot.py/config.yaml y no se desplegó. Cloud Run continúa en `polaris-bot-tpshadowf6eb11b` PAPER, con trend pullback y breakdown shadow activos.
+
+
+## 21. Breakout20/55 con volumen — 19 de agosto de 2026
+
+Skill reusable: `/home/ubuntu/skills/breakout-20-55-volume/SKILL.md`. Detector: `strategies/breakout_20_55_volume.py`. Wrapper y telemetría: `bot.py`. Tests: `tests/test_breakout_20_55_volume.py` y `tests/test_breakout_20_55_shadow.py`.
+
+La matriz ejecutó 24 variantes y 138 filas sobre 7 símbolos intradía. Mejor variante: `breakout_15min_lb55_vol10_bull`, con canal Donchian previo de 55 barras, volumen 1.0x, gate bull y long-only. Full_available: +9.542%, DD −2.945%, 93 trades; baseline S78: +8.485%, DD −3.097%, 156 trades. Walk-forward de cinco folds: dos sin señales; en los tres con actividad, mejora retorno y DD en dos y pierde en uno.
+
+La capa se añadió a `config/config.yaml` como `breakout_20_55_shadow`, pero aún está pendiente de commit/deploy en esta entrada. Invariantes: `mode=shadow`, `influence_entries=false`, `orders_allowed=false`, `allow_shorts=false`, 15m, lookback 55, volumen 1.0x, gate bull. Al desplegar, verificar `breakout_20_55_shadow_observations`, `signal_stats.breakout_20_55_shadow`, `CYCLE TIMING.breakout_20_55_shadow` y cero órdenes. Producción actual sigue en `polaris-bot-tpshadowf6eb11b` PAPER.

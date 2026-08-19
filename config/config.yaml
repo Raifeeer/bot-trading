@@ -206,6 +206,28 @@ trend_pullback_shadow:
   session_start: "09:30"
   session_end: "15:30"
 
+# Breakout Donchian de 55 barras con confirmación de volumen. Es una
+# sensibilidad distinta al canal 10 del DayBreakout, pero permanece shadow.
+breakout_20_55_shadow:
+  enabled: true
+  mode: shadow
+  influence_entries: false
+  orders_allowed: false
+  timeframe: 15min
+  lookback: 55
+  volume_lookback: 20
+  volume_min: 1.0
+  atr_period: 14
+  break_buffer_atr: 0.0
+  stop_buffer_atr: 0.10
+  reward_risk: 1.5
+  hold_max_bars: 20
+  session_start: "09:30"
+  session_end: "15:30"
+  one_signal_per_session: true
+  allow_shorts: false
+  gate: bull
+
 strategies:
   # ---------------------------------------------------------------------------
   # DAY TRADING: momentum intradía con filtro de volatilidad (velas 5 min)

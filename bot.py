@@ -89,6 +89,26 @@ DEFAULT_TREND_PULLBACK_SHADOW_CFG = {
     "session_start": "09:30",
     "session_end": "15:30",
 }
+DEFAULT_BREAKOUT_20_55_SHADOW_CFG = {
+    "enabled": True,
+    "mode": "shadow",
+    "influence_entries": False,
+    "orders_allowed": False,
+    "timeframe": "15min",
+    "lookback": 55,
+    "volume_lookback": 20,
+    "volume_min": 1.0,
+    "atr_period": 14,
+    "break_buffer_atr": 0.0,
+    "stop_buffer_atr": 0.10,
+    "reward_risk": 1.5,
+    "hold_max_bars": 20,
+    "session_start": "09:30",
+    "session_end": "15:30",
+    "one_signal_per_session": True,
+    "allow_shorts": False,
+    "gate": "bull",
+}
 DEFAULT_BEARISH_BREAKDOWN_SHADOW_CFG = {
     "enabled": True,
     "mode": "shadow",
@@ -155,6 +175,7 @@ from strategies.vix_shadow import evaluate_vix_shadow
 from strategies.structure_mtf import evaluate_universe_structure
 from strategies.bearish_breakdown_retest import evaluate_breakdown_retest
 from strategies.trend_pullback_continuation import evaluate_trend_pullback
+from strategies.breakout_20_55_volume import evaluate_breakout
 from options.defined_risk_shadow import evaluate_defined_risk_shadow
 logger.info("BOOT: imports complete")
 
@@ -466,6 +487,85 @@ def _trend_pullback_shadow_snapshot(cached: dict, tickers: list[str], shadow_cfg
         "orders_allowed": False,
         "source_version": "trend-pullback-continuation-v1",
         "timeframe": timeframe,
+        "parameters": {key: value for key, value in safe_cfg.items() if key not in {"enabled", "mode", "influence_entries", "orders_allowed"}},
+        "counts": counts,
+        "symbols": observations,
+        "risk_authority": "risk_manager_only",
+    }
+
+
+def _breakout_20_55_shadow_snapshot(cached: dict, tickers: list[str], shadow_cfg: dict, current_regime: dict | None = None) -> dict:
+    """Evalúa ruptura Donchian 20/55 sin conceder autoridad operativa."""
+    safe_cfg = dict(DEFAULT_BREAKOUT_20_55_SHADOW_CFG)
+    safe_cfg.update(shadow_cfg or {})
+    safe_cfg["mode"] = "shadow"
+    safe_cfg["influence_entries"] = False
+    safe_cfg["orders_allowed"] = False
+    if not safe_cfg.get("enabled", False):
+        return {
+            "enabled": False,
+            "mode": "disabled",
+            "influence_entries": False,
+            "orders_allowed": False,
+            "symbols": {},
+            "counts": {},
+        }
+    timeframe = str(safe_cfg.get("timeframe", "15min"))
+    bars_by_symbol = cached.get(timeframe) or {}
+    parameter_keys = (
+        "timeframe", "lookback", "volume_lookback", "volume_min", "atr_period",
+        "break_buffer_atr", "stop_buffer_atr", "reward_risk", "hold_max_bars",
+        "session_start", "session_end", "one_signal_per_session", "allow_shorts",
+    )
+    parameters = {key: safe_cfg[key] for key in parameter_keys if key in safe_cfg}
+    minimum_bars = max(
+        int(safe_cfg.get("lookback", 55)),
+        int(safe_cfg.get("volume_lookback", 20)),
+        int(safe_cfg.get("atr_period", 14)),
+    )
+    observations = {}
+    counts = {"confirmed": 0, "no_setup": 0, "insufficient_data": 0, "missing_data": 0, "error": 0, "gate_allowed": 0}
+    regime_name = (current_regime or {}).get("regime", "unknown")
+    gate = str(safe_cfg.get("gate", "bull"))
+    for symbol in tickers:
+        frame = bars_by_symbol.get(symbol) if isinstance(bars_by_symbol, dict) else None
+        if frame is None or getattr(frame, "empty", True):
+            observation = {"signal": "none", "status": "missing_data", "direction": "neutral", "timeframe": timeframe, "lookback": int(safe_cfg.get("lookback", 55))}
+        elif len(frame) < minimum_bars:
+            observation = {"signal": "none", "status": "insufficient_data", "direction": "neutral", "timeframe": timeframe, "lookback": int(safe_cfg.get("lookback", 55)), "bars": len(frame), "minimum_bars": minimum_bars}
+        else:
+            try:
+                observation = evaluate_breakout(frame, symbol=symbol, **parameters)
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("BREAKOUT 20/55 SHADOW: fallo evaluando %s", symbol)
+                observation = {"signal": "none", "status": "error", "direction": "neutral", "timeframe": timeframe, "lookback": int(safe_cfg.get("lookback", 55)), "error_type": type(exc).__name__}
+        observation = dict(observation)
+        status = observation.get("status", "error")
+        counts[status] = counts.get(status, 0) + 1
+        gate_allowed = status == "confirmed" and (gate == "none" or (gate == "bull" and regime_name == "bull"))
+        if gate_allowed:
+            counts["gate_allowed"] += 1
+        observation.update({
+            "symbol": symbol,
+            "gate": gate,
+            "current_regime": regime_name,
+            "would_pass_gate": gate_allowed,
+            "mode": "shadow",
+            "influence_entries": False,
+            "orders_allowed": False,
+            "observational_only": True,
+        })
+        observations[symbol] = observation
+    return {
+        "enabled": True,
+        "mode": "shadow",
+        "influence_entries": False,
+        "orders_allowed": False,
+        "source_version": "breakout-20-55-volume-v1",
+        "timeframe": timeframe,
+        "lookback": int(safe_cfg.get("lookback", 55)),
+        "gate": gate,
+        "current_regime": regime_name,
         "parameters": {key: value for key, value in safe_cfg.items() if key not in {"enabled", "mode", "influence_entries", "orders_allowed"}},
         "counts": counts,
         "symbols": observations,
@@ -985,6 +1085,14 @@ def main():
         "orders_allowed=%s timeframe=%s direction=%s",
         trend_pullback_boot_cfg["enabled"], "shadow", False, False,
         trend_pullback_boot_cfg["timeframe"], trend_pullback_boot_cfg["direction"])
+    breakout_20_55_boot_cfg = dict(DEFAULT_BREAKOUT_20_55_SHADOW_CFG)
+    breakout_20_55_boot_cfg.update(cfg.get("breakout_20_55_shadow", {}) or {})
+    logger.info(
+        "BOOT: breakout 20/55 shadow enabled=%s mode=%s influence_entries=%s "
+        "orders_allowed=%s timeframe=%s lookback=%s volume_min=%s gate=%s",
+        breakout_20_55_boot_cfg["enabled"], "shadow", False, False,
+        breakout_20_55_boot_cfg["timeframe"], breakout_20_55_boot_cfg["lookback"],
+        breakout_20_55_boot_cfg["volume_min"], breakout_20_55_boot_cfg["gate"])
     structure_mtf_boot_cfg = dict(DEFAULT_STRUCTURE_MTF_SHADOW_CFG)
     structure_mtf_boot_cfg.update(cfg.get("structure_mtf_shadow", {}) or {})
     logger.info(
@@ -1455,6 +1563,26 @@ def main():
                     "TREND PULLBACK SHADOW: influence_entries solicitado pero bloqueado; "
                     "la capa permanece shadow hasta promoción validada"
                 )
+            breakout_20_55_started = time.monotonic()
+            breakout_20_55_cfg = dict(DEFAULT_BREAKOUT_20_55_SHADOW_CFG)
+            breakout_20_55_cfg.update(cfg.get("breakout_20_55_shadow", {}) or {})
+            breakout_20_55_snapshot = _breakout_20_55_shadow_snapshot(
+                cached, tickers, breakout_20_55_cfg, regime)
+            state["breakout_20_55_shadow_observations"] = breakout_20_55_snapshot
+            signal_stats["breakout_20_55_shadow"] = {
+                "mode": breakout_20_55_snapshot.get("mode"),
+                "symbols": len(breakout_20_55_snapshot.get("symbols", {})),
+                "counts": breakout_20_55_snapshot.get("counts", {}),
+                "orders_allowed": False,
+                "influence_entries": False,
+            }
+            phase_times["breakout_20_55_shadow_s"] = round(
+                time.monotonic() - breakout_20_55_started, 3)
+            if (cfg.get("breakout_20_55_shadow", {}) or {}).get("influence_entries"):
+                logger.warning(
+                    "BREAKOUT 20/55 SHADOW: influence_entries solicitado pero bloqueado; "
+                    "la capa permanece shadow hasta promoción validada"
+                )
             phase_times["entries_s"] = round(time.monotonic() - cycle_started, 3)
 
             # 4b. MOTOR BAJISTA: put spreads sobre CHoCH bear (AGENTS.md §40).
@@ -1666,6 +1794,8 @@ def main():
                             "bearish_breakdown_shadow_observations", {}),
                         "trend_pullback_shadow_observations": state.get(
                             "trend_pullback_shadow_observations", {}),
+                        "breakout_20_55_shadow_observations": state.get(
+                            "breakout_20_55_shadow_observations", {}),
                         "decisions_today": [d for d in state["decisions"]
                                             if d.get("ts", "").startswith(
                                                 datetime.utcnow().strftime("%Y-%m-%d"))],
@@ -1694,7 +1824,7 @@ def main():
             phase_times["total_s"] = round(time.monotonic() - cycle_started, 3)
             signal_stats["phase_seconds"] = phase_times
             _hb["ts"].append(time.time())
-            logger.info("CYCLE TIMING id=%d total=%.3fs entries=%.3fs setups=%.3fs vix_shadow=%.3fs structure_mtf=%.3fs risk_shadow=%.3fs breakdown_shadow=%.3fs trend_pullback_shadow=%.3fs bear=%.3fs positions=%.3fs publish=%.3fs sleep=%.3fs",
+            logger.info("CYCLE TIMING id=%d total=%.3fs entries=%.3fs setups=%.3fs vix_shadow=%.3fs structure_mtf=%.3fs risk_shadow=%.3fs breakdown_shadow=%.3fs trend_pullback_shadow=%.3fs breakout_20_55_shadow=%.3fs bear=%.3fs positions=%.3fs publish=%.3fs sleep=%.3fs",
                         cycle_id, phase_times["total_s"],
                         phase_times.get("entries_s", 0.0),
                         phase_times.get("setups_s", 0.0),
@@ -1703,6 +1833,7 @@ def main():
                         phase_times.get("defined_risk_shadow_s", 0.0),
                         phase_times.get("bearish_breakdown_shadow_s", 0.0),
                         phase_times.get("trend_pullback_shadow_s", 0.0),
+                        phase_times.get("breakout_20_55_shadow_s", 0.0),
                         phase_times.get("bear_s", 0.0),
                         phase_times.get("positions_s", 0.0),
                         phase_times.get("publish_s", 0.0),
