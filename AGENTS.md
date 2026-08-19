@@ -2044,3 +2044,14 @@ Se probaron 16 variantes sobre 7 símbolos: horizontes 20/60 sesiones, top-k 1/2
 La mejora reciente se explica principalmente por no operar cuando el régimen no era bull; la ventana reciente tenía solo dos trades de baseline. El ledger agregado también mostró concentración fuerte: NOK +$35,775 y BB −$95,926 en las variantes combinadas, por lo que no es evidencia de alpha independiente.
 
 Decisión: **RESEARCH_ONLY**. No añadir filtro live, no crear capa shadow y no desplegar. Si se retoma, exigir universo más amplio, benchmark externo y leave-one-symbol-out antes de usarlo para priorizar entradas. Producción permanece en la revisión PAPER `polaris-bot-br5520c4f3`.
+
+
+## 2026-08-19 — Intraday mean-reversion VWAP/ATR
+
+Se investigó y formalizó un motor independiente de RSI bounce para medir extensiones bajo VWAP y reclaim posterior. Se creó la skill `/home/ubuntu/skills/intraday-mean-reversion/SKILL.md`, el detector `strategies/intraday_mean_reversion.py`, sus tests y los arneses/analizadores de backtest y walk-forward.
+
+La matriz ejecutó 36 variantes, 204 filas y 8,498 trades sobre 7 símbolos intradía reales. La mejor variante 15m full —extensión 2.0 ATR, reclaim 0.25 ATR, gate bull— obtuvo +0.602% frente a +8.485% de DayBreakout S78; DD −0.557% frente a −3.097%, con 25 frente a 156 trades. Sin gate, la misma extensión terminó −5.920% y DD −6.015%. La mejor variante 5m tuvo delta medio +0.299 pp en cuatro ventanas, pero solo 48 trades, PF medio 0.951 y sin comparación full equivalente.
+
+Walk-forward 15m: la variante 2.0/0.25 bull perdió frente a baseline en fold 2 (−0.234% vs +0.822%) y fold 4 (+0.722% vs +8.948%), no tuvo señales en folds quietos y solo mejoró en fold 5 con dos trades (+0.120% vs −1.038%). La tasa de extensiones sin reclaim fue alta. El detector bloquea confirmaciones cuyo VWAP objetivo está debajo de la entrada, mantiene long-only y es fail-closed.
+
+Decisión: **RESEARCH_ONLY**. No integrar en bot.py/config.yaml, no crear shadow live y no desplegar. Puede retomarse como métrica de persistencia de extensiones por régimen, no como motor de entrada. Producción continúa sin cambios en la revisión PAPER activa.

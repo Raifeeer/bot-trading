@@ -267,3 +267,12 @@ El overlay filtra señales existentes de DayBreakout por líderes diarios as-of;
 Resultado full: baseline S78 +8.485%, DD −3.097%; mejor overlay H60/K2 bull +3.219%, DD −1.495%, delta −5.266 pp. Sin gate, H20/K2 terminó −0.769%, DD −10.791%. Las mejoras recientes proceden de menor exposición y no de selección robusta.
 
 Decisión: `RESEARCH_ONLY`; no configurar, no shadow y no deploy. La revisión PAPER continua siendo `polaris-bot-br5520c4f3`, con Breakout20/55 shadow, trend pullback shadow y bearish breakdown shadow. Guardar el informe en `docs/relative_strength_priority_overlay_backtest_2026-08-19.md` y los CSV en `/home/ubuntu/backtests/relative_strength_priority_*`.
+
+
+## Intraday mean-reversion VWAP/ATR — 19 de agosto de 2026
+
+Se evaluó el detector `strategies/intraday_mean_reversion.py` con 36 variantes 5m/15m, extensiones 1.0/1.5/2.0 ATR, reclaim 0.25/0.5 ATR y gates none/bull/no_crash. Matriz: 204 filas y 8,498 trades sobre 7 símbolos.
+
+Resultado full 15m: baseline S78 +8.485%, DD −3.097%; mejor mean-reversion 2.0/0.25 bull +0.602%, DD −0.557%, 25 trades. Walk-forward: −0.234% vs +0.822% en fold 2, +0.722% vs +8.948% en fold 4 y +0.120% vs −1.038% en fold 5; folds quietos sin señales. La variante 5m de mejor promedio no tiene comparación full equivalente y PF medio 0.951.
+
+Decisión: `RESEARCH_ONLY`; no desplegar, no configurar live ni crear shadow. Si se retoma, usarlo como telemetría de persistencia de extensiones bajo VWAP por régimen, no como filtro de entradas. La revisión Cloud Run PAPER no cambia por este estudio.
