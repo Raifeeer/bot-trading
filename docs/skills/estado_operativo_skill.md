@@ -154,3 +154,10 @@ $GCLOUD logging read 'resource.type="cloud_run_revision" AND resource.labels.ser
 ```
 
 Confirmar la revisión nueva, dos ciclos completos, `bearish_breakdown_shadow_observations` en Firestore, `mode=shadow`, `orders_allowed=false`, `influence_entries=false` y ausencia de órdenes nuevas. Si la nueva revisión no arranca o se bloquea, revertir a la revisión PAPER anterior y documentar el incidente.
+
+
+## 14. Verificación productiva de bearish shadow — 19 de agosto de 2026
+
+La revisión activa final es `polaris-bot-brshadow0724650`, con 100% del tráfico PAPER. Usa el digest inmutable `sha256:fedf44ffe0725ed3db53c1f1f9fbc208adbcfc0928e3c3439b542956464f5fca`; `polaris-bot-floor217e0b2` queda como rollback. Cloud Run confirmó `Ready`, `Active`, `ContainerHealthy`, minScale=1, maxScale=1, CPU always-on, `DATA_PROVIDER=alpaca`, `APCA_API_BASE_URL=paper` y secretos Alpaca conservados.
+
+Se observaron tres ciclos consecutivos con `Tick OK` y sin tracebacks: 16:02:20, 16:03:21 y 16:04:23 UTC. `CYCLE TIMING` incluyó `breakdown_shadow` de 0.160 s, 0.175 s y 0.168 s. Firestore `polaris/2026-08-19` confirmó `updated_at=2026-08-19T16:04:22.766280+00:00`, equity `$99,288.27`, `trading_mode=PAPER`, posiciones 0, órdenes ejecutadas 0, `mode=shadow`, `influence_entries=false`, `orders_allowed=false`, ocho símbolos y cinco confirmaciones bearish frente a tres `no_setup`. La capa es `HEALTHY_NO_SIGNAL` para ejecución live y `SHADOW_CANDIDATE` para observación; la estrategia sigue `RESEARCH_ONLY` para promoción.
