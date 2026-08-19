@@ -1861,3 +1861,12 @@ La revisión final activa es `polaris-bot-vixshadow3`, basada en `379dc84`, con 
 Se observaron ciclos consecutivos entre 19:50 y 20:04 UTC con `Tick OK`, escritura en Firestore y cero órdenes/posiciones. `CYCLE TIMING` incluye `vix_shadow` de aproximadamente 0.006–0.009 s después del primer ciclo. Firestore contiene `vix_shadow_observations` con `mode=shadow`, `influence_entries=false`, `orders_allowed=false`, `available=true`, ocho símbolos, fecha de operación 2026-08-18 y cierre VIX usado 2026-08-17. Las variantes `shock_10`, `percentile_70` y `level_25` registraron `would_block=false`.
 
 La consulta de `^VIX` fue rechazada por Alpaca como símbolo inválido y el feed usó el fallback real de yfinance; no se rellenaron datos artificialmente. Las revisiones `00087`, `vixshadow` y `vixshadow2` se retiraron del tráfico por timeout inicial; `00086` quedó disponible como rollback. VIX permanece estrictamente shadow: no bloquea entradas, no cambia sizing, no cierra posiciones, no modifica el RiskManager ni accede al executor.
+
+
+## 29. Estructura MTF shadow — 19 de agosto de 2026
+
+Se implementó `strategies/structure_mtf.py` como detector puro de máximos/mínimos confirmados en `1d`, `15min` y `5min`. La puntuación pondera diario 0.50, 15min 0.30 y 5min 0.20. El wrapper de `bot.py` fuerza `mode=shadow`, `influence_entries=false` y `orders_allowed=false`; la capa no accede al executor ni al RiskManager.
+
+La capa está conectada al loop y se persiste en Firestore como `structure_mtf_shadow_observations`. `CYCLE TIMING` incluye `structure_mtf`. El backtest real utilizó 5m/15m Alpaca IEX y diario cacheado, con siete símbolos; SOFI quedó explícitamente fuera por falta de histórico diario. El baseline fue DayBreakout con puerta S78. En cinco variantes y cinco ventanas recientes, `mtf_strict` tuvo delta medio de retorno -0.095 pp, `intraday_bull` -0.128 pp y `daily_bull` +0.026 pp con cero operaciones. No hay evidencia suficiente para promoverla como filtro.
+
+Suite específica y completa: 129 tests OK, 1 skipped y 2 expected failures heredados. La capa permanece shadow hasta acumular más observaciones y ejecutar walk-forward con ventanas más largas.

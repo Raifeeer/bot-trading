@@ -128,3 +128,10 @@ La capa `vix_shadow` consulta `^VIX` mediante el feed real y usa exclusivamente 
 La revisión activa es `polaris-bot-vixshadow3`, basada en `379dc84`, con 100% del tráfico y CPU always-on. La conexión a Alpaca PAPER se completó y los ciclos posteriores escribieron Firestore correctamente. Se observó `vix_shadow_s` de aproximadamente 0.006–0.009 s después del primer ciclo, junto con `Tick OK` y cero órdenes.
 
 Firestore confirma `vix_shadow_observations` disponible, `mode=shadow`, `influence_entries=false`, `orders_allowed=false`, ocho símbolos, alineación al último cierre anterior y variantes `shock_10`, `percentile_70` y `level_25`. La consulta `^VIX` usa Alpaca como primer intento y yfinance real como fallback cuando Alpaca devuelve símbolo inválido. No se imputan barras ni se usa el valor para bloquear entradas.
+
+
+## 12. Estructura MTF shadow — 19 de agosto de 2026
+
+La capa `structure_mtf_shadow` está configurada y conectada al loop, pero no es una estrategia live. Analiza `1d`, `15min` y `5min` con swings fractales confirmados, registra dirección, score, máximos/mínimos confirmados y conteos bull/bear. Firestore recibe el snapshot bajo `structure_mtf_shadow_observations` y `CYCLE TIMING` expone `structure_mtf`.
+
+Los invariantes son obligatorios: `mode=shadow`, `influence_entries=false`, `orders_allowed=false` y autoridad final del RiskManager. El backtest inicial sobre siete símbolos y 38 días disponibles no mostró mejora de retorno frente a DayBreakout + S78; no promover sin una segunda validación walk-forward más larga.

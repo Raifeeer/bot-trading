@@ -142,6 +142,24 @@ vix_shadow:
     - percentile_70
     - level_25
 
+# Estructura de mercado multi-timeframe: solo observabilidad. Evalúa
+# máximos/mínimos confirmados en barras cerradas de 1d/15min/5min.
+structure_mtf_shadow:
+  enabled: true
+  mode: shadow
+  influence_entries: false
+  orders_allowed: false
+  timeframes:
+    - 1d
+    - 15min
+    - 5min
+  weights:
+    1d: 0.50
+    15min: 0.30
+    5min: 0.20
+  pivot_order: 3
+  tolerance: 0.001
+
 strategies:
   # ---------------------------------------------------------------------------
   # DAY TRADING: momentum intradía con filtro de volatilidad (velas 5 min)

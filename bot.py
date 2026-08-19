@@ -53,6 +53,16 @@ DEFAULT_VIX_SHADOW_CFG = {
     "history_days": 400,
     "variants": ["shock_10", "percentile_70", "level_25"],
 }
+DEFAULT_STRUCTURE_MTF_SHADOW_CFG = {
+    "enabled": True,
+    "mode": "shadow",
+    "influence_entries": False,
+    "orders_allowed": False,
+    "timeframes": ["1d", "15min", "5min"],
+    "weights": {"1d": 0.50, "15min": 0.30, "5min": 0.20},
+    "pivot_order": 3,
+    "tolerance": 0.001,
+}
 
 from config import get_config
 from data.feed import MarketDataFeed
@@ -100,6 +110,7 @@ from risk.manager import RiskManager
 from execution.alpaca_executor import AlpacaExecutor, ExecutionError
 from strategies.setup_confluence import SETUP_NAMES, analyze_setup_confluence
 from strategies.vix_shadow import evaluate_vix_shadow
+from strategies.structure_mtf import evaluate_universe_structure
 from options.defined_risk_shadow import evaluate_defined_risk_shadow
 logger.info("BOOT: imports complete")
 
@@ -211,6 +222,50 @@ def _vix_shadow_snapshot(feed, tickers: list[str], shadow_cfg: dict) -> dict:
     safe_cfg["influence_entries"] = False
     safe_cfg["orders_allowed"] = False
     return evaluate_vix_shadow(feed, tickers, safe_cfg)
+
+
+def _structure_mtf_shadow_snapshot(cached: dict, tickers: list[str],
+                                   shadow_cfg: dict) -> dict:
+    """Calcula estructura 1d/15min/5min sin conceder autoridad operativa.
+
+    Las barras se reciben del feed y el detector solo compara swings ya
+    confirmados dentro de cada DataFrame. Las banderas operativas se fuerzan a
+    False aunque una configuración antigua intente habilitarlas.
+    """
+    safe_cfg = dict(DEFAULT_STRUCTURE_MTF_SHADOW_CFG)
+    safe_cfg.update(shadow_cfg or {})
+    safe_cfg["influence_entries"] = False
+    safe_cfg["orders_allowed"] = False
+    if not safe_cfg.get("enabled", False):
+        return {
+            "enabled": False, "mode": "disabled", "orders_allowed": False,
+            "influence_entries": False, "symbols": {},
+        }
+    allowed_tfs = tuple(safe_cfg.get("timeframes") or ("1d", "15min", "5min"))
+    universe_frames = {}
+    for symbol in tickers:
+        universe_frames[symbol] = {
+            timeframe: cached[timeframe][symbol]
+            for timeframe in allowed_tfs
+            if isinstance(cached.get(timeframe), dict)
+            and symbol in cached[timeframe]
+        }
+    snapshot = evaluate_universe_structure(
+        universe_frames,
+        weights=safe_cfg.get("weights"),
+        order=int(safe_cfg.get("pivot_order", 3)),
+        tolerance=float(safe_cfg.get("tolerance", 0.001)),
+    )
+    snapshot.update({
+        "enabled": True,
+        "mode": "shadow",
+        "influence_entries": False,
+        "orders_allowed": False,
+        "source_version": "structure-mtf-v1",
+        "timeframes": list(allowed_tfs),
+        "risk_authority": "risk_manager_only",
+    })
+    return snapshot
 
 
 def _enriched_positions(executor: AlpacaExecutor) -> list:
@@ -718,6 +773,13 @@ def main():
         "BOOT: vix shadow enabled=%s mode=%s influence_entries=%s orders_allowed=%s variants=%s",
         vix_shadow_boot_cfg["enabled"], vix_shadow_boot_cfg["mode"],
         False, False, vix_shadow_boot_cfg["variants"])
+    structure_mtf_boot_cfg = dict(DEFAULT_STRUCTURE_MTF_SHADOW_CFG)
+    structure_mtf_boot_cfg.update(cfg.get("structure_mtf_shadow", {}) or {})
+    logger.info(
+        "BOOT: structure MTF shadow enabled=%s mode=%s influence_entries=%s "
+        "orders_allowed=%s timeframes=%s",
+        structure_mtf_boot_cfg["enabled"], structure_mtf_boot_cfg["mode"],
+        False, False, structure_mtf_boot_cfg["timeframes"])
     feed = MarketDataFeed(cfg["data"]["provider"])
     rm = RiskManager(cfg["risk"])
     executor = AlpacaExecutor(dry_run=args.dry_run)
@@ -1125,6 +1187,22 @@ def main():
             }
             phase_times["vix_shadow_s"] = round(
                 time.monotonic() - vix_shadow_started, 3)
+            structure_started = time.monotonic()
+            structure_cfg = dict(DEFAULT_STRUCTURE_MTF_SHADOW_CFG)
+            structure_cfg.update(cfg.get("structure_mtf_shadow", {}) or {})
+            structure_snapshot = _structure_mtf_shadow_snapshot(
+                cached, tickers, structure_cfg)
+            state["structure_mtf_shadow_observations"] = structure_snapshot
+            signal_stats["structure_mtf_shadow"] = {
+                "mode": structure_snapshot.get("mode"),
+                "symbols": len(structure_snapshot.get("symbols", {})),
+                "bull_count": structure_snapshot.get("bull_count", 0),
+                "bear_count": structure_snapshot.get("bear_count", 0),
+                "orders_allowed": False,
+                "influence_entries": False,
+            }
+            phase_times["structure_mtf_shadow_s"] = round(
+                time.monotonic() - structure_started, 3)
             phase_times["entries_s"] = round(time.monotonic() - cycle_started, 3)
 
             # 4b. MOTOR BAJISTA: put spreads sobre CHoCH bear (AGENTS.md §40).
@@ -1330,6 +1408,8 @@ def main():
                         "setup_observations": state.get("setup_observations", {}),
                         "defined_risk_shadow_observations": state.get("defined_risk_shadow_observations", {}),
                         "vix_shadow_observations": state.get("vix_shadow_observations", {}),
+                        "structure_mtf_shadow_observations": state.get(
+                            "structure_mtf_shadow_observations", {}),
                         "decisions_today": [d for d in state["decisions"]
                                             if d.get("ts", "").startswith(
                                                 datetime.utcnow().strftime("%Y-%m-%d"))],
@@ -1358,11 +1438,12 @@ def main():
             phase_times["total_s"] = round(time.monotonic() - cycle_started, 3)
             signal_stats["phase_seconds"] = phase_times
             _hb["ts"].append(time.time())
-            logger.info("CYCLE TIMING id=%d total=%.3fs entries=%.3fs setups=%.3fs vix_shadow=%.3fs risk_shadow=%.3fs bear=%.3fs positions=%.3fs publish=%.3fs sleep=%.3fs",
+            logger.info("CYCLE TIMING id=%d total=%.3fs entries=%.3fs setups=%.3fs vix_shadow=%.3fs structure_mtf=%.3fs risk_shadow=%.3fs bear=%.3fs positions=%.3fs publish=%.3fs sleep=%.3fs",
                         cycle_id, phase_times["total_s"],
                         phase_times.get("entries_s", 0.0),
                         phase_times.get("setups_s", 0.0),
                         phase_times.get("vix_shadow_s", 0.0),
+                        phase_times.get("structure_mtf_shadow_s", 0.0),
                         phase_times.get("defined_risk_shadow_s", 0.0),
                         phase_times.get("bear_s", 0.0),
                         phase_times.get("positions_s", 0.0),
