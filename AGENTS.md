@@ -1870,3 +1870,10 @@ Se implementó `strategies/structure_mtf.py` como detector puro de máximos/mín
 La capa está conectada al loop y se persiste en Firestore como `structure_mtf_shadow_observations`. `CYCLE TIMING` incluye `structure_mtf`. El backtest real utilizó 5m/15m Alpaca IEX y diario cacheado, con siete símbolos; SOFI quedó explícitamente fuera por falta de histórico diario. El baseline fue DayBreakout con puerta S78. En cinco variantes y cinco ventanas recientes, `mtf_strict` tuvo delta medio de retorno -0.095 pp, `intraday_bull` -0.128 pp y `daily_bull` +0.026 pp con cero operaciones. No hay evidencia suficiente para promoverla como filtro.
 
 Suite específica y completa: 129 tests OK, 1 skipped y 2 expected failures heredados. La capa permanece shadow hasta acumular más observaciones y ejecutar walk-forward con ventanas más largas.
+
+
+### Verificación de producción MTF shadow — 19 de agosto de 2026
+
+La revisión `polaris-bot-mtfshadow` quedó activa con 100% del tráfico porque `maxScale=1` impide canarias divididas; `polaris-bot-00086-n4n` se mantiene como rollback. La revisión arrancó correctamente con `BOOT: structure MTF shadow enabled=True mode=shadow influence_entries=False orders_allowed=False timeframes=['1d', '15min', '5min']` y conectó a Alpaca PAPER.
+
+Se observaron cuatro ciclos consecutivos con `Tick OK`, régimen `bull: bull 4/8, bear 0/8, crash=False`, equity $99,288.27 y cero posiciones/órdenes. `CYCLE TIMING` registró `structure_mtf` entre 0.049 y 0.066 s en ciclos regulares. Firestore confirmó `structure_mtf_shadow_observations` presente, `mode=shadow`, `influence_entries=false`, `orders_allowed=false`, ocho símbolos, un bull y un bear observados, y temporalidades 1d/15min/5min. La capa no modificó entradas, sizing, RiskManager ni circuit breakers.
