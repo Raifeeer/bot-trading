@@ -213,3 +213,12 @@ El backtest `scripts/run_trend_pullback_backtests.py` produjo `trend_pullback_ba
 Se añadió `trend_pullback_shadow` a `config/config.yaml`. La capa no influye en entradas, no crea órdenes y fuerza las banderas shadow. Publica `trend_pullback_shadow_observations`, `signal_stats.trend_pullback_shadow` y `CYCLE TIMING.trend_pullback_shadow_s`. La configuración es long-only y no habilita cortas.
 
 **Pendiente inmediato:** ejecutar suite completa, crear commit, desplegar una revisión PAPER separada, mover el 100% del tráfico solo después de comprobar que la nueva revisión está lista y verificar Firestore, timing y cero órdenes. La revisión anterior sigue siendo `polaris-bot-brshadow0724650` hasta completar esos pasos.
+
+
+## 19. Verificación trend pullback en producción PAPER
+
+La revisión activa es `polaris-bot-tpshadowf6eb11b`, con 100% del tráfico. Fue construida desde el commit `f6eb11b` y el digest `sha256:ce0715bbf3cf5919a8844e997c2da94bb98477d4d1ad21b581cce28710079486`. El arranque confirmó la configuración shadow y el primer ciclo completo no presentó traceback del motor.
+
+Firestore `polaris/2026-08-19` se actualizó a `2026-08-19T19:37:50.311583+00:00`: equity `$99,288.27`, modo `PAPER`, posiciones `0`, órdenes ejecutadas `0`. `trend_pullback_shadow_observations` está persistido con 8 símbolos: 4 `confirmed`, 4 `no_setup`, 0 `missing_data`, 0 `insufficient_data`, 0 `error`. `tick_diagnostics.trend_pullback_shadow` contiene las mismas counts y `mode=shadow`, `influence_entries=false`, `orders_allowed=false`.
+
+La telemetría `CYCLE TIMING` incluye `trend_pullback_shadow=...s`. Se observó únicamente el conflicto Telegram HTTP 409 entre instancias; no afectó la ejecución del tick ni habilitó órdenes.

@@ -1978,3 +1978,12 @@ El baseline DayBreakout S78 obtuvo +8.485% y DD −3.097% en full_available. EMA
 Se añadió `trend_pullback_shadow` a `config/config.yaml` y un wrapper en `bot.py`. Configuración: 15min, EMA9/21, VWAP alineado, volumen mínimo 1.2x, long-only, `allow_shorts=false`. El wrapper fuerza `mode=shadow`, `influence_entries=false` y `orders_allowed=false`, persiste `trend_pullback_shadow_observations`, añade `trend_pullback_shadow` a `signal_stats` y cronometra `trend_pullback_shadow_s`. Faltantes y errores son observables por símbolo y fail-closed.
 
 Decisión: **SHADOW PAPER**, no promoción operativa. Antes de cualquier influencia futura se requiere más acumulación, walk-forward más largo, leave-one-symbol-out, ledger de exposición y validación específica de opciones. Cloud Run no debe recibir cambios hasta suite completa y revisión de invariantes.
+
+
+## Verificación PAPER — trend pullback shadow desplegado
+
+La imagen del commit `f6eb11b` se construyó con digest `sha256:ce0715bbf3cf5919a8844e997c2da94bb98477d4d1ad21b581cce28710079486` y se desplegó como `polaris-bot-tpshadowf6eb11b`. Cloud Run recibe el 100% del tráfico en esta revisión; permanece `PAPER`, con los secretos Alpaca existentes y la configuración de recursos conservada.
+
+El arranque confirmó `trend pullback shadow enabled=True mode=shadow influence_entries=False orders_allowed=False timeframe=15min direction=long`. Tras el primer ciclo completo, Firestore `polaris/2026-08-19` quedó actualizado a `2026-08-19T19:37:50.311583+00:00` con equity `$99,288.27`, modo `PAPER`, cero posiciones y cero órdenes ejecutadas. El snapshot persistido contiene `trend_pullback_shadow_observations` con 8 símbolos, 4 `confirmed`, 4 `no_setup`, 0 `missing_data`, 0 `insufficient_data` y 0 `error`; `tick_diagnostics.trend_pullback_shadow` refleja las mismas counts y ambas banderas false. El motor bearish anterior conserva 5 confirmadas, 3 no_setup y cero órdenes.
+
+La línea `CYCLE TIMING` incluye ahora `trend_pullback_shadow=...s` además de su snapshot Firestore. El único error observado en el arranque fue `Telegram poll falla: HTTP Error 409: Conflict`, el conflicto habitual por otra instancia del poller; no afectó al tick ni generó órdenes. No hay tracebacks del motor trend pullback.
