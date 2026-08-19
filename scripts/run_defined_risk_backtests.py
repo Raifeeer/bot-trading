@@ -122,14 +122,14 @@ def _regime(df: pd.DataFrame, day: pd.Timestamp) -> str:
 
 def _allowed(structure: str, regime: str, mode: str) -> bool:
     if mode == "neutral_ok":
-        if structure in {"bull_call_debit", "bull_put_credit"}:
+        if structure in {"bull_call_debit", "bull_put_credit", "bwb_put_credit"}:
             return regime in {"bull", "neutral"}
-        if structure in {"bear_put_debit", "bear_call_credit"}:
+        if structure in {"bear_put_debit", "bear_call_credit", "bwb_call_credit"}:
             return regime in {"bear", "neutral"}
         return regime == "neutral"
-    if structure in {"bull_call_debit", "bull_put_credit"}:
+    if structure in {"bull_call_debit", "bull_put_credit", "bwb_put_credit"}:
         return regime == "bull"
-    if structure in {"bear_put_debit", "bear_call_credit"}:
+    if structure in {"bear_put_debit", "bear_call_credit", "bwb_call_credit"}:
         return regime == "bear"
     return regime == "neutral"
 
@@ -157,6 +157,20 @@ def _risk_profile(legs: list[dict], prices: dict[str, float]) -> tuple[float, fl
         wing = max(puts[-1] - puts[0], calls[-1] - calls[0]) * 100.0
         credit = max(-net * 100.0, 0.0)
         return net, max(wing - credit, 0.01), credit
+    if "bwb" in structure:
+        ordered = sorted(strikes)
+        if len(ordered) != 3:
+            return net, 0.0, 0.0
+        left = (ordered[1] - ordered[0]) * 100.0
+        right = (ordered[2] - ordered[1]) * 100.0
+        if net < 0:
+            credit = -net * 100.0
+            max_loss = max(max(left, right) - min(left, right) - credit, 0.01)
+            max_profit = min(left, right) + credit
+            return net, max_loss, max_profit
+        debit = max(net * 100.0, 0.01)
+        max_profit = max(min(left, right) - debit, 0.0)
+        return net, debit, max_profit
     if "butterfly" in legs[0].get("structure", ""):
         ordered = sorted(strikes)
         wing = min(ordered[1] - ordered[0], ordered[2] - ordered[1]) * 100.0 if len(ordered) == 3 else width
@@ -270,7 +284,7 @@ def _run(underlyings, groups, bars_by_contract, structure, dte, width, managemen
                 if candidate is None:
                     continue
                 risk_budget = max(account.cash, 0.0) * scenario["risk_pct"]
-                qty = min(5, int(math.floor(risk_budget / candidate.max_loss)))
+                qty = min(5, math.floor(risk_budget / candidate.max_loss))
                 if qty <= 0:
                     continue
                 debit_cost = max(candidate.entry_net, 0.0) * 100.0 * qty

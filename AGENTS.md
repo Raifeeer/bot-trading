@@ -1877,3 +1877,16 @@ Suite específica y completa: 129 tests OK, 1 skipped y 2 expected failures here
 La revisión `polaris-bot-mtfshadow` quedó activa con 100% del tráfico porque `maxScale=1` impide canarias divididas; `polaris-bot-00086-n4n` se mantiene como rollback. La revisión arrancó correctamente con `BOOT: structure MTF shadow enabled=True mode=shadow influence_entries=False orders_allowed=False timeframes=['1d', '15min', '5min']` y conectó a Alpaca PAPER.
 
 Se observaron cuatro ciclos consecutivos con `Tick OK`, régimen `bull: bull 4/8, bear 0/8, crash=False`, equity $99,288.27 y cero posiciones/órdenes. `CYCLE TIMING` registró `structure_mtf` entre 0.049 y 0.066 s en ciclos regulares. Firestore confirmó `structure_mtf_shadow_observations` presente, `mode=shadow`, `influence_entries=false`, `orders_allowed=false`, ocho símbolos, un bull y un bear observados, y temporalidades 1d/15min/5min. La capa no modificó entradas, sizing, RiskManager ni circuit breakers.
+
+
+## 2026-08-19 — Estrategias online actuales: BWB, 0DTE/1DTE y earnings
+
+Se investigaron estrategias de opciones con atención reciente y se crearon tres skills validadas: `/home/ubuntu/skills/broken-wing-butterfly/SKILL.md`, `/home/ubuntu/skills/0dte-credit-spreads/SKILL.md` y `/home/ubuntu/skills/earnings-event-spreads/SKILL.md`. La evidencia, metodología y resultados están en `docs/current_online_strategies_backtest_2026-08-19.md`.
+
+La Broken-Wing Butterfly se probó con 360 combinaciones de calls/puts por crédito, DTE 14/30/45, anchos 5%/10%, perfiles de gestión y regímenes. Con barras diarias reales de opciones Alpaca, pero sin bid/ask point-in-time ni assignment, BWB call obtuvo retorno medio −8.85% y BWB put −8.02%; la peor observación fue −77.75% y −42.50%, respectivamente. Se clasificó `RESEARCH_ONLY`; no se conectó al executor ni a shadow.
+
+Se identificaron 630 patas candidatas 0DTE y 528 1DTE, pero no hay quotes intradía bid/ask, ticks, cutoff, tamaño, expiración operativa ni assignment histórico. El gate es `REJECT_DATA`; no se debe presentar un resultado diario como backtest 0DTE válido.
+
+La estrategia de earnings-event también quedó `REJECT_DATA`: `data/earnings.py` usa el calendario actual de yfinance con caché de 24 horas y no reconstruye fechas históricas as-of; el cache de opciones no contiene IV/bid-ask ni quotes post-evento. No se inventaron resultados ni se habilitaron rutas operativas.
+
+Ninguna estrategia online nueva se implementó en producción. Polaris continúa en PAPER; VIX y estructura MTF permanecen shadow; RiskManager, piso de equity, crash lock y circuit breakers conservan autoridad final.
