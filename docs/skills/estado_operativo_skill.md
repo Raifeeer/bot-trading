@@ -182,3 +182,14 @@ pytest -q tests/test_opening_range_breakout.py
 ```
 
 La revisión PAPER activa sigue siendo `polaris-bot-brshadow0724650`; el motor bearish continúa shadow y las capas ORB no forman parte del runtime productivo.
+
+
+## 16. VWAP reclaim/pullback — investigación 19 de agosto de 2026
+
+Se creó `/home/ubuntu/skills/vwap-reclaim-pullback/SKILL.md` y su referencia `references/research.md`. El detector puro está en `strategies/vwap_reclaim_pullback.py`; sus tests están en `tests/test_vwap_reclaim_pullback.py`. Formaliza VWAP RTH por sesión, displacement → retracement → resumption, volumen as-of, stop/target teórico y estados fail-closed. No está conectado a `bot.py` ni al executor.
+
+El backtest completo utiliza 48 variantes, caches reales Alpaca IEX, siete símbolos porque SOFI falta, cinco/seis ventanas, 5 bps por lado, fills en la apertura siguiente y salida antes del cierre. El informe es `docs/vwap_reclaim_pullback_backtest_2026-08-19.md`, con resultados en `/home/ubuntu/backtests/vwap_backtests_2026-08-19.csv`, `vwap_backtest_comparison_2026-08-19.csv`, `vwap_backtest_variant_summary_2026-08-19.csv`, `vwap_backtest_symbol_summary_2026-08-19.csv` y el manifiesto JSON.
+
+Decisión: `RESEARCH_ONLY`. Las variantes recientes con volumen/gate direccional son pequeñas y no superan el periodo completo comparable frente a DayBreakout. No añadir `vwap_shadow_observations`, no cambiar configuración live y no desplegar. La observación VWAP existente de `setup_confluence` no se modificó.
+
+Validación completa posterior: **140 passed, 1 skipped, 2 xfailed**, Ruff focalizado limpio. La revisión PAPER sigue siendo `polaris-bot-brshadow0724650`; no se creó una revisión Cloud Run para VWAP.
