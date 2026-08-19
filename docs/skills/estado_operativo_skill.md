@@ -193,3 +193,12 @@ El backtest completo utiliza 48 variantes, caches reales Alpaca IEX, siete símb
 Decisión: `RESEARCH_ONLY`. Las variantes recientes con volumen/gate direccional son pequeñas y no superan el periodo completo comparable frente a DayBreakout. No añadir `vwap_shadow_observations`, no cambiar configuración live y no desplegar. La observación VWAP existente de `setup_confluence` no se modificó.
 
 Validación completa posterior: **140 passed, 1 skipped, 2 xfailed**, Ruff focalizado limpio. La revisión PAPER sigue siendo `polaris-bot-brshadow0724650`; no se creó una revisión Cloud Run para VWAP.
+
+
+## 17. Relative strength rotation — investigación 19 de agosto de 2026
+
+La skill está en `/home/ubuntu/skills/relative-strength-rotation/SKILL.md`. El detector puro es `strategies/relative_strength_rotation.py`; tests: `tests/test_relative_strength_rotation.py`. Usa ranking cross-sectional as-of, benchmark equal-weight, excess return, percentil, horizonte y contrato shadow fail-closed. No hay SPY/QQQ point-in-time en los caches revisados; SOFI falta en el histórico diario.
+
+El backtest probó 192 variantes y produjo `relative_strength_backtests_2026-08-19.csv`, `relative_strength_backtest_comparison_2026-08-19.csv`, `relative_strength_backtest_variant_summary_2026-08-19.csv`, `relative_strength_backtest_sensitivity_2026-08-19.csv` y el manifiesto JSON. El walk-forward no solapado está en `relative_strength_walkforward_2026-08-19.csv` y tiene cuatro folds consecutivos de 60 sesiones.
+
+Decisión: `RESEARCH_ONLY`. Aunque algunas variantes h60/top-2/gate bull mejoran dos folds recientes, en full_available quedan debajo de `baseline_regime_s78`, y el gate deja el sistema en cash durante varios folds. No crear configuración live, no publicar observaciones shadow y no desplegar. Cloud Run sigue en `polaris-bot-brshadow0724650` al 100% PAPER.
