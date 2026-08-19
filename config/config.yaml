@@ -160,6 +160,24 @@ structure_mtf_shadow:
   pivot_order: 3
   tolerance: 0.001
 
+# Motor auxiliar de breakdown/retest bajista intradía. Se registra en shadow
+# para medir señales en PAPER; no filtra entradas ni puede enviar órdenes.
+bearish_breakdown_shadow:
+  enabled: true
+  mode: shadow
+  influence_entries: false
+  orders_allowed: false
+  timeframe: 15min
+  support_mode: rolling_support
+  lookback: 20
+  atr_period: 14
+  break_atr: 0.10
+  volume_min: 1.20
+  retest_max_bars: 3
+  retest_tolerance_atr: 0.25
+  stop_buffer_atr: 0.10
+  reward_risk: 2.0
+
 strategies:
   # ---------------------------------------------------------------------------
   # DAY TRADING: momentum intradía con filtro de volatilidad (velas 5 min)

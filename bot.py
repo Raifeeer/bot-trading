@@ -63,6 +63,22 @@ DEFAULT_STRUCTURE_MTF_SHADOW_CFG = {
     "pivot_order": 3,
     "tolerance": 0.001,
 }
+DEFAULT_BEARISH_BREAKDOWN_SHADOW_CFG = {
+    "enabled": True,
+    "mode": "shadow",
+    "influence_entries": False,
+    "orders_allowed": False,
+    "timeframe": "15min",
+    "support_mode": "rolling_support",
+    "lookback": 20,
+    "atr_period": 14,
+    "break_atr": 0.10,
+    "volume_min": 1.20,
+    "retest_max_bars": 3,
+    "retest_tolerance_atr": 0.25,
+    "stop_buffer_atr": 0.10,
+    "reward_risk": 2.0,
+}
 
 from config import get_config
 from data.feed import MarketDataFeed
@@ -111,6 +127,7 @@ from execution.alpaca_executor import AlpacaExecutor, ExecutionError
 from strategies.setup_confluence import SETUP_NAMES, analyze_setup_confluence
 from strategies.vix_shadow import evaluate_vix_shadow
 from strategies.structure_mtf import evaluate_universe_structure
+from strategies.bearish_breakdown_retest import evaluate_breakdown_retest
 from options.defined_risk_shadow import evaluate_defined_risk_shadow
 logger.info("BOOT: imports complete")
 
@@ -266,6 +283,95 @@ def _structure_mtf_shadow_snapshot(cached: dict, tickers: list[str],
         "risk_authority": "risk_manager_only",
     })
     return snapshot
+
+
+def _bearish_breakdown_shadow_snapshot(cached: dict, tickers: list[str], shadow_cfg: dict) -> dict:
+    """Evalúa breakdown/retest bajistas cerrados como observación únicamente.
+
+    La función nunca devuelve autoridad operativa: fuerza ``mode=shadow`` y
+    ambas banderas a ``False`` aunque la configuración sea peligrosa. Cada
+    símbolo conserva su estado (`confirmed`, `no_setup`, `insufficient_data`,
+    `missing_data` o `error`) para distinguir ausencia de señal de fallo de
+    datos.
+    """
+    safe_cfg = dict(DEFAULT_BEARISH_BREAKDOWN_SHADOW_CFG)
+    safe_cfg.update(shadow_cfg or {})
+    safe_cfg["mode"] = "shadow"
+    safe_cfg["influence_entries"] = False
+    safe_cfg["orders_allowed"] = False
+    if not safe_cfg.get("enabled", False):
+        return {
+            "enabled": False,
+            "mode": "disabled",
+            "influence_entries": False,
+            "orders_allowed": False,
+            "symbols": {},
+            "counts": {},
+        }
+
+    timeframe = str(safe_cfg.get("timeframe", "15min"))
+    bars_by_symbol = cached.get(timeframe) or {}
+    parameters = {
+        key: safe_cfg[key]
+        for key in (
+            "timeframe", "support_mode", "lookback", "atr_period", "break_atr",
+            "volume_min", "retest_max_bars", "retest_tolerance_atr",
+            "stop_buffer_atr", "reward_risk", "session_start", "session_end",
+        )
+        if key in safe_cfg
+    }
+    observations = {}
+    counts = {
+        "confirmed": 0,
+        "no_setup": 0,
+        "insufficient_data": 0,
+        "missing_data": 0,
+        "error": 0,
+    }
+    for symbol in tickers:
+        frame = bars_by_symbol.get(symbol) if isinstance(bars_by_symbol, dict) else None
+        if frame is None or getattr(frame, "empty", True):
+            observation = {
+                "signal": "none",
+                "status": "missing_data",
+                "direction": "bear",
+                "timeframe": timeframe,
+            }
+        else:
+            try:
+                observation = evaluate_breakdown_retest(frame, **parameters)
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("BREAKDOWN SHADOW: fallo evaluando %s", symbol)
+                observation = {
+                    "signal": "none",
+                    "status": "error",
+                    "timeframe": timeframe,
+                    "error_type": type(exc).__name__,
+                }
+        observation = dict(observation)
+        status = observation.get("status", "error")
+        counts[status] = counts.get(status, 0) + 1
+        observation.update({
+            "symbol": symbol,
+            "mode": "shadow",
+            "influence_entries": False,
+            "orders_allowed": False,
+            "observational_only": True,
+        })
+        observations[symbol] = observation
+    return {
+        "enabled": True,
+        "mode": "shadow",
+        "influence_entries": False,
+        "orders_allowed": False,
+        "source_version": "bearish-breakdown-retest-v1",
+        "timeframe": timeframe,
+        "parameters": {key: value for key, value in safe_cfg.items()
+                        if key not in {"enabled", "mode", "influence_entries", "orders_allowed"}},
+        "counts": counts,
+        "symbols": observations,
+        "risk_authority": "risk_manager_only",
+    }
 
 
 def _enriched_positions(executor: AlpacaExecutor) -> list:
@@ -1203,6 +1309,26 @@ def main():
             }
             phase_times["structure_mtf_shadow_s"] = round(
                 time.monotonic() - structure_started, 3)
+            breakdown_shadow_started = time.monotonic()
+            breakdown_shadow_cfg = dict(DEFAULT_BEARISH_BREAKDOWN_SHADOW_CFG)
+            breakdown_shadow_cfg.update(cfg.get("bearish_breakdown_shadow", {}) or {})
+            breakdown_shadow_snapshot = _bearish_breakdown_shadow_snapshot(
+                cached, tickers, breakdown_shadow_cfg)
+            state["bearish_breakdown_shadow_observations"] = breakdown_shadow_snapshot
+            signal_stats["bearish_breakdown_shadow"] = {
+                "mode": breakdown_shadow_snapshot.get("mode"),
+                "symbols": len(breakdown_shadow_snapshot.get("symbols", {})),
+                "counts": breakdown_shadow_snapshot.get("counts", {}),
+                "orders_allowed": False,
+                "influence_entries": False,
+            }
+            phase_times["bearish_breakdown_shadow_s"] = round(
+                time.monotonic() - breakdown_shadow_started, 3)
+            if (cfg.get("bearish_breakdown_shadow", {}) or {}).get("influence_entries"):
+                logger.warning(
+                    "BREAKDOWN SHADOW: influence_entries solicitado pero bloqueado; "
+                    "la capa permanece shadow hasta promoción validada"
+                )
             phase_times["entries_s"] = round(time.monotonic() - cycle_started, 3)
 
             # 4b. MOTOR BAJISTA: put spreads sobre CHoCH bear (AGENTS.md §40).
@@ -1410,6 +1536,8 @@ def main():
                         "vix_shadow_observations": state.get("vix_shadow_observations", {}),
                         "structure_mtf_shadow_observations": state.get(
                             "structure_mtf_shadow_observations", {}),
+                        "bearish_breakdown_shadow_observations": state.get(
+                            "bearish_breakdown_shadow_observations", {}),
                         "decisions_today": [d for d in state["decisions"]
                                             if d.get("ts", "").startswith(
                                                 datetime.utcnow().strftime("%Y-%m-%d"))],
@@ -1438,13 +1566,14 @@ def main():
             phase_times["total_s"] = round(time.monotonic() - cycle_started, 3)
             signal_stats["phase_seconds"] = phase_times
             _hb["ts"].append(time.time())
-            logger.info("CYCLE TIMING id=%d total=%.3fs entries=%.3fs setups=%.3fs vix_shadow=%.3fs structure_mtf=%.3fs risk_shadow=%.3fs bear=%.3fs positions=%.3fs publish=%.3fs sleep=%.3fs",
+            logger.info("CYCLE TIMING id=%d total=%.3fs entries=%.3fs setups=%.3fs vix_shadow=%.3fs structure_mtf=%.3fs risk_shadow=%.3fs breakdown_shadow=%.3fs bear=%.3fs positions=%.3fs publish=%.3fs sleep=%.3fs",
                         cycle_id, phase_times["total_s"],
                         phase_times.get("entries_s", 0.0),
                         phase_times.get("setups_s", 0.0),
                         phase_times.get("vix_shadow_s", 0.0),
                         phase_times.get("structure_mtf_shadow_s", 0.0),
                         phase_times.get("defined_risk_shadow_s", 0.0),
+                        phase_times.get("bearish_breakdown_shadow_s", 0.0),
                         phase_times.get("bear_s", 0.0),
                         phase_times.get("positions_s", 0.0),
                         phase_times.get("publish_s", 0.0),

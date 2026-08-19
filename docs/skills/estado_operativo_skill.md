@@ -135,3 +135,22 @@ Firestore confirma `vix_shadow_observations` disponible, `mode=shadow`, `influen
 La capa `structure_mtf_shadow` está configurada y conectada al loop, pero no es una estrategia live. Analiza `1d`, `15min` y `5min` con swings fractales confirmados, registra dirección, score, máximos/mínimos confirmados y conteos bull/bear. Firestore recibe el snapshot bajo `structure_mtf_shadow_observations` y `CYCLE TIMING` expone `structure_mtf`.
 
 Los invariantes son obligatorios: `mode=shadow`, `influence_entries=false`, `orders_allowed=false` y autoridad final del RiskManager. El backtest inicial sobre siete símbolos y 38 días disponibles no mostró mejora de retorno frente a DayBreakout + S78; no promover sin una segunda validación walk-forward más larga.
+
+
+## 13. Motor bearish breakdown/retest — integración shadow 19 de agosto de 2026
+
+El repositorio ahora incluye `strategies/bearish_breakdown_retest.py`, `tests/test_bearish_breakdown_retest.py` y el wrapper de bot `bearish_breakdown_shadow`. La configuración usa 15 minutos, soporte rolling de 20 barras, volumen mínimo 1.2x y retest máximo de 3 barras. El wrapper fuerza `mode=shadow`, `influence_entries=false` y `orders_allowed=false`; guarda el resultado bajo `bearish_breakdown_shadow_observations`, resume estados en `tick_diagnostics` y mide `breakdown_shadow` en el timing.
+
+La evidencia histórica de cinco ventanas sobre siete símbolos disponibles clasifica el motor como `RESEARCH_ONLY` para promoción: la mejor variante gana 2/5 ventanas sin gate y 3/5 con gate bear/crash, pero el periodo reciente de 20 días es negativo y las variantes 5m son peores. La skill y el informe reproducible están en `/home/ubuntu/skills/bearish-breakdown-retest/SKILL.md` y `docs/bearish_breakdown_retest_backtest_2026-08-19.md`.
+
+Antes de declarar la integración productiva completa, ejecutar:
+
+```bash
+cd /home/ubuntu/bot-trading
+export GCLOUD=/home/ubuntu/tools/google-cloud-sdk/bin/gcloud
+export PROJECT=gen-lang-client-0746441136
+$GCLOUD run services describe polaris-bot --region us-central1 --project "$PROJECT" --format='value(status.traffic)'
+$GCLOUD logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="polaris-bot"' --limit 100 --format='value(textPayload)' | grep -E 'Bot iniciado|CYCLE TIMING|Tick OK|BREAKDOWN SHADOW'
+```
+
+Confirmar la revisión nueva, dos ciclos completos, `bearish_breakdown_shadow_observations` en Firestore, `mode=shadow`, `orders_allowed=false`, `influence_entries=false` y ausencia de órdenes nuevas. Si la nueva revisión no arranca o se bloquea, revertir a la revisión PAPER anterior y documentar el incidente.
