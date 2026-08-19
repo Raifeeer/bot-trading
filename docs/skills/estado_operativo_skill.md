@@ -222,3 +222,12 @@ La revisión activa es `polaris-bot-tpshadowf6eb11b`, con 100% del tráfico. Fue
 Firestore `polaris/2026-08-19` se actualizó a `2026-08-19T19:37:50.311583+00:00`: equity `$99,288.27`, modo `PAPER`, posiciones `0`, órdenes ejecutadas `0`. `trend_pullback_shadow_observations` está persistido con 8 símbolos: 4 `confirmed`, 4 `no_setup`, 0 `missing_data`, 0 `insufficient_data`, 0 `error`. `tick_diagnostics.trend_pullback_shadow` contiene las mismas counts y `mode=shadow`, `influence_entries=false`, `orders_allowed=false`.
 
 La telemetría `CYCLE TIMING` incluye `trend_pullback_shadow=...s`. Se observó únicamente el conflicto Telegram HTTP 409 entre instancias; no afectó la ejecución del tick ni habilitó órdenes.
+
+
+## 20. RSI bounce sobre SMA200 — 19 de agosto de 2026
+
+La skill está en `/home/ubuntu/skills/rsi-bounce-sma200/SKILL.md`. El detector y arneses están en `strategies/rsi_bounce_sma200.py`, `scripts/run_rsi_bounce_backtests.py`, `scripts/analyze_rsi_bounce_backtests.py` y `scripts/run_rsi_bounce_walkforward.py`; tests en `tests/test_rsi_bounce_sma200.py`.
+
+Se evaluaron 72 variantes y 402 filas sobre 7 símbolos con caches reales 5m/15m, 5 bps por lado, RSI 2/5/14, umbrales 20/25/30, SMA200/SMA50 y gates none/bull. Baseline DayBreakout S78 15m: +8.485%, DD −3.097% full_available. Mejor variante 15m RSI2<30 + gate bull: +6.292%, DD −3.266%, 130 trades. Las variantes 5m con mejores promedios tienen solo 4–12 trades y no tienen baseline full comparable.
+
+Walk-forward de cinco folds no solapados: la variante RSI2<30 bull quedó por debajo del baseline en los tres folds con actividad; RSI5<20 bull solo mejoró un fold. Decisión: `RESEARCH_ONLY`; no se añadió a bot.py/config.yaml y no se desplegó. Cloud Run continúa en `polaris-bot-tpshadowf6eb11b` PAPER, con trend pullback y breakdown shadow activos.

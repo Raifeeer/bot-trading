@@ -1987,3 +1987,16 @@ La imagen del commit `f6eb11b` se construyó con digest `sha256:ce0715bbf3cf5919
 El arranque confirmó `trend pullback shadow enabled=True mode=shadow influence_entries=False orders_allowed=False timeframe=15min direction=long`. Tras el primer ciclo completo, Firestore `polaris/2026-08-19` quedó actualizado a `2026-08-19T19:37:50.311583+00:00` con equity `$99,288.27`, modo `PAPER`, cero posiciones y cero órdenes ejecutadas. El snapshot persistido contiene `trend_pullback_shadow_observations` con 8 símbolos, 4 `confirmed`, 4 `no_setup`, 0 `missing_data`, 0 `insufficient_data` y 0 `error`; `tick_diagnostics.trend_pullback_shadow` refleja las mismas counts y ambas banderas false. El motor bearish anterior conserva 5 confirmadas, 3 no_setup y cero órdenes.
 
 La línea `CYCLE TIMING` incluye ahora `trend_pullback_shadow=...s` además de su snapshot Firestore. El único error observado en el arranque fue `Telegram poll falla: HTTP Error 409: Conflict`, el conflicto habitual por otra instancia del poller; no afectó al tick ni generó órdenes. No hay tracebacks del motor trend pullback.
+
+
+## 2026-08-19 — RSI bounce sobre SMA200
+
+Se investigó RSI como confirmación de recuperación tras sobreventa, condicionado a precio sobre SMA200. Se creó la skill `/home/ubuntu/skills/rsi-bounce-sma200/SKILL.md` con referencias en `references/research.md`. La investigación externa no demuestra alpha intradía específico de RSI; las fuentes solo aportan contexto sobre mean reversion, reversión corta y costes de inmediatez.
+
+Se implementaron `strategies/rsi_bounce_sma200.py`, `tests/test_rsi_bounce_sma200.py`, `scripts/run_rsi_bounce_backtests.py`, `scripts/analyze_rsi_bounce_backtests.py` y `scripts/run_rsi_bounce_walkforward.py`. El detector usa barras cerradas, RSI 2/5/14, sobreventa 20/25/30, recuperación posterior, ruptura del micro máximo, SMA200, ATR y entrada siguiente. Es long-only, fail-closed y sin executor.
+
+La matriz ejecutó 72 variantes y 402 filas sobre PLTR, F, TSLA, AMD, NOK, BB y TQQQ; SOFI quedó fuera por falta de histórico intradía. El baseline DayBreakout S78 15m obtuvo +8.485% y DD −3.097% full_available. La mejor variante 15m, RSI2<30 con gate bull, obtuvo +6.292%, DD −3.266% y 130 trades. Las variantes 5m que aparecen arriba tienen apenas 4–12 trades en la cobertura comparable y no son evidencia suficiente.
+
+El walk-forward de cinco folds no solapados no mostró ventaja estable. RSI2<30 bull quedó por debajo del baseline en los tres folds con actividad; RSI5<20 bull solo mejoró un fold y cayó de forma importante en otro. No se añadió capa shadow a `bot.py` ni a `config.yaml` porque el motor no supera el criterio de robustez mínimo.
+
+Decisión: **RESEARCH_ONLY**. Producción conserva la revisión `polaris-bot-tpshadowf6eb11b` y no recibe cambios RSI. Antes de retomar esta línea se exige muestra nueva, leave-one-symbol-out, separación de crash/regímenes y validación de fills de opciones.
