@@ -1,6 +1,7 @@
 import sys
 import unittest
 from datetime import date
+from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -26,6 +27,19 @@ class TestRiskContract(unittest.TestCase):
         rm.check_circuit_breakers(100.0, day=date(2026, 8, 15))
         self.assertFalse(rm.halted_today)
         self.assertEqual(rm._risk_day, date(2026, 8, 15))
+
+    def test_option_structure_approval_uses_risk_budget_and_position_limit(self):
+        rm = RiskManager({"mode": "aggressive", "max_risk_per_trade_pct": 5.0, "max_open_positions": 2})
+        rm.capital = 100_000.0
+        rm.reset_day(100_000.0, date(2026, 8, 21))
+        structure = SimpleNamespace(net_premium=10.0, max_risk=2_000.0)
+        approved = rm.approve_option_structure("TQQQ", structure, 100_000.0, [], "promoted_breakout")
+        self.assertEqual(approved.decision, "APPROVED")
+
+        too_risky = SimpleNamespace(net_premium=10.0, max_risk=6_000.0)
+        rejected = rm.approve_option_structure("AMD", too_risky, 100_000.0, [], "promoted_breakout")
+        self.assertEqual(rejected.decision, "REJECTED")
+        self.assertIn("presupuesto", rejected.reason)
 
     def test_no_data_is_cash_not_bear(self):
         result = classify_regime({}, ["SOFI", "PLTR"])

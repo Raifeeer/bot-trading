@@ -109,6 +109,14 @@ DEFAULT_BREAKOUT_20_55_SHADOW_CFG = {
     "allow_shorts": False,
     "gate": "bull",
 }
+DEFAULT_PROMOTED_LAYERS_CFG = {
+    "enabled": False,
+    "trend_pullback": False,
+    "breakout_20_55": False,
+    "breakdown_retest": False,
+    "use_vix_gate": True,
+    "use_structure_gate": True,
+}
 DEFAULT_BEARISH_BREAKDOWN_SHADOW_CFG = {
     "enabled": True,
     "mode": "shadow",
@@ -176,6 +184,11 @@ from strategies.structure_mtf import evaluate_universe_structure
 from strategies.bearish_breakdown_retest import evaluate_breakdown_retest
 from strategies.trend_pullback_continuation import evaluate_trend_pullback
 from strategies.breakout_20_55_volume import evaluate_breakout
+from strategies.promoted_shadow import (
+    PromotedBreakout20_55,
+    PromotedTrendPullback,
+    _is_fresh_confirmation,
+)
 from options.defined_risk_shadow import evaluate_defined_risk_shadow
 logger.info("BOOT: imports complete")
 
@@ -789,8 +802,11 @@ def bear_entry_candidates(regime: dict, state: dict, cfg: dict) -> list:
         return []
     cupo = b["max_positions"] - n_puts
     ts = regime.get("ticker_status") or {}
-    return [sym for sym, st in ts.items()
-            if st.get("bear_choch") and sym not in abiertos][:cupo]
+    choch = [sym for sym, st in ts.items()
+             if st.get("bear_choch") and sym not in abiertos]
+    promoted = [sym for sym in state.get("_promoted_breakdown_symbols", [])
+                if sym not in abiertos]
+    return list(dict.fromkeys(choch + promoted))[:cupo]
 
 
 def recovery_sizing(equity: float, floor_res: dict, cfg: dict) -> dict:
@@ -1066,6 +1082,20 @@ def build_strategies(cfg, spread_builder):
         strats["opt_swing_trend"] = OptionsStrategy(
             SwingTrend(cfg["strategies"]["swing_trend"]["params"]),
             spread_builder, map_cfg)
+
+    promoted_cfg = dict(DEFAULT_PROMOTED_LAYERS_CFG)
+    promoted_cfg.update(cfg.get("promoted_layers", {}) or {})
+    if promoted_cfg.get("enabled", False):
+        if promoted_cfg.get("trend_pullback", False):
+            trend_cfg = dict(DEFAULT_TREND_PULLBACK_SHADOW_CFG)
+            trend_cfg.update(cfg.get("trend_pullback_shadow", {}) or {})
+            strats["opt_promoted_trend_pullback"] = OptionsStrategy(
+                PromotedTrendPullback(trend_cfg), spread_builder, map_cfg)
+        if promoted_cfg.get("breakout_20_55", False):
+            breakout_cfg = dict(DEFAULT_BREAKOUT_20_55_SHADOW_CFG)
+            breakout_cfg.update(cfg.get("breakout_20_55_shadow", {}) or {})
+            strats["opt_promoted_breakout_20_55"] = OptionsStrategy(
+                PromotedBreakout20_55(breakout_cfg), spread_builder, map_cfg)
     global _STRATS
     _STRATS = dict(strats)
     return strats
@@ -1402,9 +1432,16 @@ def main():
                         sym_diag["reasons"]["bull_gate"] = sym_diag["reasons"].get("bull_gate", 0) + 1
                         st = strat.last_structure
                         entry_px = abs(st.net_premium)
-                        dec = rm.approve_position(sym, sig, entry_px, equity,
-                                                  [type("P", (), {"symbol": p["symbol"]})()
-                                                   for p in state["positions"]])
+                        promoted_entry = sname.startswith("opt_promoted_")
+                        if promoted_entry:
+                            dec = rm.approve_option_structure(
+                                sym, st, equity, state["positions"],
+                                strategy=sname, contracts=1)
+                        else:
+                            dec = rm.approve_position(
+                                sym, sig, entry_px, equity,
+                                [type("P", (), {"symbol": p["symbol"]})()
+                                 for p in state["positions"]])
                         if dec.decision == "APPROVED":
                             signal_stats["approved"] += 1
                             strat_diag["reasons"]["approved"] = strat_diag["reasons"].get("approved", 0) + 1
@@ -1413,7 +1450,7 @@ def main():
                             # escala para cerrar la brecha hasta $100k; en fase
                             # de reto vuelve a 1 contrato (ver recovery_sizing).
                             n_contratos = 1
-                            if sizing.get("unlimited"):
+                            if sizing.get("unlimited") and not promoted_entry:
                                 n_contratos = contracts_for_target(
                                     st, sizing["target_premium"],
                                     float(acct_cash),
@@ -1472,6 +1509,7 @@ def main():
                             reason = f"risk_rejected:{dec.reason}"
                             strat_diag["reasons"][reason] = strat_diag["reasons"].get(reason, 0) + 1
                             sym_diag["reasons"][reason] = sym_diag["reasons"].get(reason, 0) + 1
+                            strat.reset()
                     elif sig.tradable:
                         if not strat.last_structure:
                             reason = "no_structure"
@@ -1554,6 +1592,21 @@ def main():
             breakdown_shadow_snapshot = _bearish_breakdown_shadow_snapshot(
                 cached, tickers, breakdown_shadow_cfg)
             state["bearish_breakdown_shadow_observations"] = breakdown_shadow_snapshot
+            promoted_cfg = dict(DEFAULT_PROMOTED_LAYERS_CFG)
+            promoted_cfg.update(cfg.get("promoted_layers", {}) or {})
+            promoted_breakdown_symbols = []
+            if promoted_cfg.get("enabled") and promoted_cfg.get("breakdown_retest"):
+                promoted_tf = str(breakdown_shadow_cfg.get("timeframe", "15min"))
+                promoted_frames = cached.get(promoted_tf) or {}
+                for promoted_symbol, promoted_observation in breakdown_shadow_snapshot.get("symbols", {}).items():
+                    promoted_frame = promoted_frames.get(promoted_symbol)
+                    if (
+                        promoted_observation.get("status") == "confirmed"
+                        and _is_fresh_confirmation(promoted_observation, promoted_frame)
+                    ):
+                        promoted_breakdown_symbols.append(promoted_symbol)
+            state["_promoted_breakdown_symbols"] = promoted_breakdown_symbols
+            signal_stats["promoted_breakdown"] = len(promoted_breakdown_symbols)
             signal_stats["bearish_breakdown_shadow"] = {
                 "mode": breakdown_shadow_snapshot.get("mode"),
                 "symbols": len(breakdown_shadow_snapshot.get("symbols", {})),
@@ -1622,6 +1675,11 @@ def main():
                 if candidatos and not (regime.get("floor") or {}).get("below_floor") \
                         and not rm.is_halted():
                     for sym in candidatos:
+                        promoted_breakdown = sym in set(promoted_breakdown_symbols)
+                        strategy_name = (
+                            "promoted_breakdown_retest"
+                            if promoted_breakdown else "bear_put_choch"
+                        )
                         try:
                             st = builder.vertical_spread(
                                 sym, None, "bear",
@@ -1651,6 +1709,15 @@ def main():
                                 "%.2f (la comisión anularía la ventaja)",
                                 sym, prima_total, bcfg["min_premium_net"])
                             continue
+                        risk_decision = rm.approve_option_structure(
+                            sym, st, equity, state["positions"],
+                            strategy=strategy_name, contracts=n_contratos)
+                        if risk_decision.decision != "APPROVED":
+                            logger.info(
+                                "BEAR: %s rechazado por RiskManager: %s",
+                                sym, risk_decision.reason)
+                            continue
+                        signal_stats["approved"] += 1
                         order_specs = _option_order_specs(
                             st, cfg, contracts=n_contratos)
                         submitted = [executor.submit_option_order(
@@ -1659,7 +1726,7 @@ def main():
                             limit_price=s["limit_price"]) for s in order_specs]
                         signal_stats["orders"] += len(submitted)
                         state["positions"].append({
-                            "symbol": sym, "strategy": "bear_put_choch",
+                            "symbol": sym, "strategy": strategy_name,
                             "kind": "put",
                             "structure": st.name,
                             "net_premium": st.net_premium,
@@ -1674,7 +1741,7 @@ def main():
                             sym, st.name, prima_uno, n_contratos, prima_total,
                             regime.get("regime"))
                         try:
-                            notify_position_open(sym, "bear_put_choch", st.name,
+                            notify_position_open(sym, strategy_name, st.name,
                                                  st.net_premium, st.max_risk,
                                                  trading_mode())
                         except Exception:  # noqa: BLE001

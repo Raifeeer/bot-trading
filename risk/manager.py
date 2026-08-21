@@ -132,6 +132,39 @@ class RiskManager:
     def is_halted(self) -> bool:
         return self.halted_today or self.halted_total
 
+    def approve_option_structure(self, symbol: str, structure, capital: float,
+                                 existing: List[PositionState],
+                                 strategy: str = "", contracts: int = 1) -> RiskDecision:
+        """Aprueba una estructura definida sin tratarla como acciones.
+
+        ``structure.max_risk`` y ``structure.net_premium`` están expresados en
+        USD por contrato. La función conserva los mismos circuit breakers,
+        límite de posiciones y presupuesto porcentual de ``RiskManager``; no
+        envía órdenes ni decide el número de contratos.
+        """
+        self.positions = existing
+        if self.is_halted():
+            return self._log("REJECTED", symbol, "bot detenido por circuit breaker")
+        if any((p.get("symbol") if isinstance(p, dict) else p.symbol) == symbol
+               for p in self.positions):
+            return self._log("REJECTED", symbol, "posición ya abierta (sin promedio a la baja)")
+        if len(self.positions) >= self.cfg["max_open_positions"]:
+            return self._log("REJECTED", symbol,
+                             f"límite de {self.cfg['max_open_positions']} posiciones alcanzado")
+        contracts = max(1, int(contracts))
+        premium = abs(float(getattr(structure, "net_premium", 0.0) or 0.0)) * 100.0 * contracts
+        max_risk = float(getattr(structure, "max_risk", 0.0) or 0.0) * contracts
+        if premium <= 0 or max_risk <= 0:
+            return self._log("REJECTED", symbol, "estructura sin prima o riesgo válido")
+        max_risk_usd = float(capital) * self.cfg["max_risk_per_trade_pct"] / 100.0
+        if max_risk > max_risk_usd:
+            return self._log("REJECTED", symbol,
+                             f"riesgo estructura {max_risk:.2f} > presupuesto {max_risk_usd:.2f}")
+        if premium > float(capital):
+            return self._log("REJECTED", symbol, "prima total superior al capital")
+        return self._log("APPROVED", symbol,
+                         f"estructura {strategy or 'options'} riesgo {max_risk:.2f}", 1.0)
+
     def approve_position(self, symbol: str, signal, entry_price: float,
                          capital: float, existing: List[PositionState]) -> RiskDecision:
         self.positions = existing

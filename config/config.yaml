@@ -228,6 +228,17 @@ breakout_20_55_shadow:
   allow_shorts: false
   gate: bull
 
+# Promoción controlada en PAPER. Estas capas reutilizan OptionsStrategy,
+# RiskManager, floor y circuit breakers. No habilita defined-risk: el executor
+# actual envía patas secuenciales y no ofrece atomicidad multi-leg.
+promoted_layers:
+  enabled: true
+  trend_pullback: true
+  breakout_20_55: true
+  breakdown_retest: true
+  use_vix_gate: true       # VIX sigue siendo contexto; no genera entradas
+  use_structure_gate: true # estructura sigue siendo contexto; no genera entradas
+
 strategies:
   # ---------------------------------------------------------------------------
   # DAY TRADING: momentum intradía con filtro de volatilidad (velas 5 min)
