@@ -285,3 +285,17 @@ La revisión activa auditada es `polaris-bot-br5520c4f3`, con 100% de tráfico P
 Conteos del ciclo Firestore: bearish breakdown 5 confirmed/3 no_setup; trend pullback 4/4; Breakout20/55 7/1; todos con datos completos y sin errores. Confirmaciones por símbolo: AMD bearish+breakout; BB bearish+trend; F bearish+breakout; NOK trend+breakout; PLTR trend+breakout; SOFI bearish+breakout; TQQQ trend+breakout; TSLA bearish+breakout. La unión es 8/8 y la triple intersección es vacía; no hubo señal confirmada única de una capa. Mantenerlas como observación y no combinarlas para autorizar entradas.
 
 Se endurecieron los wrappers de setup_confluence, VIX y defined-risk en `bot.py` para forzar `mode=shadow`, `influence_entries=false` y `orders_allowed=false` también en respuestas delegadas peligrosas y rutas disabled. Se añadió `tests/test_shadow_contracts.py`. Validación: 16 tests focalizados, suite completa 173 passed/1 skipped/2 xfailed heredados, Ruff F/B/E9 y compilación limpios. Pendiente: commit y deploy separado del parche, readiness, dos ciclos y verificación Firestore antes de mover tráfico.
+
+
+## Verificación productiva del endurecimiento shadow — 2026-08-19
+
+La revisión `polaris-bot-scontract9fdcd06` está activa con 100% del tráfico. Imagen: digest `sha256:f6d89b0562bdc4892d2a462adabbeacf24b6c5d031b54b01f686abca4cbc9498`. Se conservaron PAPER, secretos Alpaca, `DATA_PROVIDER=alpaca`, `POLL_SECONDS=60`, minScale/maxScale 1/1 y CPU always-on.
+
+Se verificaron cuatro `Tick OK` y cuatro `CYCLE TIMING`; no hubo traceback ni `Error en el loop`. Firestore `polaris/2026-08-19` se actualizó a `2026-08-19T21:06:23.513502+00:00`, con equity `$99,288.27`, modo `PAPER`, 0 posiciones y 0 órdenes. Todas las capas shadow publican explícitamente `mode=shadow`, `influence_entries=false` y `orders_allowed=false`, incluyendo setup_confluence, VIX y defined-risk tras el parche.
+
+
+## Promoción controlada PAPER — 2026-08-21
+
+La revisión activa es `polaris-bot-promob66a78b` con 100% del tráfico y el commit `b66a78b`. El usuario confirmó activar las capas shadow en PAPER. El alcance ejecutable se mantuvo seguro: `trend_pullback` y `breakout_20_55` usan adaptadores `Signal` + `OptionsStrategy`; `breakdown_retest` usa la ruta bearish y `RiskManager.approve_option_structure`. Las entradas promovidas long quedan limitadas a un contrato durante la observación inicial. VIX, estructura MTF y setups continúan como contexto/telemetría shadow; defined-risk mantiene `orders_allowed=false` por falta de atomicidad multi-leg en el executor secuencial.
+
+Validaciones: `broker.paper=true`, endpoint PAPER preservado, floor/circuit breakers/RiskManager/validación de cotizaciones intactos; suite `178 passed`, `1 skipped`, `2 xfailed` heredados y `8 subtests`; Ruff F/B/E9 limpio. Tras el deploy se observaron tres `Tick OK`, cero tracebacks, cero errores del loop y cero órdenes. Firestore `polaris/2026-08-21` se actualizó a `2026-08-21T15:36:23.466046+00:00` con equity `$99,288.27`, modo PAPER, cero posiciones y cero órdenes. Conteos shadow: breakdown 4 confirmadas, trend pullback 3 confirmadas, Breakout20/55 7 confirmadas y `gate_allowed=0`. Las estrategias promovidas reportaron `tradable=0` en los ciclos observados; no hubo entrada aprobada ni ejecución. Continuar observando frescura, RiskManager, órdenes por pata y rollback antes de ampliar alcance.
