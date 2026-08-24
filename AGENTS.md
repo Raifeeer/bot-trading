@@ -1,6 +1,30 @@
 # PolarIS Trading Bot — Guía de Operación para Agentes
 
-> Documento de referencia para cualquier agente de IA que opere, diagnostique o extienda el sistema Polaris (bot de trading de opciones sobre Alpaca, desplegado en Google Cloud Run). Última actualización: 18 de agosto de 2026 UTC.
+> Documento de referencia para cualquier agente de IA que opere, diagnostique o extienda el sistema Polaris (bot de trading de opciones sobre Alpaca, desplegado en Google Cloud Run). Última actualización: **24 de agosto de 2026 UTC**.
+
+## 0. Estado vigente y fuente de verdad — 24 de agosto de 2026
+
+Esta sección tiene prioridad sobre las descripciones históricas y los estados previos que aparecen más abajo. Las entradas fechadas documentan la evolución; un pendiente antiguo solo se considera resuelto cuando existe una verificación posterior explícita.
+
+| Área | Estado vigente verificado |
+|---|---|
+| Repositorio | `Raifeeer/bot-trading`, `main`, HEAD `852a827`; árbol limpio al último cierre |
+| Cloud Run | Servicio `polaris-bot`, us-central1, proyecto `gen-lang-client-0746441136`; revisión `polaris-bot-promob66a78b` con 100% del tráfico |
+| Broker | Alpaca **PAPER**; `broker.paper=true`; no cambiar a REAL sin confirmación explícita nueva |
+| Recursos | `minScale=1`, `maxScale=1`, CPU always-on (`cpu-throttling=false`), `POLL_SECONDS=60`; `BOT_POLL_MINUTES=5` es compatibilidad histórica y no sustituye al poll efectivo |
+| Equity observada | Último snapshot documentado: `$99,288.27`; recuperación; piso activo `$99,000` mientras equity < `$100,000`; `$99,900` vuelve al alcanzar el objetivo |
+| Posiciones/órdenes | Última verificación documentada: 0 posiciones y 0 órdenes; `Tick OK` solo demuestra que el ciclo terminó |
+| Universo activo | `universo_reto`: SOFI, PLTR, F, TSLA, AMD, NOK, BB y TQQQ; SOFI puede faltar en caches históricos, pero no se debe inventar su histórico |
+| Motores live base | `day_momentum` 5m, `day_breakout` 15m y `swing_trend` 1d; el motor bearish live funciona aparte en régimen bear |
+| Promoción PAPER | `trend_pullback`, `breakout_20_55` y `breakdown_retest` usan adaptadores controlados y pasan por `OptionsStrategy`/`RiskManager`; long promoted limitado inicialmente a 1 contrato |
+| Contexto shadow | `setup_confluence`, `vix_shadow`, `structure_mtf_shadow` y `defined_risk_shadow` publican telemetría; VIX/estructura/setups no generan órdenes y defined-risk no se ejecuta por falta de atomicidad multi-leg |
+| Investigación | ORB, VWAP reclaim, relative strength, priority overlay, RSI bounce, failure/retest, mean-reversion, Wheel, SMC ampliado, Volume Profile, Williams %R, patrones, fundamentales y gamma walls siguen `RESEARCH_ONLY` o `REJECT_DATA` según informe |
+| Seguridad | Wrappers shadow fuerzan `mode=shadow`, `influence_entries=false` y `orders_allowed=false`; RiskManager, floor, circuit breakers, límites de posiciones y cotizaciones son autoridad final |
+| TradingAgents | Piloto aislado, commit `852a827`, `RESEARCH_ONLY`; no está en Cloud Run, no recibe credenciales, no escribe Firestore y no envía órdenes |
+
+**Discrepancia de secretos pendiente:** la revisión activa mostró Alpaca y DeepSeek enlazados mediante Secret Manager, pero `TELEGRAM_BOT_TOKEN` como valor literal en el spec de Cloud Run. No registrar su valor. Debe rotarse y migrarse a Secret Manager antes de considerar saneado el entorno. La tabla histórica de secretos más abajo describe la intención, no el estado verificado actual.
+
+**Reglas de promoción:** ninguna capa se habilita por detectar observaciones shadow. Exigir datos point-in-time, costes/slippage, walk-forward no solapado, muestra suficiente, análisis de solapamiento, pruebas de ejecución y rollback. Toda nueva promoción debe ser PAPER, limitada y reversible.
 
 ## 1. Qué es el sistema
 
@@ -11,7 +35,7 @@ PolarIS es un bot de trading automático de opciones sobre el universo Nasdaq/S&
 | Capa | Componente | Dónde vive |
 |---|---|---|
 | Ejecución | Bot Python (bot.py) | Cloud Run, región us-central1, proyecto `gen-lang-client-0746441136` |
-| Datos de mercado | yfinance (principal), Alpaca data API (respaldo) | Integrado en el contenedor |
+| Datos de mercado | Alpaca data API según configuración, con fallback a yfinance cuando el proveedor/plan no permite la consulta | Integrado en el contenedor |
 | Ejecución de órdenes | Alpaca Paper Trading API | API externa |
 | Estado en tiempo real | Firestore Native, base de datos `polaris` | GCP, mismo proyecto |
 | Dashboard | React 19 + Tailwind 4 | Vercel (proyecto `polaris-options-dashboard`) |
@@ -22,10 +46,10 @@ PolarIS es un bot de trading automático de opciones sobre el universo Nasdaq/S&
 
 ```
 bot-trading/
-├── bot.py                  # Loop principal: ticks cada 5 min, watchdog, snapshot a Firestore/Telegram
+├── bot.py                  # Loop principal: ticks cada 60 s, watchdog, snapshot a Firestore/Telegram
 ├── config/config.yaml      # Universo de tickers, riesgo, umbrales de señales
 ├── data/
-│   └── feed.py             # Feed de datos: yfinance con socket timeout (45s), respaldo Alpaca
+│   └── feed.py             # Feed configurado Alpaca con fallback real a yfinance y timeout anti-freeze
 ├── strategies/             # Estrategias de subyacente (swing/day)
 │   └── strategy.py         # Strategy base + DayMomentum, DayBreakout, SwingTrend
 ├── options/
@@ -52,15 +76,15 @@ bot-trading/
 Cada ciclo de `main()` en `bot.py` ejecuta, en orden:
 
 1. **Snapshot de cuenta** en Alpaca → equity actual. Los circuit breakers de `RiskManager` evalúan drawdown diario/total; si se activan, el bot entra en HALT (solo monitorea, 10 min de pausa).
-2. **Descarga de datos** por estrategia: Swing usa 1d (210 días para SMA200/ATR), Day usa 15m (10 días) y 5m (5 días). El proveedor principal es yfinance (el plan free de datos de Alpaca rechaza el SIP reciente); Alpaca se usa para órdenes y cuenta.
+2. **Descarga de datos** por estrategia: Swing usa 1d (210 días para SMA200/ATR), Day usa 15m (10 días) y 5m (5 días). La configuración efectiva declara `DATA_PROVIDER=alpaca`; cuando Alpaca rechaza datos SIP recientes o no entrega una serie, `data/feed.py` usa el fallback real de yfinance.
 3. **Escaneo de señales**: cada estrategia evalúa su timeframe; `OptionsStrategy` traduce las señales a estructuras de opciones (call/put spreads) con deltas y DTE configurados en `config.yaml`.
 4. **Aprobación de riesgo**: el risk manager valida tamaño, drawdown y número de posiciones.
 5. **Ejecución**: `AlpacaExecutor` envía las órdenes (o las simula en dry-run).
 6. **Gestión de posiciones**: evalúa TP/SL de prima y DTE. Los umbrales son configurables en `config.yaml` (`universo.options_reto` + `risk.prem_tp_mult`/`prem_sl_mult`) y se inyectan con `premium_exit_cfg` en `bot.py`; `evaluate_exit` en `options/strategy.py` admite `tp_mult`, `sl_mult`, `close_dte`, `hold_days`.
 7. **Publicación de estado**: snapshot a Firestore (`polaris/YYYY-MM-DD`, merge) + curva de equity + actualización del estado del bot de Telegram.
-8. **Heartbeat del watchdog** y sleep de 5 minutos (o 300 s en modo skip).
+8. **Heartbeat del watchdog** y sleep operativo de 60 segundos (`POLL_SECONDS=60`); `same_bar_context` evita repetir señales cuando no hay una barra nueva.
 
-**Watchdog:** un hilo interno llama `sys.exit(1)` si no hay un tick completo en 12 minutos. Cloud Run recrea la instancia automáticamente al morir el proceso (minScale=1). Este mecanismo existe porque el feed de yfinance puede colgarse sin lanzar excepción.
+**Watchdog:** un hilo interno llama `sys.exit(1)` si no hay un tick completo en 25 minutos. Cloud Run recrea la instancia automáticamente al morir el proceso (minScale=1). Este mecanismo existe porque un proveedor de datos puede colgarse sin lanzar excepción; `same_bar_context` evita reanalizar la misma vela.
 
 **Timeout anti-freeze:** `fetch_yfinance` fuerza `socket.setdefaulttimeout(45)` por ticker y lo restaura después.
 
@@ -71,12 +95,12 @@ El service Cloud Run `polaris-bot` referencia estos secretos de Secret Manager c
 | Env var | Secret / Origen | Uso |
 |---|---|---|
 | `APCA_API_KEY_ID` | alpaca-key (Secret Manager) | Clave de la API de Alpaca |
-| `APCA_API_SECRET_KEY` | alpaca-key (Secret Manager) | Secreto de la API de Alpaca |
+| `APCA_API_SECRET_KEY` | `alpaca-secret` (Secret Manager) | Secreto de la API de Alpaca |
 | `APCA_API_BASE_URL` | env var (valor) | `https://paper-api.alpaca.markets` — **PAPER; cambiar a `https://api.alpaca.markets` para REAL** |
 | `DEEPSEEK_API_KEY` | deepseek-api-key (Secret Manager) | Asistente IA de Telegram (modelo `deepseek-chat`, sobrescribible con `DEEPSEEK_MODEL`) |
-| `TELEGRAM_BOT_TOKEN` | Secret Manager (`TELEGRAM_BOT_TOKEN`) | Token del bot @Raifeeer; no documentar el valor |
+| `TELEGRAM_BOT_TOKEN` | **Pendiente de saneamiento:** la revisión activa fue observada con valor literal en el spec; debe migrarse a Secret Manager y rotarse | Token del bot @Raifeeer; no documentar el valor |
 | `TELEGRAM_CHAT_ID` | env var (valor) | Chat autorizado del dueño (1779931930) |
-| `DATA_PROVIDER` | env var (valor) | `yfinance` (principal) |
+| `DATA_PROVIDER` | env var (valor) | `alpaca` con fallback real a yfinance |
 | `FIRESTORE_DATABASE` | env var (valor) | `polaris` (base de datos Firestore Native) |
 
 El contenedor se autentica con Firestore y Secret Manager mediante la **service account del servicio Cloud Run** (Compute Engine default SA del proyecto con rol `Secret Manager Secret Accessor` y permisos de Firestore Datastore). Un agente con acceso `gcloud` al proyecto `gen-lang-client-0746441136` puede leer las credenciales así:
@@ -87,7 +111,7 @@ gcloud secrets versions access latest --secret=deepseek-api-key --project=gen-la
 gcloud run services describe polaris-bot --region us-central1 --format=json
 ```
 
-Las credenciales de Alpaca PAPER no deben aparecer en documentación ni commits. Se consumen desde Secret Manager mediante `alpaca-key`; el endpoint es `https://paper-api.alpaca.markets/v2`. Las credenciales que aparecieron en documentación histórica deben rotarse.
+Las credenciales de Alpaca PAPER no deben aparecer en documentación ni commits. En la revisión activa, `APCA_API_KEY_ID` usa `alpaca-key` y `APCA_API_SECRET_KEY` usa `alpaca-secret`; el endpoint efectivo de aplicación es PAPER. Las credenciales que aparecieron en documentación histórica deben rotarse.
 
 El asistente IA de Telegram (`ai_assistant.py`) ahora usa **DeepSeek V4 Flash** con fallbacks a Gemini y Grok (API keys en Secret Manager del proyecto: `deepseek-api-key`, `gemini-api-key`, `grok-api-key`). Cada llamada al LLM tiene timeout de 45 s para evitar congelar el hilo de polling.
 
@@ -540,9 +564,9 @@ Logging que el mensaje "Reconciliación al arrancar: N posición(es) reconstruid
 en el primer tick tras el despliegue, y que el spread de TQQQ ya detectado pasa a aparecer
 en `state["positions"]` (verificable en `/diag/state` o en el próximo snapshot de
 Firestore).
-## 21. Pendiente prioritario: evaluar TradingAgents frente a Polaris — plan para otro agente
+## 21. TradingAgents frente a Polaris — plan ejecutado y resultado
 
-**Estado:** pendiente; no iniciar automáticamente el despliegue ni modificar la estrategia productiva. El objetivo es comprobar con datos reproducibles si TradingAgents aporta valor incremental sobre Polaris, no asumir que una arquitectura multiagente implica rentabilidad.
+**Estado:** experimento aislado completado el 24 de agosto de 2026. No se desplegó ni se modificó la estrategia productiva. El objetivo era comprobar con datos reproducibles si TradingAgents aporta valor incremental sobre Polaris, no asumir que una arquitectura multiagente implica rentabilidad. El resultado y las limitaciones están en `docs/tradingagents_pilot_2026-08-24.md` y en la sección vigente de este documento.
 
 ### 19.1 Qué se quiere probar
 
@@ -552,7 +576,7 @@ La pregunta experimental debe ser estricta: **¿TradingAgents mejora una decisi�
 
 ### 19.2 Aislamiento obligatorio
 
-No clonar el repositorio externo dentro de `bot-trading` ni copiar su código al loop de producción al comienzo. Usar un directorio y entorno separados, por ejemplo `/home/ubuntu/TradingAgents` y un virtualenv independiente, fijar un tag o commit concreto y registrar el hash con `git rev-parse HEAD`. En la fecha de esta documentación el repositorio mostraba la versión `v0.3.1` y el commit visible `a33fd4c`; el agente que ejecute la prueba debe volver a comprobarlo y registrar el hash real utilizado.
+No clonar el repositorio externo dentro de `bot-trading` ni copiar su código al loop de producción al comienzo. Usar un directorio y entorno separados, por ejemplo `/home/ubuntu/TradingAgents` y un virtualenv independiente, fijar un tag o commit concreto y registrar el hash con `git rev-parse HEAD`. El piloto ejecutado usó la versión `v0.3.1`, commit exacto `a33fd4c0f134485a43553a2c23a63cb14adbd88f`; si se repite, volver a comprobar y registrar el hash real utilizado.
 
 La primera integración debe ser **advisory/shadow**: TradingAgents genera un informe y una recomendación estructurada, pero no puede enviar órdenes, cambiar `RiskManager`, cambiar sizing, cambiar TP/SL, saltarse circuit breakers, escoger credenciales de Alpaca ni escribir directamente en `orders_executed`. La salida se guarda separada como `tradingagents_advisory` o en un documento de investigación distinto. El feature flag inicial debe ser `TRADINGAGENTS_ENABLED=false` y cualquier prueba PAPER debe tener un kill switch independiente.
 
@@ -589,9 +613,9 @@ Pre-registrar antes de mirar el test un criterio de promoción conservador: al m
 
 Repetir B0 con varias réplicas del mismo snapshot o con temperatura/configuración fijada. Si las recomendaciones cambian materialmente, reportar la dispersión y no convertir una salida aislada en regla. La decisión final debe separar señal de mercado, calidad de ejecución y calidad de la explicación LLM.
 
-### 19.6 Secuencia de implementación para otro agente
+### 19.6 Secuencia reproducible del experimento aislado
 
-1. Leer este `AGENTS.md`, `docs/skills/estado_operativo_skill.md`, `docs/skills/backtest_skill.md`, `config/config.yaml`, `risk/manager.py`, `bot.py` y el README oficial de TradingAgents.
+1. Leer este `AGENTS.md`, `docs/skills/estado_operativo_skill.md`, `config/config.yaml`, `risk/manager.py`, `bot.py` y el README oficial de TradingAgents. El piloto ya ejecutado sirve como baseline de procedimiento; cualquier repetición debe conservar el aislamiento.
 2. Confirmar la revisión Cloud Run activa, modo PAPER, estado de Firestore y que no hay cambios productivos sin documentar.
 3. Clonar TradingAgents en entorno separado, fijar commit/tag, instalar dependencias y ejecutar solo un smoke test con un ticker y fecha no productiva.
 4. Crear `research/tradingagents_eval/` o `scripts/tradingagents_eval/` con adaptador de entrada/salida, esquema JSON, manifiesto y logger; no editar el loop de órdenes de Polaris.
@@ -2121,3 +2145,16 @@ Estos datos son exploratorios y no constituyen un backtest point-in-time: los pr
 Decisión: `RESEARCH_ONLY`. TradingAgents puede investigarse como analista contextual aislado, pero no debe instalarse en Cloud Run, recibir credenciales de Alpaca, escribir en Firestore de producción ni influir en el executor. Antes de cualquier shadow dentro de Polaris se requiere un conjunto de snapshots point-in-time, fuentes fechadas, modelo/temperatura congelados, salida estructurada y comparación contra baseline con costes, slippage y walk-forward.
 
 Informe: `docs/tradingagents_pilot_2026-08-24.md`. Script: `scripts/run_tradingagents_pilot.py`. Artefactos: `/home/ubuntu/backtests/tradingagents_pilot_2026-08-24*`.
+
+
+## Auditoría de actualidad de AGENTS.md — 2026-08-24
+
+Se comparó este documento con el historial real de Git hasta `852a827`, los archivos versionados de estrategias/tests/scripts/docs y la revisión Cloud Run que recibe tráfico. La auditoría confirmó que el trabajo de las últimas semanas sí está documentado: corrección del floor, VIX shadow, estructura MTF, breakdown/retest, trend pullback, Breakout20/55, ORB, VWAP, relative strength y priority overlay, RSI bounce, failure/retest, mean-reversion, endurecimiento shadow, promoción controlada PAPER, auditoría de solapamiento, y análisis/piloto aislado de TradingAgents.
+
+Los commits recientes de referencia son: `217e0b2` (floor de recuperación), `0724650`/`b6d7ed3` (breakdown/retest shadow y verificación), `30f17eb`/`d37db2a` (estructura MTF), `4a2c643`/`379dc84`/`99d4829` (VIX shadow), `899dc35`/`f6eb11b`/`8f1cc88` (trend pullback), `c4f3ff4`/`5db5ef0` (Breakout20/55), `5d7b290` (ORB), `e8693e2` (VWAP), `66df9cd` (relative strength), `0cdfd11` (RSI bounce), `9655692` (failure/retest), `bf2dcf8` (priority overlay), `4468204` (mean-reversion), `9fdcd06` (endurecimiento de contratos shadow), `b66a78b`/`d1f3303` (promoción controlada PAPER) y `fbe37b4`/`852a827` (análisis y piloto aislado de TradingAgents).
+
+La única discrepancia operativa sensible encontrada está en el spec actual de Cloud Run: `APCA_API_KEY_ID`, `APCA_API_SECRET_KEY` y `DEEPSEEK_API_KEY` usan referencias de Secret Manager, pero `TELEGRAM_BOT_TOKEN` aparece como variable literal. El valor no se registra aquí. Pendiente: rotar el token y migrarlo a Secret Manager; hasta completarlo, el entorno no debe considerarse plenamente saneado. La tabla de secretos de la sección 4 fue corregida para reflejar esta discrepancia.
+
+También existían estados históricos que decían que el parche shadow o Breakout20/55 estaban pendientes de deploy. No se borran porque forman parte de la trazabilidad; la sección 0 y las verificaciones fechadas de las secciones posteriores los superseden. En adelante, agentes nuevos deben leer primero la sección 0 y luego `docs/skills/estado_operativo_skill.md`.
+
+Estado de cierre de esta auditoría: AGENTS.md actualizado, sin cambios de código runtime ni despliegue nuevo. El siguiente agente debe verificar el token de Telegram antes de cualquier redeploy, confirmar nuevamente tráfico/equity/órdenes y no asumir que la popularidad o las señales de TradingAgents prueban alpha.

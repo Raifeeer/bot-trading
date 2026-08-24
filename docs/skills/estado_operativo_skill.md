@@ -1,6 +1,6 @@
 # Skill: Estado operativo del sistema Polaris (para agentes nuevos)
 
-Esta skill es el **punto de entrada obligatorio** para cualquier agente que continúe, diagnostique u opere el sistema Polaris desde una sesión nueva. Resume el estado exacto de la infraestructura, los incidentes operativos y cómo reanudar el trabajo sin perder horas de diagnóstico. Última actualización: 15 de agosto de 2026, 06:50 UTC.
+Esta skill es el **punto de entrada obligatorio** para cualquier agente que continúe, diagnostique u opere el sistema Polaris desde una sesión nueva. Resume el estado exacto de la infraestructura, los incidentes operativos y cómo reanudar el trabajo sin perder horas de diagnóstico. Última actualización: **24 de agosto de 2026 UTC**. La sección 14 contiene el estado vigente y supersede los estados históricos anteriores.
 
 ## 1. Mapa del sistema en una mirada
 
@@ -12,10 +12,10 @@ Esta skill es el **punto de entrada obligatorio** para cualquier agente que cont
 | Dashboard (código) | Proyecto Manus webdev `/home/ubuntu/polaris-options-dashboard` | Checkpoint más reciente: `52f4cb52` |
 | Dashboard (producción) | Vercel, https://polaris-options-dashboard.vercel.app | Deploy vía `vercel deploy --prebuilt` (pnpm build falla en el entorno; subir bundle pre-compilado) |
 | Firestore | DB Native `polaris` (NO la default del proyecto, que es Datastore) | ADC de Cloud Run, Firebase Admin o REST autenticado; no guardar keyfiles en el repo |
-| Broker | Alpaca **PAPER**: `https://paper-api.alpaca.markets/v2` | Credenciales exclusivamente desde Secret Manager: `alpaca-key` |
+| Broker | Alpaca **PAPER**: `https://paper-api.alpaca.markets/v2` | Credenciales desde Secret Manager: `alpaca-key` y `alpaca-secret` |
 | Telegram | Bot @Raifeeer, chat id `1779931930` | Token exclusivamente desde Secret Manager (`TELEGRAM_BOT_TOKEN`); rotar cualquier token histórico expuesto |
 | LLM (Telegram) | DeepSeek V4 Flash (`deepseek-chat`), timeout 45 s | Secret Manager `deepseek-api-key`; fallbacks `gemini-api-key` y `grok-api-key` |
-| Backtests | `/home/ubuntu/backtests/` + `loop_backtests.py` / `stress_*.py` | Los resultados históricos S1–S89 están documentados, pero `/home/ubuntu/backtests/` está vacío en esta sandbox; deben regenerarse antes de usarse como evidencia. |
+| Backtests | `/home/ubuntu/backtests/` + scripts reproducibles | Los artefactos recientes de ORB, VWAP, relative strength, RSI, Breakout20/55, failure/retest, mean-reversion y TradingAgents están disponibles; cada informe declara cobertura y limitaciones. |
 
 **Advertencia de entorno:** en sesiones nuevas de la sandbox, `gcloud` no está en el PATH de inmediato. Restaurarlo con `export PATH=/home/ubuntu/.google/google-cloud-sdk/bin:$PATH` (también existe en `/home/ubuntu/google-cloud-sdk/bin`). No editar los archivos `.env` de la sesión con shell commands (restricción del entorno); usar la ruta completa al binario es suficiente.
 
@@ -64,9 +64,9 @@ El dashboard (React 19 + Tailwind 4, **cero mock**: sin doc muestra "—" y esta
 
 **Diagnóstico.** Los errores `yfinance "possibly delisted"`, `APIError subscription does not permit querying recent SIP data` y `Telegram poll falla` (409 cuando hay 2 instancias, timeouts el resto) son **ruido normal**; filtrarlos al leer logs. El log del proceso solo llega a Cloud Logging si `basicConfig` corrió antes; cualquier import condicional de arranque debe ir después. No confiar en los warnings del logger `state.firestore` (nunca aparecen en Cloud Logging): loguear contra el logger root de bot o con `print(..., flush=True)`.
 
-**Ciclo de tick.** Poll 5 min, watchdog 25 min (sin tick completo → `sys.exit(1)` y Cloud Run recrea la instancia). El tick completo tarda 10–15 min por timeouts de yfinance (socket timeout 45 s por ticker). Orden: snapshot Alpaca → circuit breakers → feed 5m/15m/1d → señales → risk → ejecución → gestión de posiciones (TP/SL prima, DTE) → escritura Firestore con timeout 30 s → Telegram. 00056 completó un ciclo en unos 17 min desde arranque; la caché está activa pero el fallback de datos sigue dominando la latencia.
+**Ciclo de tick.** Poll efectivo 60 s (`POLL_SECONDS=60`); `BOT_POLL_MINUTES=5` queda como compatibilidad histórica. Watchdog 25 min (sin tick completo → `sys.exit(1)` y Cloud Run recrea la instancia). El tick completo tarda 10–15 min por timeouts de yfinance (socket timeout 45 s por ticker). Orden: snapshot Alpaca → circuit breakers → feed 5m/15m/1d → señales → risk → ejecución → gestión de posiciones (TP/SL prima, DTE) → escritura Firestore con timeout 30 s → Telegram. 00056 completó un ciclo en unos 17 min desde arranque; la caché está activa pero el fallback de datos sigue dominando la latencia.
 
-## 5. Estado del trading al pausar (14 ago 2026)
+## 5. Estado histórico del trading al pausar (14 ago 2026; supersedido por §14)
 
 Modo PAPER. Estrategias: SMC, S78 Regime-aware y régimen-aware (3). Régimen actual: **bull** (5/8 tickers). Posiciones abiertas: 0 (el spread TQQQ se cerró; equity Alpaca $99,689.50). El equity está **por debajo del piso $99,900**, por lo que el bot haltea entradas nuevas (regla correcta del reto: piso $99,900, meta $100,100). La calibración vigente es la del reto $100→$200 (universo barato SOFI/PLTR/F/TSLA/AMD/NOK/BB/TQQQ, spread debit deltas 0.25/0.10, DTE 10–45, prima máx $12, TP +40%/SL 25% de prima, riesgo 20%/trade, máx 2 posiciones, dd diario 15%/total 30%). Mecanismos de defensa activos: `crash_event` 3% (cierre, cool-down 5d) e `intraday_stop` 4%.
 
@@ -299,3 +299,25 @@ Se verificaron cuatro `Tick OK` y cuatro `CYCLE TIMING`; no hubo traceback ni `E
 La revisión activa es `polaris-bot-promob66a78b` con 100% del tráfico y el commit `b66a78b`. El usuario confirmó activar las capas shadow en PAPER. El alcance ejecutable se mantuvo seguro: `trend_pullback` y `breakout_20_55` usan adaptadores `Signal` + `OptionsStrategy`; `breakdown_retest` usa la ruta bearish y `RiskManager.approve_option_structure`. Las entradas promovidas long quedan limitadas a un contrato durante la observación inicial. VIX, estructura MTF y setups continúan como contexto/telemetría shadow; defined-risk mantiene `orders_allowed=false` por falta de atomicidad multi-leg en el executor secuencial.
 
 Validaciones: `broker.paper=true`, endpoint PAPER preservado, floor/circuit breakers/RiskManager/validación de cotizaciones intactos; suite `178 passed`, `1 skipped`, `2 xfailed` heredados y `8 subtests`; Ruff F/B/E9 limpio. Tras el deploy se observaron tres `Tick OK`, cero tracebacks, cero errores del loop y cero órdenes. Firestore `polaris/2026-08-21` se actualizó a `2026-08-21T15:36:23.466046+00:00` con equity `$99,288.27`, modo PAPER, cero posiciones y cero órdenes. Conteos shadow: breakdown 4 confirmadas, trend pullback 3 confirmadas, Breakout20/55 7 confirmadas y `gate_allowed=0`. Las estrategias promovidas reportaron `tradable=0` en los ciclos observados; no hubo entrada aprobada ni ejecución. Continuar observando frescura, RiskManager, órdenes por pata y rollback antes de ampliar alcance.
+
+
+## 14. Estado vigente verificado — 24 de agosto de 2026
+
+Esta sección supersede los estados operativos históricos de las secciones anteriores. El repositorio `Raifeeer/bot-trading` está en `main`, HEAD `852a827`, con árbol limpio al último cierre. Cloud Run `polaris-bot` en `gen-lang-client-0746441136`, us-central1, recibe 100% del tráfico en `polaris-bot-promob66a78b`. La cuenta es Alpaca PAPER, con `minScale=1`, `maxScale=1`, CPU always-on y `POLL_SECONDS=60`.
+
+La última evidencia documentada conserva equity `$99,288.27`, cero posiciones y cero órdenes. El floor activo es `$99,000` mientras equity < `$100,000`; el piso `$99,900` vuelve al alcanzar el objetivo. No relajar el floor para fabricar operaciones. RiskManager, circuit breakers, límites de posiciones, validación de cotizaciones y control de frescura son autoridad final.
+
+El runtime base mantiene `day_momentum` 5m, `day_breakout` 15m y `swing_trend` 1d. La promoción controlada PAPER añadió rutas para `trend_pullback`, `breakout_20_55` y `breakdown_retest`, limitadas por OptionsStrategy/RiskManager; las entradas long promovidas se limitaron inicialmente a un contrato. VIX, estructura MTF y setup_confluence siguen siendo contexto/telemetría; defined-risk no se ejecuta porque el executor secuencial no ofrece atomicidad multi-leg. Todas las capas shadow fuerzan `mode=shadow`, `influence_entries=false` y `orders_allowed=false` en código.
+
+La investigación de ORB, VWAP, relative strength y priority overlay, RSI bounce, failure/retest, mean-reversion, Wheel, SMC ampliado, Volume Profile, Williams %R, patrones, fundamentales y gamma walls no justificó integración operativa; sus informes y decisiones están en `docs/`. TradingAgents se probó aislado en un venv separado con commit `852a827`, sin credenciales ni executor, y queda `RESEARCH_ONLY`.
+
+### Checklist antes de cualquier nuevo cambio
+
+1. Confirmar revisión y tráfico: `polaris-bot-promob66a78b` puede haber sido reemplazada; no asumir que sigue activa.
+2. Consultar Firestore del día correcto, no un documento histórico fijo, y comprobar `updated_at`, equity, posiciones, órdenes y modo PAPER.
+3. Nunca usar `--set-env-vars` o `--set-secrets` aislados; construir imagen con digest, crear revisión sin tráfico, comprobar readiness y mover tráfico explícitamente.
+4. Auditar secretos sin imprimir valores. La revisión vigente mostró Alpaca y DeepSeek enlazados a Secret Manager, pero `TELEGRAM_BOT_TOKEN` como valor literal en el spec: rotar y migrar antes de un entorno plenamente saneado.
+5. Ejecutar suite completa, Ruff F/B/E9, compilación y tests de contrato. Cualquier nueva promoción requiere datos point-in-time, costes, slippage, walk-forward no solapado, análisis de solapamiento y rollback probado.
+6. Si se observan `same_bar_context`, interpretarlo como deduplicación de la misma vela, no como ausencia definitiva de mercado; revisar frescura del feed y el timestamp del último ciclo.
+
+Los informes más recientes son `docs/shadow_layers_audit_2026-08-19.md`, `docs/tradingagents_x_analysis_2026-08-24.md` y `docs/tradingagents_pilot_2026-08-24.md`. El código del piloto de TradingAgents es investigación local y no debe entrar en la imagen de producción.
