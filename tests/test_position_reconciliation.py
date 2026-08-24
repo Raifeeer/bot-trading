@@ -115,6 +115,25 @@ class TestPositionReconciliation(unittest.TestCase):
         self.assertTrue(state["_broker_reconciliation_halt"])
         self.assertEqual(len(state["unmanaged_broker_legs"]), 3)
 
+    def test_unequal_vertical_quantities_are_unmanaged(self):
+        state = {"positions": [], "decisions": [], "orders": []}
+        legs = [
+            {
+                "symbol": "BB260918P00008500", "qty": -8.0,
+                "avg_entry": 0.95, "asset_class": "us_option",
+            },
+            {
+                "symbol": "BB260918P00009000", "qty": 7.0,
+                "avg_entry": 1.49, "asset_class": "us_option",
+            },
+        ]
+        n = reconcile_positions_with_broker(_FakeExecutor(legs), state)
+
+        self.assertEqual(n, 0)
+        self.assertTrue(state["_broker_reconciliation_halt"])
+        self.assertEqual(len(state["unmanaged_broker_legs"]), 2)
+        self.assertEqual(state["positions"], [])
+
     def test_no_option_positions_is_a_noop(self):
         state = {"positions": [], "decisions": [], "orders": []}
         executor = _FakeExecutor([])

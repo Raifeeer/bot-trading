@@ -778,6 +778,15 @@ def reconcile_positions_with_broker(executor: AlpacaExecutor, state: dict) -> in
                     leg for leg, _ in pair)
                 continue
             (leg_a, occ_a), (leg_b, occ_b) = pair
+            if abs(abs(float(leg_a["qty"])) - abs(float(leg_b["qty"]))) > 1e-6:
+                logger.warning(
+                    "Reconciliación: %s %s %s tiene cantidades "
+                    "desiguales (%.4f/%.4f); no se reconstruye automáticamente",
+                    underlying, exp, otype, float(leg_a["qty"]),
+                    float(leg_b["qty"]))
+                state["unmanaged_broker_legs"].extend(
+                    leg for leg, _ in pair)
+                continue
             long_leg, short_leg = ((leg_a, occ_a), (leg_b, occ_b)) \
                 if leg_a["qty"] > 0 else ((leg_b, occ_b), (leg_a, occ_a))
             if long_leg[0]["qty"] <= 0 or short_leg[0]["qty"] >= 0:
