@@ -71,7 +71,7 @@ universo:
   # cash (12.5% de ventanas positivas frente al 37.5% del cash).
   # ===================================================================
   options_bear:
-    enabled: true
+    enabled: false
     delta_long: 0.30
     delta_short: 0.10
     dte_min: 14
@@ -232,10 +232,10 @@ breakout_20_55_shadow:
 # RiskManager, floor y circuit breakers. No habilita defined-risk: el executor
 # actual envía patas secuenciales y no ofrece atomicidad multi-leg.
 promoted_layers:
-  enabled: true
-  trend_pullback: true
-  breakout_20_55: true
-  breakdown_retest: true
+  enabled: false
+  trend_pullback: false
+  breakout_20_55: false
+  breakdown_retest: false
   use_vix_gate: true       # VIX sigue siendo contexto; no genera entradas
   use_structure_gate: true # estructura sigue siendo contexto; no genera entradas
 
