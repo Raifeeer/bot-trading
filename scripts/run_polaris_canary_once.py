@@ -156,6 +156,17 @@ def cancel_order(order_id: str):
         raise RuntimeError(f"cancel_http_{code}:{payload}")
 
 
+def verify_cloud_run_contained():
+    output = subprocess.check_output([
+        GCLOUD, "run", "services", "describe", "polaris-bot",
+        "--project=gen-lang-client-0746441136", "--region=us-central1",
+        "--format=value(status.traffic)",
+    ], text=True, timeout=30).strip()
+    if "polaris-bot-cbdc186" not in output or "'percent': 100" not in output:
+        raise RuntimeError("cloud_run_revision_not_contained")
+    return output
+
+
 def verify_empty_account():
     code, account = api("GET", f"{TRADING_BASE}/account")
     if code != 200 or account.get("status") != "ACTIVE":
@@ -201,6 +212,7 @@ def main():
         raise RuntimeError(f"canary_run_claim_failed_http_{code}")
     run_update_time = run_doc.get("updateTime")
 
+    run["cloud_run_traffic"] = verify_cloud_run_contained()
     code, clock = api("GET", f"{TRADING_BASE}/clock")
     if code != 200 or not clock.get("is_open"):
         run["status"] = "aborted_market_closed"
