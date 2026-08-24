@@ -62,6 +62,22 @@ El plugin `trading-operations` está marcado con `scripts=false`, por lo que su 
 | 4 | Mantener Trading Experiment en sandbox independiente para comparar metodología de generación. | Sin acceso a producción; toda estrategia generada requiere revisión y backtest propio. |
 | 5 | Ignorar por ahora plugins de broker, DEX, wallet, escrow, copy-trading y MCP de órdenes. | Solo reconsiderar con executor aislado, permisos mínimos y confirmación separada. |
 
+## Revisión específica de MCP Servers
+
+La vista filtrada del catálogo mostró **55 MCP Servers** relacionados con Trading. La mayoría se orienta a crypto/DeFi, brokers externos, futuros o servicios de señales; ninguno de los candidatos revisados demostró compatibilidad directa con Alpaca PAPER.
+
+| MCP | Capacidad declarada | Encaje con Polaris | Clasificación |
+|---|---|---|---|
+| `VARRD` | Event studies, backtesting y validación estadística en acciones, futuros y crypto; endpoint HTTP remoto | Potencial para research-only, sujeto a revisar herramientas y datos point-in-time | **Investigar aislado** |
+| `TradingCalc` | PnL, liquidación, sizing y carry de futuros crypto; 19 herramientas | Útil como calculadora conceptual, no para opciones/equities de Alpaca | **Baja prioridad** |
+| `IncomeBot` | Régimen, momentum, income options y simulación de riesgo | Es el más cercano al dominio de opciones, pero no demuestra compatibilidad con Alpaca ni fills reales | **Auditar antes de conectar** |
+| `Finlab AI` | Más de 900 columnas, backtesting y ejemplos de estrategias | Potencial como laboratorio externo, no como fuente de verdad de Polaris | **Investigar aislado** |
+| `Datasignals Lab` | Form 4, 13F, 8-K, FDA, Congreso y señales crypto | Puede aportar contexto event-driven si se verifican fechas y read-only | **Investigar aislado** |
+| `Curistat` / `Lattiq` | Volatilidad, régimen y señales para ES/NQ | Mercado distinto al universo de Polaris | **No prioritario** |
+| `Trading`, `Trading212`, `Kite`, `AlgoVesta`, `Sentinel`, `FINOPTIMA`, `Openmm`, `HashLock OTC` | Órdenes, brokers, exchanges, DEX, escrow o custodia | No son necesarios y amplían críticamente el perímetro de ejecución | **No conectar** |
+
+Las fichas muestran endpoints HTTP remotos o comandos stdio/npx y, en algunos casos, fechas de última prueba antiguas o instrucciones ausentes. Antes de añadir cualquier MCP hay que consultar el registry, listar herramientas, identificar operaciones de mutación, autenticación y scopes, política de retención, rate limits y existencia de sandbox. Ningún MCP debe recibir claves de Alpaca, tokens de Secret Manager, acceso a Firestore ni acceso directo al executor.
+
 ## Conclusión
 
 El catálogo no ofrece un plugin que deba conectarse directamente a Polaris. Su mayor valor es servir como fuente de patrones para investigación, validación y controles operacionales. La integración segura sería selectiva y documental, no una instalación masiva.
