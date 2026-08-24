@@ -14,7 +14,6 @@ import hashlib
 import json
 import subprocess
 import time
-import urllib.parse
 from pathlib import Path
 
 import requests
@@ -126,6 +125,13 @@ def write_run(data: dict, update_time: str | None = None):
     return fs_patch(CANARY_COLLECTION, RUN_ID, data, update_time=update_time)
 
 
+def persist_run(data: dict, update_time: str | None = None) -> str | None:
+    code, payload = write_run(data, update_time)
+    if code not in (200, 201):
+        raise RuntimeError(f"canary_run_update_failed_http_{code}")
+    return payload.get("updateTime")
+
+
 def order_status(order_id: str):
     code, payload = api("GET", f"{TRADING_BASE}/orders/{order_id}")
     if code != 200:
@@ -198,7 +204,7 @@ def main():
     code, clock = api("GET", f"{TRADING_BASE}/clock")
     if code != 200 or not clock.get("is_open"):
         run["status"] = "aborted_market_closed"
-        write_run(run, run_update_time)
+        run_update_time = persist_run(run, run_update_time)
         print(json.dumps({"status": run["status"], "next_open": clock.get("next_open")}))
         return 0
 
@@ -220,10 +226,7 @@ def main():
         "entry_ask": ask,
         "preflight_clock": clock.get("timestamp"),
     })
-    result = write_run(run, run_update_time)
-    if result[0] not in (200, 201):
-        raise RuntimeError(f"canary_run_update_failed_http_{result[0]}")
-    run_update_time = result[1].get("updateTime")
+    run_update_time = persist_run(run, run_update_time)
 
     client_order_id = f"polaris-{RUN_ID}"
     code, entry = api("POST", f"{TRADING_BASE}/orders", body={
@@ -237,14 +240,11 @@ def main():
     })
     if code not in (200, 201):
         run.update({"status": "entry_rejected", "entry_http": code})
-        write_run(run, run_update_time)
+        run_update_time = persist_run(run, run_update_time)
         raise RuntimeError(f"entry_rejected_http_{code}")
     entry_id = str(entry.get("id"))
     run.update({"entry_order_id": entry_id, "status": "entry_submitted"})
-    result = write_run(run, run_update_time)
-    if result[0] not in (200, 201):
-        raise RuntimeError("entry_ledger_update_failed")
-    run_update_time = result[1].get("updateTime")
+    run_update_time = persist_run(run, run_update_time)
 
     entry_final = wait_for_terminal(entry_id)
     entry_status = str(entry_final.get("status", "")).lower()
@@ -257,14 +257,14 @@ def main():
             "entry_final_status": entry_final.get("status"),
             "entry_filled_qty": entry_final.get("filled_qty"),
         })
-        write_run(run, run_update_time)
+        run_update_time = persist_run(run, run_update_time)
         print(json.dumps({"status": run["status"], "entry_order_id": entry_id}))
         return 0
 
     filled_qty = float(entry_final.get("filled_qty") or 0)
     if filled_qty != QTY:
         run.update({"status": "entry_partial_needs_review", "entry_final": entry_final})
-        write_run(run, run_update_time)
+        run_update_time = persist_run(run, run_update_time)
         raise RuntimeError("entry_partial_needs_review")
 
     intent = {
@@ -284,7 +284,7 @@ def main():
     code, ledger_doc = fs_create(EXIT_COLLECTION, exit_id, intent)
     if code not in (200, 201):
         run.update({"status": "exit_ledger_claim_failed_needs_review", "ledger_id": exit_id})
-        write_run(run, run_update_time)
+        run_update_time = persist_run(run, run_update_time)
         raise RuntimeError("exit_ledger_claim_failed_needs_review")
 
     snapshot = get_snapshot()
@@ -295,21 +295,18 @@ def main():
         update = {**intent, "status": "needs_review", "active": True, "version": 2}
         fs_patch(EXIT_COLLECTION, exit_id, update, ledger_doc.get("updateTime"))
         run.update({"status": "exit_quote_unsafe_needs_review", "ledger_id": exit_id})
-        write_run(run, run_update_time)
+        run_update_time = persist_run(run, run_update_time)
         raise RuntimeError("exit_quote_unsafe_needs_review")
 
     run.update({"status": "exit_submitting", "ledger_id": exit_id, "exit_bid": bid, "exit_ask": ask})
-    result = write_run(run, run_update_time)
-    if result[0] not in (200, 201):
-        raise RuntimeError("canary_run_exit_update_failed")
-    run_update_time = result[1].get("updateTime")
+    run_update_time = persist_run(run, run_update_time)
     result = fs_patch(EXIT_COLLECTION, exit_id, {
         "status": "submitted", "active": True, "version": 2,
         "exit_limit": bid, "updated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
     }, ledger_doc.get("updateTime"))
     if result[0] not in (200, 201):
         run.update({"status": "exit_ledger_update_failed_needs_review"})
-        write_run(run, run_update_time)
+        run_update_time = persist_run(run, run_update_time)
         raise RuntimeError("exit_ledger_update_failed_needs_review")
 
     code, exit_order = api("POST", f"{TRADING_BASE}/orders", body={
@@ -328,11 +325,11 @@ def main():
             "updated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
         }, result[1].get("updateTime"))
         run.update({"status": "exit_rejected_needs_review", "exit_http": code})
-        write_run(run, run_update_time)
+        run_update_time = persist_run(run, run_update_time)
         raise RuntimeError(f"exit_rejected_needs_review_http_{code}")
     exit_order_id = str(exit_order.get("id"))
     run.update({"exit_order_id": exit_order_id, "status": "exit_submitted"})
-    write_run(run, run_update_time)
+    run_update_time = persist_run(run, run_update_time)
     exit_final = wait_for_terminal(exit_order_id)
     exit_status = str(exit_final.get("status", "")).lower()
     if exit_status != "filled":
@@ -346,14 +343,14 @@ def main():
             "updated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
         }, result[1].get("updateTime"))
         run.update({"status": "exit_not_filled_needs_review", "exit_final": exit_final})
-        write_run(run, run_update_time)
+        run_update_time = persist_run(run, run_update_time)
         print(json.dumps({"status": run["status"], "exit_order_id": exit_order_id}))
         return 0
 
     code, positions = api("GET", f"{TRADING_BASE}/positions")
     if code != 200 or any(str(p.get("symbol")) == CONTRACT for p in positions):
         run.update({"status": "exit_filled_position_remains_needs_review", "exit_final": exit_final})
-        write_run(run, run_update_time)
+        run_update_time = persist_run(run, run_update_time)
         raise RuntimeError("exit_filled_position_remains_needs_review")
 
     result = fs_patch(EXIT_COLLECTION, exit_id, {
@@ -366,10 +363,10 @@ def main():
     }, result[1].get("updateTime"))
     if result[0] not in (200, 201):
         run.update({"status": "completed_broker_ledger_needs_review", "exit_order_id": exit_order_id})
-        write_run(run, run_update_time)
+        run_update_time = persist_run(run, run_update_time)
         raise RuntimeError("completed_broker_ledger_needs_review")
     run.update({"status": "completed", "exit_final": exit_final})
-    write_run(run, run_update_time)
+    persist_run(run, run_update_time)
     print(json.dumps({"status": run["status"], "entry_order_id": entry_id, "exit_order_id": exit_order_id}))
     return 0
 
