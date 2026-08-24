@@ -2108,3 +2108,16 @@ El repositorio es Apache 2.0 y, en la consulta del 24 de agosto de 2026, mostrab
 Decisión: `RESEARCH_ONLY`. No instalarlo en Cloud Run ni darle credenciales de Alpaca. Si se evalúa para Polaris, debe correr aislado como analista shadow, devolver una salida estructurada y no tener acceso al executor. Cualquier valor añadido deberá probarse contra un baseline fijo con datos point-in-time, costes, slippage, walk-forward no solapado y modelo/temperatura congelados. RiskManager, floor, circuit breakers y validación de cotizaciones seguirían siendo la autoridad final.
 
 Informe completo: `docs/tradingagents_x_analysis_2026-08-24.md`.
+
+
+## Piloto aislado de TradingAgents — 2026-08-24
+
+Se probó el repositorio oficial `TauricResearch/TradingAgents` v0.3.1 en `/home/ubuntu/research-tradingagents` dentro del entorno virtual `/home/ubuntu/venvs/tradingagents`. El piloto no importó Polaris, no usó credenciales `APCA_*`, no accedió a Firestore y no tuvo ruta de envío de órdenes.
+
+Se fijaron `gpt-5-mini`/`gpt-5-nano`, temperatura 0.0, una ronda de debate y una ronda de riesgo. Con los cuatro grupos de analistas, AMD/BB/TQQQ en `2026-07-15` devolvieron respectivamente `Overweight`, `Underweight`, `Underweight`; sus retornos posteriores de cinco sesiones fueron +4.38%, −15.88% y −5.59%. AMD en `2026-07-31` devolvió `Overweight` y el retorno posterior fue +1.51%. El piloto técnico aislado clasificó los tres como `Overweight`, acertando AMD pero no BB/TQQQ. Las ejecuciones completas tardaron aproximadamente 384–448 s; la muestra técnica, 264–269 s.
+
+Estos datos son exploratorios y no constituyen un backtest point-in-time: los proveedores actuales pueden haber expuesto datos fundamentales/noticias publicados después de la fecha solicitada. Tampoco incluyen spreads, bid/ask, slippage, comisiones, sizing, stops ni RiskManager. Hubo HTTP 429 de Reddit y ausencia de `FRED_API_KEY`; el framework continuó con fuentes incompletas.
+
+Decisión: `RESEARCH_ONLY`. TradingAgents puede investigarse como analista contextual aislado, pero no debe instalarse en Cloud Run, recibir credenciales de Alpaca, escribir en Firestore de producción ni influir en el executor. Antes de cualquier shadow dentro de Polaris se requiere un conjunto de snapshots point-in-time, fuentes fechadas, modelo/temperatura congelados, salida estructurada y comparación contra baseline con costes, slippage y walk-forward.
+
+Informe: `docs/tradingagents_pilot_2026-08-24.md`. Script: `scripts/run_tradingagents_pilot.py`. Artefactos: `/home/ubuntu/backtests/tradingagents_pilot_2026-08-24*`.
