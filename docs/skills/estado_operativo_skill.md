@@ -303,9 +303,9 @@ Validaciones: `broker.paper=true`, endpoint PAPER preservado, floor/circuit brea
 
 ## 14. Estado vigente verificado — 24 de agosto de 2026
 
-Esta sección supersede los estados operativos históricos de las secciones anteriores. El repositorio `Raifeeer/bot-trading` está en `main`, HEAD `852a827`, con árbol limpio al último cierre. Cloud Run `polaris-bot` en `gen-lang-client-0746441136`, us-central1, recibe 100% del tráfico en `polaris-bot-promob66a78b`. La cuenta es Alpaca PAPER, con `minScale=1`, `maxScale=1`, CPU always-on y `POLL_SECONDS=60`.
+Esta sección supersede los estados operativos históricos de las secciones anteriores. El repositorio `Raifeeer/bot-trading` está en `main`, con el hotfix operativo `07517fb` ya construido; el cierre documental posterior debe dejar el árbol limpio. Cloud Run `polaris-bot` en `gen-lang-client-0746441136`, us-central1, recibe 100% del tráfico en `polaris-bot-idempotent07517`, digest `sha256:898761ed424e26d2cb504a8c9177ea75238325f4326ba220fbdc5ba6eec95ead`. La cuenta es Alpaca PAPER, con `minScale=1`, `maxScale=1`, CPU always-on y `POLL_SECONDS=60`.
 
-La última evidencia documentada conserva equity `$99,288.27`, cero posiciones y cero órdenes. El floor activo es `$99,000` mientras equity < `$100,000`; el piso `$99,900` vuelve al alcanzar el objetivo. No relajar el floor para fabricar operaciones. RiskManager, circuit breakers, límites de posiciones, validación de cotizaciones y control de frescura son autoridad final.
+La verificación directa posterior a la liquidación reportó cuenta `ACTIVE`, equity/cash/portfolio value `$96,915.63`, cero posiciones y cero órdenes abiertas; las órdenes del día estaban en estados terminales. El floor activo es `$99,000` mientras equity < `$100,000`; `risk.halt_new_entries=true` y la contención sigue vigente. No relajar el floor para fabricar operaciones. RiskManager, circuit breakers, límites de posiciones, validación de cotizaciones y control de frescura son autoridad final.
 
 El runtime base mantiene `day_momentum` 5m, `day_breakout` 15m y `swing_trend` 1d. La promoción controlada PAPER añadió rutas para `trend_pullback`, `breakout_20_55` y `breakdown_retest`, limitadas por OptionsStrategy/RiskManager; las entradas long promovidas se limitaron inicialmente a un contrato. VIX, estructura MTF y setup_confluence siguen siendo contexto/telemetría; defined-risk no se ejecuta porque el executor secuencial no ofrece atomicidad multi-leg. Todas las capas shadow fuerzan `mode=shadow`, `influence_entries=false` y `orders_allowed=false` en código.
 
@@ -313,7 +313,7 @@ La investigación de ORB, VWAP, relative strength y priority overlay, RSI bounce
 
 ### Checklist antes de cualquier nuevo cambio
 
-1. Confirmar revisión y tráfico: `polaris-bot-promob66a78b` puede haber sido reemplazada; no asumir que sigue activa.
+1. Confirmar revisión y tráfico: la revisión verificada es `polaris-bot-idempotent07517` al 100%; si aparece traceback, orden inesperada o fallo de reconciliación, volver inmediatamente a `polaris-bot-guarddddcda7`.
 2. Consultar Firestore del día correcto, no un documento histórico fijo, y comprobar `updated_at`, equity, posiciones, órdenes y modo PAPER.
 3. Nunca usar `--set-env-vars` o `--set-secrets` aislados; construir imagen con digest, crear revisión sin tráfico, comprobar readiness y mover tráfico explícitamente.
 4. Auditar secretos sin imprimir valores. La revisión vigente mostró Alpaca y DeepSeek enlazados a Secret Manager, pero `TELEGRAM_BOT_TOKEN` como valor literal en el spec: rotar y migrar antes de un entorno plenamente saneado.
@@ -348,3 +348,18 @@ La observación real mostró un fallo de idempotencia: el gestor de posiciones e
 Se hizo rollback de tráfico a `polaris-bot-guarddddcda7`. La revisión activa vuelve a bloquear nuevas entradas y no envía nuevas salidas automáticas. No se cancelaron órdenes pendientes ni se cerraron posiciones manualmente. Estado observado tras rollback: equity aproximada `$96,855.26`; AMD y BB siguen con posiciones abiertas, BB desigual `-6/+5`, residual AMD 0DTE y una orden pendiente de compra BB `P85`. Clasificación: `CONTAINED_UNMANAGED_OPTIONS_EXIT_PAUSED`.
 
 Antes de cualquier nuevo despliegue de gestión de salidas deben implementarse y probarse: idempotencia por estructura y pata, reconciliación de órdenes abiertas además de posiciones, ledger persistente de intención de salida, bloqueo de nuevas salidas mientras exista una orden pendiente, manejo explícito de fills parciales y una prueba de dos ciclos consecutivos que demuestre que no se duplica ninguna orden. El rollback debe ser la respuesta inmediata ante cualquier repetición.
+
+
+## 15. Contención post-liquidación y revisión idempotente — 24 de agosto de 2026
+
+El incidente de ejecución multi-pata quedó contenido en Alpaca PAPER con autorización explícita del usuario. Se bloquearon nuevas entradas, se cancelaron órdenes PAPER pendientes y se cerraron/neutralizaron AMD y BB. La consulta directa posterior confirmó cuenta `ACTIVE`, equity/cash/portfolio value `$96,915.63`, cero posiciones y cero órdenes abiertas; las órdenes del día eran terminales. No asumir que esta autorización permite futuras operaciones: PAPER sigue siendo obligatorio y cualquier reanudación necesita confirmación nueva.
+
+El hotfix `07517fb` está desplegado en la revisión `polaris-bot-idempotent07517`, con 100% del tráfico y digest `sha256:898761ed424e26d2cb504a8c9177ea75238325f4326ba220fbdc5ba6eec95ead`. El código fuerza `risk.halt_new_entries=true`, reconcilia en cada ciclo, consulta órdenes abiertas del broker y bloquea entradas ante divergencias. Las salidas usan `exit_intents`/`exit_history`, estados por ID, confirmación de desaparición de patas y `needs_review`/`partial_submission` sin reintentos automáticos. Defined-risk multi-leg no se ejecuta: el executor sigue sin atomicidad real.
+
+Se observaron al menos seis ciclos completos posteriores al deploy. El último snapshot real `polaris/2026-08-24` quedó actualizado a `2026-08-24T18:56:02.026266+00:00` y confirmó `trading_mode=PAPER`, equity `$96,915.63`, posiciones `0`, órdenes abiertas `0`, `exit_intents=0`, `new_entries_halted=true`, `broker_reconciliation_halt=false`, `approved=0`, `orders=0`, `unmanaged_broker_legs=0` y `unmanaged_state_positions=0`. Los logs mostraron `Tick OK`, escritura Firestore y cero tracebacks. Se observó un único `Telegram poll ... HTTP 409` y warnings de datos SIP no permitidos con fallback real a yfinance; no hubo envío de órdenes ni error del loop.
+
+### Bloqueo antes de reanudar
+
+El ledger se publica en Firestore, pero todavía no se restaura desde Firestore durante `load_state()`; los intents y estados locales dependen del filesystem efímero. El bot está clasificado como `CONTAINED_POST_LIQUIDATION_PENDING_VERIFICATION`/vigilancia segura sin posiciones, pero **no** como idempotencia durable completa. No crear posiciones para probarlo, no reactivar entradas y no habilitar gestión automática de spreads hasta implementar restauración persistente, consultar órdenes por ID después de reinicios y probar fills parciales, patas abiertas y fallos de estado. El rollback inmediato ante traceback, orden inesperada o divergencia es `polaris-bot-guarddddcda7` al 100%.
+
+Pendientes posteriores: ampliar Telegram para mostrar explícitamente `CONTAINED`, `new_entries_halted`, `broker_reconciliation_halt`, `unmanaged_broker_legs`, órdenes abiertas e intents; migrar y rotar `TELEGRAM_BOT_TOKEN` desde el valor literal del spec a Secret Manager; y mantener todas las estrategias nuevas en `RESEARCH_ONLY`/shadow hasta evidencia reproducible. La estabilidad operativa no implica rentabilidad ni garantiza recuperar el capital perdido.
