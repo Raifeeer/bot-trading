@@ -166,6 +166,33 @@ class TestPositionReconciliation(unittest.TestCase):
         self.assertEqual(len(state["unmanaged_broker_legs"]), 2)
         self.assertEqual(state["positions"], [])
 
+    def test_exit_intent_allows_confirmed_position_removal(self):
+        position = {
+            "symbol": "TQQQ", "strategy": "reconciled_broker",
+            "structure": "call_spread_TQQQ_85.0_100.0",
+            "net_premium": 1.97, "max_risk": 197.0,
+            "legs": [
+                {"symbol": "TQQQ260918C00085000", "side": "buy", "qty": 1},
+                {"symbol": "TQQQ260918C00100000", "side": "sell", "qty": 1},
+            ],
+        }
+        state = {
+            "positions": [position], "decisions": [], "orders": [],
+            "exit_intents": {
+                "TQQQ|reconciled_broker|call_spread_TQQQ_85.0_100.0|"
+                "TQQQ260918C00085000,TQQQ260918C00100000": {
+                    "reason": "stop", "order_ids": ["close-1"],
+                }
+            },
+        }
+        n = reconcile_positions_with_broker(_FakeExecutor([]), state)
+
+        self.assertEqual(n, 0)
+        self.assertEqual(state["positions"], [])
+        self.assertEqual(state["exit_history"][0]["status"], "completed")
+        self.assertEqual(state["decisions"][0]["action"],
+                         "POSITION_CLOSED_RECONCILED")
+
     def test_no_option_positions_is_a_noop(self):
         state = {"positions": [], "decisions": [], "orders": []}
         executor = _FakeExecutor([])

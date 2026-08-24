@@ -14,10 +14,34 @@ from options.chains import Leg, OptionContract, OptionStructure, OptionType
 class _FakeTrading:
     def __init__(self):
         self.requests = []
+        self.orders = [SimpleNamespace(
+            id="order-open-1",
+            symbol="TESTC1",
+            side=SimpleNamespace(value="buy"),
+            qty=1,
+            filled_qty=0,
+            status=SimpleNamespace(value="new"),
+            position_intent=SimpleNamespace(value="buy_to_close"),
+            client_order_id="client-open-1",
+        )]
 
     def submit_order(self, request):
         self.requests.append(request)
         return SimpleNamespace(status="accepted")
+
+    def get_orders(self, filter=None):
+        return self.orders
+
+    def get_order_by_id(self, order_id):
+        return SimpleNamespace(
+            id=order_id,
+            symbol="TESTC1",
+            side=SimpleNamespace(value="buy"),
+            qty=1,
+            filled_qty=1,
+            status=SimpleNamespace(value="filled"),
+            position_intent=SimpleNamespace(value="buy_to_close"),
+        )
 
 
 class TestExecutionContract(unittest.TestCase):
@@ -57,6 +81,22 @@ class TestExecutionContract(unittest.TestCase):
         self.assertEqual(request.symbol, "TESTC1")
         self.assertEqual(float(request.limit_price), 1.2)
         self.assertNotIn("asset_class", type(request).model_fields)
+
+    def test_open_orders_are_normalized_for_idempotency(self):
+        executor = AlpacaExecutor()
+        executor.trading = _FakeTrading()
+        orders = executor.open_orders(symbols=["TESTC1"])
+        self.assertEqual(len(orders), 1)
+        self.assertEqual(orders[0]["id"], "order-open-1")
+        self.assertEqual(orders[0]["status"], "new")
+        self.assertEqual(orders[0]["position_intent"], "buy_to_close")
+
+    def test_order_statuses_are_normalized_for_fill_reconciliation(self):
+        executor = AlpacaExecutor()
+        executor.trading = _FakeTrading()
+        statuses = executor.order_statuses(["order-open-1"])
+        self.assertEqual(statuses[0]["status"], "filled")
+        self.assertEqual(statuses[0]["filled_qty"], 1.0)
 
     def test_missing_quote_is_rejected_before_any_order(self):
         with self.assertRaises(ExecutionError):

@@ -138,7 +138,10 @@ class AlpacaExecutor:
                                     limit_price=float(limit_price))
         order = self.trading.submit_order(req)
         rec = dict(ts=datetime.utcnow().isoformat(), type="option", symbol=contract_symbol,
-                   side=side, qty=qty, order_type=order_type, status=order.status)
+                   side=side, qty=qty, order_type=order_type, status=order.status,
+                   id=str(getattr(order, "id", "") or ""),
+                   client_order_id=str(getattr(
+                       order, "client_order_id", "") or ""))
         self.order_log.append(rec)
         logger.info("Orden opción enviada: %s %d de %s (%s)", side, qty, contract_symbol, order.status)
         return rec
@@ -163,6 +166,69 @@ class AlpacaExecutor:
                                                         time_in_force=time_in_force))
         return dict(ts=datetime.utcnow().isoformat(), type="spread", legs=legs,
                     results=results)
+
+    def open_orders(self, symbols: list[str] | None = None) -> list:
+        """Devuelve órdenes abiertas normalizadas para idempotencia de salidas.
+
+        Alpaca es la fuente de verdad de órdenes pendientes; el filesystem local
+        puede reiniciarse y no debe provocar reenvíos de una misma salida.
+        """
+        if self.trading is None:
+            return []
+        from alpaca.trading.enums import QueryOrderStatus
+        from alpaca.trading.requests import GetOrdersRequest
+        request = GetOrdersRequest(
+            status=QueryOrderStatus.OPEN,
+            limit=100,
+            symbols=symbols or None,
+        )
+        orders = self.trading.get_orders(filter=request)
+        if isinstance(orders, dict):
+            orders = []
+        result = []
+        for order in orders:
+            result.append({
+                "id": str(order.id),
+                "symbol": str(order.symbol),
+                "side": str(order.side.value if hasattr(order.side, "value")
+                               else order.side),
+                "qty": float(order.qty),
+                "filled_qty": float(getattr(order, "filled_qty", 0) or 0),
+                "status": str(order.status.value if hasattr(order.status, "value")
+                                else order.status),
+                "position_intent": str(getattr(
+                    getattr(order, "position_intent", ""), "value",
+                    getattr(order, "position_intent", "")) or ""),
+                "client_order_id": str(getattr(
+                    order, "client_order_id", "") or ""),
+            })
+        return result
+
+    def order_statuses(self, order_ids: list[str]) -> list:
+        """Consulta estados de órdenes concretas para reconciliar fills parciales."""
+        if self.trading is None:
+            return []
+        result = []
+        for order_id in order_ids:
+            try:
+                order = self.trading.get_order_by_id(order_id)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("No se pudo consultar orden %s: %s", order_id, exc)
+                continue
+            result.append({
+                "id": str(order.id),
+                "symbol": str(order.symbol),
+                "side": str(order.side.value if hasattr(order.side, "value")
+                               else order.side),
+                "qty": float(order.qty),
+                "filled_qty": float(getattr(order, "filled_qty", 0) or 0),
+                "status": str(order.status.value if hasattr(order.status, "value")
+                                else order.status),
+                "position_intent": str(getattr(
+                    getattr(order, "position_intent", ""), "value",
+                    getattr(order, "position_intent", "")) or ""),
+            })
+        return result
 
     def positions(self) -> list:
         out = []

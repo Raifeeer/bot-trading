@@ -677,8 +677,44 @@ def save_state(state: dict):
 def load_state() -> dict:
     if os.path.exists(STATE_FILE):
         with open(STATE_FILE) as f:
-            return json.load(f)
-    return {"positions": [], "decisions": [], "orders": []}
+            state = json.load(f)
+    else:
+        state = {"positions": [], "decisions": [], "orders": []}
+    state.setdefault("positions", [])
+    state.setdefault("decisions", [])
+    state.setdefault("orders", [])
+    state.setdefault("exit_intents", {})
+    state.setdefault("exit_history", [])
+    state.setdefault("open_broker_orders", [])
+    return state
+
+
+def _position_key(pos: dict) -> str:
+    symbols = sorted(
+        str(spec.get("symbol"))
+        for spec in (pos.get("legs") or [])
+        if spec.get("symbol")
+    )
+    return "|".join([
+        str(pos.get("symbol", "")),
+        str(pos.get("strategy", "")),
+        str(pos.get("structure", "")),
+        ",".join(symbols),
+    ])
+
+
+def _position_leg_symbols(pos: dict) -> set[str]:
+    return {
+        str(spec.get("symbol"))
+        for spec in (pos.get("legs") or [])
+        if spec.get("symbol")
+    }
+
+
+def _entry_halt(cfg: dict, state: dict) -> bool:
+    risk_cfg = cfg.get("risk", {}) or {}
+    return bool(risk_cfg.get("halt_new_entries", False)
+                or state.get("_broker_reconciliation_halt"))
 
 
 def reconcile_positions_with_broker(executor: AlpacaExecutor, state: dict) -> int:
@@ -711,6 +747,8 @@ def reconcile_positions_with_broker(executor: AlpacaExecutor, state: dict) -> in
 
     broker_qty = {leg["symbol"]: float(leg["qty"]) for leg in legs}
     managed_positions = []
+    closed_by_intent = []
+    exit_intents = state.setdefault("exit_intents", {})
     for pos in state.get("positions", []):
         expected_qty = {}
         for spec in pos.get("legs") or []:
@@ -723,8 +761,18 @@ def reconcile_positions_with_broker(executor: AlpacaExecutor, state: dict) -> in
             abs(broker_qty.get(symbol, 0.0) - expected) <= 1e-6
             for symbol, expected in expected_qty.items()
         )
+        position_key = _position_key(pos)
+        no_legs_remain = bool(expected_qty) and all(
+            abs(broker_qty.get(symbol, 0.0)) <= 1e-6
+            for symbol in expected_qty
+        )
         if matches_broker:
             managed_positions.append(pos)
+        elif no_legs_remain and position_key in exit_intents:
+            closed_by_intent.append((position_key, pos))
+            logger.info(
+                "Reconciliación: salida confirmada por Alpaca para %s; "
+                "se retira la posición sin marcarla stale", pos.get("symbol"))
         else:
             state["unmanaged_state_positions"].append(pos)
             logger.critical(
@@ -732,6 +780,23 @@ def reconcile_positions_with_broker(executor: AlpacaExecutor, state: dict) -> in
                 "se retira de gestión automática y se bloquean nuevas entradas",
                 pos.get("symbol"))
     state["positions"] = managed_positions
+    for position_key, pos in closed_by_intent:
+        intent = exit_intents.pop(position_key, {})
+        state.setdefault("exit_history", []).append({
+            "position_key": position_key,
+            "status": "completed",
+            "completed_ts": datetime.utcnow().isoformat(),
+            "reason": intent.get("reason", ""),
+            "order_ids": intent.get("order_ids", []),
+            "position": pos,
+        })
+        state.setdefault("decisions", []).append({
+            "ts": datetime.utcnow().isoformat(),
+            "action": "POSITION_CLOSED_RECONCILED",
+            "position": pos,
+            "exit_reason": intent.get("reason", ""),
+            "order_ids": intent.get("order_ids", []),
+        })
     if not legs and state["unmanaged_state_positions"]:
         state["_broker_reconciliation_halt"] = True
         logger.critical(
@@ -860,7 +925,7 @@ def bear_entry_candidates(regime: dict, state: dict, cfg: dict) -> list:
     y respeta el límite propio del motor bajista.
     """
     b = options_bear_cfg(cfg)
-    if state.get("_broker_reconciliation_halt"):
+    if _entry_halt(cfg, state):
         return []
     # SOLO en régimen "bear" (>=30% del universo con CHoCH, o crash_event), no
     # en cualquier cosa que no sea bull. El régimen "cash" (lateral y bear
@@ -1357,6 +1422,23 @@ def main():
             snap = _call_with_timeout(executor.account_snapshot, 30.0,
                                       "Alpaca account snapshot")
             equity = snap["equity"]
+            if not no_alpaca:
+                try:
+                    reconcile_positions_with_broker(executor, state)
+                    open_orders = _call_with_timeout(
+                        executor.open_orders, 30.0, "Alpaca open orders")
+                    state["open_broker_orders"] = open_orders
+                    if open_orders:
+                        state["_broker_reconciliation_halt"] = True
+                        logger.critical(
+                            "Reconciliación: %d orden(es) abierta(s) en Alpaca; "
+                            "se bloquean nuevas entradas hasta resolverlas",
+                            len(open_orders))
+                    save_state(state)
+                except Exception:  # noqa: BLE001
+                    state["_broker_reconciliation_halt"] = True
+                    logger.exception(
+                        "Reconciliación recurrente fallida; entradas bloqueadas")
             rm.check_circuit_breakers(equity)
             if rm.is_halted():
                 logger.critical("BOT DETENIDO por circuit breaker. Equity=%.2f", equity)
@@ -1428,6 +1510,9 @@ def main():
                 "bear_candidates": 0,
                 "broker_reconciliation_halt": bool(
                     state.get("_broker_reconciliation_halt")),
+                "new_entries_halted": _entry_halt(cfg, state),
+                "open_broker_orders": len(
+                    state.get("open_broker_orders", [])),
                 "unmanaged_broker_legs": len(
                     state.get("unmanaged_broker_legs", [])),
                 "unmanaged_state_positions": len(
@@ -1490,7 +1575,7 @@ def main():
                     if sig.tradable and strat.last_structure and \
                             regime.get("regime") == "bull" and \
                             not (regime.get("floor") or {}).get("below_floor") \
-                            and not state.get("_broker_reconciliation_halt"):
+                            and not _entry_halt(cfg, state):
 
                         # Filtro anti-earnings: no entrar en posiciones N días
                         # antes de reportes de ganancias (riesgo de gap y
@@ -1600,6 +1685,8 @@ def main():
                     elif sig.tradable:
                         if not strat.last_structure:
                             reason = "no_structure"
+                        elif _entry_halt(cfg, state):
+                            reason = "new_entries_halted"
                         elif regime.get("regime") != "bull":
                             reason = "regime_not_bull"
                         elif (regime.get("floor") or {}).get("below_floor"):
@@ -1840,78 +1927,124 @@ def main():
             phase_times["bear_s"] = round(time.monotonic() - cycle_started, 3)
 
             # 5-6. gestionar posiciones abiertas (evaluar salida y cerrar)
-            for i, p in enumerate(list(state["positions"])):
+            # La posición permanece en state hasta que la reconciliación con
+            # Alpaca confirme que todas sus patas desaparecieron. Esto evita
+            # repetir cierres o declarar una salida completa tras un fill parcial.
+            exit_intents = state.setdefault("exit_intents", {})
+            open_orders = state.get("open_broker_orders", [])
+            terminal_failed = {"canceled", "rejected", "expired", "replaced"}
+            for p in list(state["positions"]):
+                position_key = _position_key(p)
+                intent = exit_intents.get(position_key)
+                if intent:
+                    order_ids = [str(order_id) for order_id in intent.get("order_ids", [])]
+                    related_open = [
+                        order for order in open_orders
+                        if order.get("symbol") in _position_leg_symbols(p)
+                    ]
+                    if related_open:
+                        logger.info(
+                            "Salida pendiente %s: %d orden(es) abiertas; no se reenvía",
+                            p.get("symbol"), len(related_open))
+                        continue
+                    if order_ids and not executor.dry_run:
+                        statuses = executor.order_statuses(order_ids)
+                        if statuses and all(
+                            str(order.get("status", "")).lower() in terminal_failed
+                            for order in statuses
+                        ):
+                            intent["status"] = "needs_review"
+                            intent["last_checked_ts"] = datetime.utcnow().isoformat()
+                            state["_broker_reconciliation_halt"] = True
+                            logger.critical(
+                                "Salida %s falló/canceló todas sus órdenes; "
+                                "no se reintenta automáticamente", p.get("symbol"))
+                    continue
                 try:
-                    # Hallazgo18: stop intradiario 4% sobre el subyacente:
-                    # si el low del día rompió (1-0.04)*close_prev, cerrar
-                    # la posición de ese subyacente de inmediato (antes de
-                    # evaluar el resto de reglas de prima/DTE).
                     cuts = (regime or {}).get("intraday_cuts", {})
                     if p["symbol"] in cuts:
                         sig_type, reason = "EXIT", ("intraday_stop_4pct: "
                             f"{p['symbol']} <= {cuts[p['symbol']]}")
                     else:
                         sig_type, reason = _manage_open_position(
-                            feed, builder, strats.get(p["strategy"]), p)
-                    if sig_type:
-                        # Cerrar patas solo después de validar cotizaciones;
-                        # nunca emitir una limit order de opción a 0.0.
-                        st = strat_structure_for(p, strats.get(p["strategy"]), builder)
-                        close_specs = _option_order_specs(st, cfg, closing=True)
-                        closed_legs = []
+                            feed, builder, strats.get(p.get("strategy")), p)
+                    if not sig_type:
+                        continue
+                    st = strat_structure_for(
+                        p, strats.get(p.get("strategy")), builder)
+                    close_specs = _option_order_specs(st, cfg, closing=True)
+                    symbols = {spec["symbol"] for spec in close_specs}
+                    existing = [
+                        order for order in open_orders
+                        if order.get("symbol") in symbols
+                    ]
+                    if existing:
+                        state["_broker_reconciliation_halt"] = True
+                        logger.critical(
+                            "Salida %s no enviada: ya existen %d orden(es) "
+                            "abiertas para sus patas", p.get("symbol"), len(existing))
+                        continue
+                    position_key = _position_key(p)
+                    intent = {
+                        "status": "submitting",
+                        "created_ts": datetime.utcnow().isoformat(),
+                        "reason": reason,
+                        "signal_type": sig_type,
+                        "position": p,
+                        "specs": close_specs,
+                        "order_ids": [],
+                    }
+                    # Persistir antes del primer envío: un reinicio entre patas
+                    # no puede volver a interpretar la posición como sin salida.
+                    exit_intents[position_key] = intent
+                    save_state(state)
+                    submitted = []
+                    try:
                         for spec in close_specs:
-                            closed_legs.append(executor.submit_option_order(
+                            submitted.append(executor.submit_option_order(
                                 spec["symbol"], spec["side"], spec["qty"],
                                 order_type=spec["order_type"],
                                 limit_price=spec["limit_price"]))
-                        entry_px = abs(p.get("net_premium") or 0.0)
-                        current_net = 0.0
-                        try:
-                            st_close = strat_structure_for(p, strats.get(p["strategy"]), builder)
-                            for leg in st_close.legs:
-                                c = leg.contract
-                                px = c.last or ((c.bid + c.ask) / 2.0 if c.bid and c.ask else None) or 0.0
-                                sign = 1 if leg.quantity > 0 else -1
-                                current_net += sign * px
-                        except Exception:  # noqa: BLE001
-                            logger.exception("No se pudo recalcular prima al cerrar")
-                        pnl = (entry_px - abs(current_net)) * 100
-                        state["positions"].pop(i)
-                        if FIRESTORE_ENABLED:
-                            try:
-                                from state.firestore_state import append_trade
-                                append_trade({
-                                    "ts": datetime.utcnow().isoformat(),
-                                    "symbol": p["symbol"],
-                                    "strategy": p["strategy"],
-                                    "structure": p.get("structure", ""),
-                                    "entry_premium": entry_px,
-                                    "exit_value": abs(current_net),
-                                    "pnl": pnl,
-                                    "exit_reason": reason,
-                                    "dte": p.get("dte"),
-                                })
-                            except Exception:  # noqa: BLE001
-                                logger.exception("Fallo publicando trade a Firestore")
-                        state["decisions"].append({
-                            "ts": datetime.utcnow().isoformat(),
-                            "position": p, "exit_reason": reason,
-                            "signal_type": sig_type, "close_legs": closed_legs,
-                            "action": "POSITION_CLOSED", "pnl": pnl,
-                        })
-                        logger.info("Posición cerrada %s (%s): %s pnl=%.2f",
-                                    p["symbol"], p["strategy"], reason, pnl)
-                        try:
-                            notify_position_close(p["symbol"], p["strategy"],
-                                                  p.get("structure", ""), reason,
-                                                  pnl, trading_mode())
-                        except Exception:  # noqa: BLE001
-                            logger.exception("Fallo notificando cierre")
-                        strat_by_name(p["strategy"]).reset()
+                            intent["order_ids"] = [
+                                str(order.get("id"))
+                                for order in submitted
+                                if order.get("id")
+                            ]
+                            intent["status"] = "submitted"
+                            intent["submitted_ts"] = datetime.utcnow().isoformat()
+                            intent["close_orders"] = submitted
+                            state["decisions"].append({
+                                "ts": datetime.utcnow().isoformat(),
+                                "position": p,
+                                "exit_reason": reason,
+                                "signal_type": sig_type,
+                                "close_legs": submitted,
+                                "action": "EXIT_SUBMITTED",
+                                "position_key": position_key,
+                            })
+                            logger.warning(
+                                "Salida enviada %s (%s); esperando reconciliación "
+                                "de fills antes de retirar la posición",
+                                p.get("symbol"), reason)
+                            save_state(state)
+                    except Exception:
+                        intent["status"] = "partial_submission"
+                        intent["last_error_ts"] = datetime.utcnow().isoformat()
+                        intent["close_orders"] = submitted
+                        intent["order_ids"] = [
+                            str(order.get("id"))
+                            for order in submitted
+                            if order.get("id")
+                        ]
+                        state["_broker_reconciliation_halt"] = True
                         save_state(state)
+                        logger.exception(
+                            "Salida parcial para %s; nuevas entradas y reintentos "
+                            "bloqueados hasta conciliación", p.get("symbol"))
                 except Exception as e:  # noqa: BLE001
+                    state["_broker_reconciliation_halt"] = True
                     logger.exception("Error gestionando posición %s: %s",
-                                     p["symbol"], e)
+                                     p.get("symbol"), e)
 
             phase_times["positions_s"] = round(time.monotonic() - cycle_started, 3)
             state["tick_diagnostics"] = signal_stats
@@ -1944,6 +2077,9 @@ def main():
                         "positions": state["positions"],
                         "alpaca_positions": enriched_positions,
                         "orders_executed": executor.order_log[-50:] if not executor.dry_run else [],
+                        "open_broker_orders": state.get("open_broker_orders", []),
+                        "exit_intents": state.get("exit_intents", {}),
+                        "exit_history": state.get("exit_history", [])[-50:],
                         "risk": {
                             # Canonical display field: percentage points (5.0 = 5%).
                             "risk_per_trade_pct": max_risk_pct,
@@ -1954,6 +2090,9 @@ def main():
                             "max_positions": max_positions,
                             "max_open_positions": max_positions,
                             "halted": rm.is_halted(),
+                            "new_entries_halted": _entry_halt(cfg, state),
+                            "broker_reconciliation_halt": bool(
+                                state.get("_broker_reconciliation_halt")),
                             "regime": (regime or {}).get("regime", "unknown"),
                             "regime_summary": (regime or {}).get("summary", ""),
                             "crash_active": (regime or {}).get("crash_active", False),
@@ -1989,7 +2128,12 @@ def main():
                      "buying_power": acct.get("buying_power"),
                      "positions": state["positions"],
                      "alpaca_positions": enriched_positions,
+                     "open_broker_orders": state.get("open_broker_orders", []),
+                     "exit_intents": state.get("exit_intents", {}),
                      "risk": {"halted": rm.is_halted(),
+                                "new_entries_halted": _entry_halt(cfg, state),
+                                "broker_reconciliation_halt": bool(
+                                    state.get("_broker_reconciliation_halt")),
                                 "regime": (regime or {}).get("regime", "unknown"),
                                 "regime_summary": (regime or {}).get("summary", "")},
                      "universe": cfg["universo"].get("tickers", []),
