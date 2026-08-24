@@ -265,6 +265,14 @@ class TestPositionReconciliation(unittest.TestCase):
         self.assertEqual(state["exit_intents"][key]["status"], "needs_review")
         self.assertTrue(state["_broker_reconciliation_halt"])
 
+    def test_ledger_read_failure_halts_boot_fail_closed(self):
+        state = {"positions": [], "decisions": [], "orders": []}
+        with patch("bot.FIRESTORE_ENABLED", True), patch(
+            "bot.read_exit_ledger", return_value=None
+        ):
+            self.assertFalse(_restore_persistent_exit_ledger(state))
+        self.assertTrue(state["_broker_reconciliation_halt"])
+
     def test_order_status_api_failure_is_review_and_fail_closed(self):
         self.assertTrue(_exit_statuses_need_review([]))
         self.assertTrue(_exit_statuses_need_review([

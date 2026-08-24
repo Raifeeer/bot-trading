@@ -202,7 +202,10 @@ def update_exit_intent(ledger_id: str, updates: dict) -> bool:
         db = _get_db()
         ref = db.collection(_EXIT_LEDGER_COLLECTION).document(str(ledger_id))
         current = ref.get(timeout=10.0)
-        version = int((current.to_dict() or {}).get("version", 0)) + 1 if current.exists else 1
+        if not current.exists:
+            logger.error("Exit intent %s no existe para actualización", ledger_id)
+            return False
+        version = int((current.to_dict() or {}).get("version", 0)) + 1
         data = dict(updates)
         if "status" in data:
             data["active"] = _exit_ledger_active(data["status"])
@@ -210,7 +213,15 @@ def update_exit_intent(ledger_id: str, updates: dict) -> bool:
             "version": version,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         })
-        ref.set(data, merge=True, timeout=10.0)
+        update_time = getattr(current, "update_time", None)
+        if update_time is not None:
+            # Si otra instancia actualizó el documento entre get() y update(),
+            # Firestore rechaza la escritura y el caller mantiene fail-closed.
+            option = db.write_option(last_update_time=update_time)
+            ref.update(data, option=option, timeout=10.0)
+        else:
+            # Fallback para dobles de test/SDKs sin timestamp en el snapshot.
+            ref.set(data, merge=True, timeout=10.0)
         return True
     except Exception as exc:  # noqa: BLE001
         logger.error("No se pudo actualizar exit intent %s: %s", ledger_id, exc)
@@ -259,14 +270,11 @@ def read_exit_ledger(max_days: int = 30) -> dict | None:
     """
     try:
         dedicated = read_active_exit_ledger()
-        if dedicated is not None:
-            return {
-                "source": "dedicated",
-                "source_day": date.today().isoformat(),
-                "exit_intents": dedicated,
-                "exit_history": [],
-                "open_broker_orders": [],
-            }
+        # Una colección dedicada vacía no debe ocultar intents activos todavía
+        # escritos por versiones antiguas en el snapshot diario. Se fusionan
+        # ambos orígenes; el documento dedicado prevalece por position_key.
+        dedicated_intents = dedicated if dedicated is not None else None
+        dedicated_read_failed = dedicated is None
         db = _get_db()
         latest_ledger = None
         history = []
@@ -308,7 +316,24 @@ def read_exit_ledger(max_days: int = 30) -> dict | None:
                 # indefinidamente en cada arranque.
                 break
         if latest_ledger is None:
-            return None
+            if dedicated_intents is None:
+                return None
+            return {
+                "source": "dedicated",
+                "source_day": date.today().isoformat(),
+                "exit_intents": dedicated_intents,
+                "exit_history": [],
+                "open_broker_orders": [],
+                "dedicated_read_failed": dedicated_read_failed,
+            }
+        if dedicated_intents is not None:
+            snapshot_intents = latest_ledger.get("exit_intents") or {}
+            merged_intents = dict(snapshot_intents)
+            merged_intents.update(dedicated_intents)
+            latest_ledger["exit_intents"] = merged_intents
+            latest_ledger["source"] = "dedicated+snapshot"
+        if dedicated_read_failed:
+            latest_ledger["dedicated_read_failed"] = True
         latest_ledger["exit_history"] = history
         return latest_ledger
     except Exception as e:  # nunca bloquear el arranque del bot

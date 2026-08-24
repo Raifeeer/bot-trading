@@ -9,10 +9,10 @@
 | Bot (`bot.py`) | Cloud Run, servicio `polaris-bot`, región `us-central1`, proyecto `gen-lang-client-0746441136` | minScale=1 (siempre activo) |
 | Imagen Docker | Artifact Registry `us-central1-docker.pkg.dev/gen-lang-client-0746441136/polaris-images/polaris-bot` | Tags descriptivos (ej. `s78-fix`); `latest` = última estable |
 | Firestore | Base Native `polaris` (mismo proyecto) | Docs `polaris/YYYY-MM-DD` con merge por tick |
-| Secretos | Secret Manager: `alpaca-key`, `deepseek-api-key`, `gemini-api-key`, `grok-api-key` | Contenedor accede con la SA del servicio Cloud Run |
+| Secretos | Secret Manager: `alpaca-key`, `alpaca-secret`, `deepseek-api-key`, `telegram-bot-token` | Cloud Run usa `valueFrom.secretKeyRef`; la SA tiene `roles/secretmanager.secretAccessor` solo en estos secretos |
 | Dashboard | Vercel, proyecto `polaris-options-dashboard`, dominio `polaris-options-dashboard.vercel.app` | Estático precompilado (ver sección 5) |
-| Telegram | Bot `@Raifeeer` (token en env), chat autorizado `1779931930` | Polling en hilo + watchdog del hilo |
-| Repo bot | GitHub `Raifeeer/bot-trading`, branch `main` | Commit previo de referencia: c12b6fb |
+| Telegram | Bot `@Raifeeer`, chat autorizado `1779931930` | Token en Secret Manager; polling en hilo + watchdog del hilo |
+| Repo bot | GitHub `Raifeeer/bot-trading`, branch `main` | Código vigente desplegado desde `8c5f1dc`; handoff en `744814d` |
 | Repo dashboard | GitHub `Raifeeer/Polaris-Web-Studio` | React 19 + Tailwind 4 |
 
 ## 2. Flujo de despliegue del bot (probado y documentado)
@@ -28,18 +28,23 @@
    gcloud auth print-access-token | sudo sh -c 'docker login -u oauth2accesstoken --password-stdin https://us-central1-docker.pkg.dev'
    sudo docker push us-central1-docker.pkg.dev/gen-lang-client-0746441136/polaris-images/polaris-bot:s78-fix
    ```
-4. Nueva revisión sin perder envs/secretos:
+4. Construir la imagen con Cloud Build y guardar el digest; desplegarla por digest, no por `latest`:
    ```bash
-   gcloud run services update polaris-bot --region us-central1 \
-     --image us-central1-docker.pkg.dev/gen-lang-client-0746441136/polaris-images/polaris-bot:s78-fix
+   gcloud builds submit --project=gen-lang-client-0746441136 --config=cloudbuild.yaml .
+   gcloud run deploy polaris-bot --region us-central1 \
+     --image us-central1-docker.pkg.dev/gen-lang-client-0746441136/polaris-images/polaris-bot@sha256:... \
+     --no-traffic --revision-suffix=<commit>
    ```
-5. Verificar: Cloud Logging con `Bot iniciado`, `Tick OK`, ausencia de tracebacks; `curl https://polaris-bot-173223792589.us-central1.run.app/diag/state` con `mtime` reciente.
+5. Verificar la revisión sin tráfico y después mover tráfico explícitamente. En cambios de configuración, exportar el spec completo y usar `services replace`; preservar `minScale=1`, `maxScale=1`, `cpu-throttling=false`, `PAPER`, secretos, Firestore y el rollback anterior.
+6. Verificar: Cloud Logging con `Bot iniciado`, restauración del ledger, `Tick OK`, ausencia de tracebacks; Firestore y Alpaca deben coincidir en posiciones/órdenes. Antes de reanudar entradas, observar al menos dos ciclos y mantener una revisión de rollback identificada.
 
 ## 3. Traps operativos del servicio Cloud Run
 
-**Envs y secretos.** NUNCA usar `gcloud run services update --set-env-vars` o `--set-secrets` aislados: reemplazan el bloque completo y borran las variables existentes (incidente documentado: se perdieron `APCA_API_BASE_URL` y `DATA_PROVIDER`). Si hay que tocar envs, descargar el spec completo (`gcloud run services describe polaris-bot --region us-central1 --format=yaml > spec.yaml`), editar y aplicar con `gcloud run services replace spec.yaml`.
+**Envs y secretos.** NUNCA usar `gcloud run services update --set-env-vars` o `--set-secrets` aislados: reemplazan el bloque completo y pueden borrar variables existentes. Si hay que tocar envs, descargar el spec completo, editarlo y aplicar con `gcloud run services replace spec.yaml`. Si una variable pasa de literal a secreto, primero eliminar el literal y después usar `valueFrom.secretKeyRef`; si el spec contiene una anotación `run.googleapis.com/secrets` con rutas inválidas, reemplazarla declarativamente con nombres reales de Secret Manager. Verificar IAM de la SA con `roles/secretmanager.secretAccessor` antes de mover tráfico.
 
-**Variables en producción:** `APCA_API_BASE_URL=https://paper-api.alpaca.markets` (cambiar a `https://api.alpaca.markets` para REAL), `DATA_PROVIDER=yfinance`, `FIRESTORE_DATABASE=polaris`, `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID`, `DEEPSEEK_MODEL=deepseek-chat` (DeepSeek V4 Flash vía la key, con fallbacks Gemini/Grok desde Secret Manager).
+**Variables efectivas verificadas en la revisión vigente:** `APCA_API_BASE_URL=paper`, `DATA_PROVIDER=alpaca`, `POLL_SECONDS=60`, `BOT_POLL_MINUTES=5` (compatibilidad), `GCP_PROJECT_ID=gen-lang-client-0746441136`, `TELEGRAM_CHAT_ID=1779931930`; `FIRESTORE_DATABASE` usa por defecto `polaris` si no está definido. `APCA_API_KEY_ID`, `APCA_API_SECRET_KEY`, `DEEPSEEK_API_KEY` y `TELEGRAM_BOT_TOKEN` llegan desde Secret Manager. No cambiar `paper` a REAL sin confirmación explícita nueva.
+
+**Ledger de salidas.** La colección dedicada es `polaris_exit_ledger/{ledger_id}`. La primera pata requiere claim idempotente con `create()`, las actualizaciones son versionadas y una salida solo se marca `completed` después de confirmar broker y Firestore. Un fallo de lectura/escritura mantiene el halt y no reintenta.
 
 **Arranque.** `entrypoint.sh` levanta el health HTTP en 8080 y ejecuta `bot.py`. Endpoints del contenedor: `GET /` (health con equity), `/diag/state`, `/diag/fs` (prueba Firestore), `/diag/feed`.
 
@@ -49,8 +54,8 @@ El tick dura 10–12 minutos (yfinance es lento; el plan free de datos de Alpaca
 
 | Mecanismo | Ubicación | Comportamiento |
 |---|---|---|
-| Watchdog de tick | hilo en `bot.py` | `sys.exit(1)` si no hay tick completo en 12 min; Cloud Run recrea el contenedor (minScale=1) |
-| Watchdog de Telegram | hilo en `bot.py` | Si el hilo de polling no hace heartbeat en `TG_HB_TIMEOUT_S` → exit(1) |
+| Watchdog de tick | hilo en `bot.py` | Usa `os._exit(1)` si no hay tick completo en 12 min; Cloud Run recrea el contenedor (minScale=1) |
+| Watchdog de Telegram | hilo en `bot.py` | Si el hilo de polling no hace heartbeat en `TG_HB_TIMEOUT_S` → `os._exit(1)` |
 | Socket timeout | `data/feed.py` | `socket.setdefaulttimeout(45)` por ticker de yfinance, restaurado después |
 | Tolerancia a régimen | paso 0 del tick | Si `classify_regime` falla, usa el último régimen conocido en lugar de bloquear |
 | Tolerancia a timeframe | bucle de datos | Si un timeframe no descarga, el tick continúa con los demás y reintenta en el siguiente ciclo |
@@ -65,15 +70,15 @@ El entorno de build de Vercel (Node 24 + wrapper de pnpm) falla de forma reprodu
 
 ## 6. Credenciales de acceso (para un agente orquestador)
 
-Un agente con acceso `gcloud` al proyecto puede leer todo así:
+Un agente con acceso `gcloud` al proyecto puede diagnosticar de forma segura así; no imprimir ni copiar valores de secretos:
 
 ```bash
-gcloud secrets versions access latest --secret=alpaca-key --project=gen-lang-client-0746441136
-gcloud secrets versions access latest --secret=deepseek-api-key --project=gen-lang-client-0746441136
-gcloud run services describe polaris-bot --region us-central1 --format=json
+gcloud run services describe polaris-bot --region us-central1 --format=export > spec.yaml
+# Inspeccionar solo nombres de variables y referencias secretKeyRef.
+# Para comparar un valor sensible, usar hashes en memoria; nunca imprimirlo.
 ```
 
-Las credenciales de Alpaca PAPER se consumen exclusivamente desde Secret Manager mediante `alpaca-key`; nunca deben copiarse a esta skill ni a commits. El endpoint es `https://paper-api.alpaca.markets/v2`. Firestore se accede con `gcloud auth print-access-token` como bearer contra la REST API (`https://firestore.googleapis.com/v1/projects/gen-lang-client-0746441136/databases/polaris/documents/...`). Si aparecen credenciales históricas en documentación, deben rotarse.
+Las credenciales de Alpaca PAPER se consumen exclusivamente desde `alpaca-key`/`alpaca-secret`; Telegram usa `telegram-bot-token`; nunca deben copiarse a esta skill ni a commits. El endpoint PAPER se resuelve desde `APCA_API_BASE_URL=paper` en la revisión vigente y no debe apuntar a REAL. Firestore se accede con la identidad de Cloud Run o, para diagnóstico REST, con `gcloud auth print-access-token` contra la base `polaris`. Si aparecen credenciales históricas en documentación, deben rotarse.
 
 ## 7. Historial de incidentes de infraestructura
 
@@ -87,4 +92,4 @@ Las credenciales de Alpaca PAPER se consumen exclusivamente desde Secret Manager
 
 ## 8. Criterios de uso por el agente
 
-Orden de intervención recomendado: (1) leer `AGENTS.md` y este documento; (2) para cambios de lógica, editar, compilar, probar con tests y modo `--dry-run`; (3) redeploy con el flujo de la sección 2; (4) verificar 2 ciclos completos de tick (~25 min) en Cloud Logging y `/diag/state`. Las fuentes de inestabilidad históricas son el market data de Yahoo y el polling de Telegram: cualquier cambio en `data/feed.py` o `state/telegram_bot.py` merece una ventana de observación de 30 minutos antes de darse por bueno.
+Orden de intervención recomendado: (1) leer `AGENTS.md` y este documento; (2) para cambios de lógica, editar, compilar, probar con tests y modo `--dry-run`; (3) construir por Cloud Build y desplegar por digest con tráfico controlado; (4) verificar al menos 2 ciclos completos de tick en Cloud Logging, Firestore y Alpaca. Las fuentes de inestabilidad históricas son el market data de Yahoo y el polling de Telegram: cualquier cambio en `data/feed.py` o `state/telegram_bot.py` merece una ventana de observación prolongada antes de darse por bueno. Nunca crear posiciones solo para probar el executor sin autorización específica.

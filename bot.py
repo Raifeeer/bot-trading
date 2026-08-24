@@ -722,8 +722,23 @@ def _restore_persistent_exit_ledger(state: dict) -> bool:
         logger.exception("BOOT: no se pudo leer el ledger de salidas persistente")
         state["_broker_reconciliation_halt"] = True
         return False
-    if not ledger:
+    if ledger is None:
+        state["_broker_reconciliation_halt"] = True
+        logger.critical(
+            "BOOT: ledger de salidas no disponible; se bloquean entradas "
+            "hasta reconciliación manual")
         return False
+    if not ledger:
+        state["_broker_reconciliation_halt"] = True
+        logger.critical(
+            "BOOT: ledger de salidas vacío/ilegible; se bloquean entradas "
+            "hasta reconciliación manual")
+        return False
+    if ledger.get("dedicated_read_failed"):
+        state["_broker_reconciliation_halt"] = True
+        logger.critical(
+            "BOOT: colección dedicada de salidas no pudo leerse; se bloquean "
+            "entradas aunque exista snapshot legado")
 
     local_intents = state.setdefault("exit_intents", {})
     persisted_intents = ledger.get("exit_intents") or {}
