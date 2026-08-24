@@ -8,7 +8,7 @@ Esta sección tiene prioridad sobre las descripciones históricas y los estados 
 
 | Área | Estado vigente verificado |
 |---|---|
-| Repositorio | `Raifeeer/bot-trading`, rama `main`; código vigente `8c5f1dc`; handoff posterior pendiente de versionar tras la verificación dedicada |
+| Repositorio | `Raifeeer/bot-trading`, rama `main`; código vigente `8c5f1dc`; handoff dedicado versionado en `e0c1ce4` |
 | Cloud Run | Servicio `polaris-bot`, us-central1, proyecto `gen-lang-client-0746441136`; revisión `polaris-bot-dedicated8c5f1dc` con 100% del tráfico, digest `sha256:3ac6f75cb06b921e34620e5377621c160117cdfa3f72fd9106cbb22e5b7c73fe` |
 | Broker | Alpaca **PAPER**; `broker.paper=true`; no cambiar a REAL sin confirmación explícita nueva |
 | Recursos | `minScale=1`, `maxScale=1`, CPU always-on (`cpu-throttling=false`), `POLL_SECONDS=60`; `BOT_POLL_MINUTES=5` es compatibilidad histórica y no sustituye al poll efectivo |
