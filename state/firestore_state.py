@@ -134,6 +134,62 @@ def read_challenge_armed() -> bool | None:
         return None
 
 
+def read_exit_ledger(max_days: int = 30) -> dict | None:
+    """Lee el ledger de salidas persistido en los snapshots recientes.
+
+    El filesystem de Cloud Run es efímero. Se usa el snapshot más reciente que
+    contenga ``exit_intents`` como autoridad del ledger activo; si el snapshot
+    del día actual existe y contiene un diccionario vacío, no se resucitan
+    intents de días anteriores ya cerrados. El historial se agrega para
+    observabilidad, mientras que las órdenes abiertas se vuelven a consultar
+    directamente al broker durante el arranque.
+    """
+    try:
+        db = _get_db()
+        latest_ledger = None
+        history = []
+        seen_history = set()
+        for offset in range(max(1, int(max_days))):
+            day = (date.today() - _timedelta(days=offset)).isoformat()
+            snap = db.collection("polaris").document(day).get(timeout=10.0)
+            if not snap.exists:
+                continue
+            payload = (snap.to_dict() or {}).get("payload") or {}
+            if not isinstance(payload, dict):
+                continue
+            if latest_ledger is None and "exit_intents" in payload:
+                intents = payload.get("exit_intents")
+                latest_ledger = {
+                    "source_day": day,
+                    "exit_intents": intents if isinstance(intents, dict) else {},
+                    "open_broker_orders": (
+                        payload.get("open_broker_orders")
+                        if isinstance(payload.get("open_broker_orders"), list)
+                        else []
+                    ),
+                }
+            day_history = payload.get("exit_history")
+            if isinstance(day_history, list):
+                for item in day_history:
+                    if not isinstance(item, dict):
+                        continue
+                    marker = repr(sorted(item.items(), key=lambda pair: pair[0]))
+                    if marker not in seen_history:
+                        seen_history.add(marker)
+                        history.append(item)
+            if latest_ledger is not None and offset >= 1:
+                # Un día previo basta para historial; no seguir leyendo documentos
+                # indefinidamente en cada arranque.
+                break
+        if latest_ledger is None:
+            return None
+        latest_ledger["exit_history"] = history
+        return latest_ledger
+    except Exception as e:  # nunca bloquear el arranque del bot
+        logger.warning("Fallo leyendo exit ledger de Firestore: %s", e)
+        return None
+
+
 def append_equity_point(equity: float) -> None:
     """Guarda un punto de la curva de equity del día."""
     try:

@@ -41,8 +41,36 @@ HELP_TEXT = (
 
 
 def update_state(state_snapshot: dict) -> None:
-    """Actualiza el estado que usan los comandos (llamado desde bot.py)."""
+    """Actualiza el estado de comandos con payload legacy o snapshot plano."""
+    if not isinstance(state_snapshot, dict):
+        return
+    if isinstance(state_snapshot.get("payload"), dict):
+        _state.update(state_snapshot)
+        return
+    payload = _state.setdefault("payload", {})
+    if not isinstance(payload, dict):
+        payload = {}
+        _state["payload"] = payload
+    payload.update(state_snapshot)
     _state.update(state_snapshot)
+
+
+def _containment_lines(pay: dict) -> list[str]:
+    risk = pay.get("risk") or {}
+    new_entries_halted = bool(risk.get("new_entries_halted", False))
+    broker_halt = bool(risk.get("broker_reconciliation_halt", False))
+    open_orders = pay.get("open_broker_orders") or []
+    intents = pay.get("exit_intents") or {}
+    unmanaged_broker = pay.get("unmanaged_broker_legs") or []
+    unmanaged_state = pay.get("unmanaged_state_positions") or []
+    return [
+        f"🛡️ Entradas nuevas: {'BLOQUEADAS' if new_entries_halted else 'permitidas'}",
+        f"🔒 Reconciliación broker: {'HALT' if broker_halt else 'OK'}",
+        f"📑 Órdenes broker abiertas: {len(open_orders) if isinstance(open_orders, list) else open_orders}",
+        f"🧾 Exit intents activos: {len(intents) if isinstance(intents, dict) else 0}",
+        f"⚠️ Patas no gestionables: {len(unmanaged_broker) if isinstance(unmanaged_broker, list) else 0} broker / "
+        f"{len(unmanaged_state) if isinstance(unmanaged_state, list) else 0} estado",
+    ]
 
 
 def _send(text: str) -> bool:
@@ -78,13 +106,15 @@ def _cmd_estado() -> str:
     closed = [d for d in decisions if d.get("action") == "POSITION_CLOSED"]
     pnl = sum(d.get("pnl", 0.0) for d in closed)
     emoji = "🟢" if not halted else "🛑"
+    containment = "\n".join(_containment_lines(pay))
     return (f"{emoji} <b>POLARIS — estado</b>\n"
             f"💵 Equity: ${equity:,.2f}\n"
             f"🏦 Cash: ${cash:,.2f}\n"
             f"⚡ Buying power: ${bp:,.2f}\n"
             f"📊 Posiciones: {pos}\n"
             f"📈 Cerradas hoy: {len(closed)} · P&amp;L: ${pnl:+,.2f}\n"
-            f"🤖 Modo: {mode}" + ("\n⚠️ <b>CIRCUITO ACTIVO</b>" if halted else ""))
+            f"🤖 Modo: {mode}\n{containment}"
+            + ("\n⚠️ <b>CIRCUITO ACTIVO</b>" if halted else ""))
 
 
 def _cmd_posiciones() -> str:
@@ -157,11 +187,12 @@ def _cmd_riesgo() -> str:
                      else legacy)
     per_trade = float(per_trade or 0.0)
     emoji = "🛑" if halted else "🟢"
+    containment = "\n".join(_containment_lines(pay))
     return (f"{emoji} <b>POLARIS — riesgo</b>\n"
             f"📉 Drawdown desde inicio: {dd*100:.2f}%\n"
             f"⚠️ Circuito: {'ACTIVO' if halted else 'inactivo'}\n"
             f"🎯 Riesgo por trade: {per_trade:.1f}%\n"
-            f"📌 Máx. posiciones: {maxpos}")
+            f"📌 Máx. posiciones: {maxpos}\n{containment}")
 
 
 # Timeout máximo (segundos) que la IA puede tardar. Pasado ese tiempo se

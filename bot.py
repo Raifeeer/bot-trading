@@ -141,7 +141,8 @@ try:
     from state.firestore_state import (write_state_snapshot,
                                       append_equity_point,
                                       read_last_equity,
-                                      read_challenge_armed)
+                                      read_challenge_armed,
+                                      read_exit_ledger)
     FIRESTORE_ENABLED = True
 except Exception:  # noqa: BLE001
     logger.exception("Firestore NO disponible (import de state.firestore_state falló)")
@@ -686,7 +687,71 @@ def load_state() -> dict:
     state.setdefault("exit_intents", {})
     state.setdefault("exit_history", [])
     state.setdefault("open_broker_orders", [])
+    state.setdefault("_broker_reconciliation_halt", False)
+    state.setdefault("unmanaged_broker_legs", [])
+    state.setdefault("unmanaged_state_positions", [])
     return state
+
+
+def _restore_persistent_exit_ledger(state: dict) -> bool:
+    """Restaura intents e historial desde Firestore antes de tocar posiciones.
+
+    El broker sigue siendo la autoridad para posiciones y órdenes actuales. Esta
+    función solo rehidrata la intención de salida para que un reinicio no
+    convierta una salida ya iniciada en una nueva salida sin identidad. Las
+    órdenes abiertas se consultan de nuevo al broker inmediatamente después.
+    """
+    if not FIRESTORE_ENABLED:
+        return False
+    try:
+        ledger = read_exit_ledger()
+    except Exception:  # noqa: BLE001
+        logger.exception("BOOT: no se pudo leer el ledger de salidas persistente")
+        state["_broker_reconciliation_halt"] = True
+        return False
+    if not ledger:
+        return False
+
+    local_intents = state.setdefault("exit_intents", {})
+    persisted_intents = ledger.get("exit_intents") or {}
+    restored = 0
+    for position_key, intent in persisted_intents.items():
+        if position_key not in local_intents and isinstance(intent, dict):
+            local_intents[position_key] = intent
+            restored += 1
+
+    history = state.setdefault("exit_history", [])
+    known_history = {
+        json.dumps(item, sort_keys=True, default=str)
+        for item in history
+        if isinstance(item, dict)
+    }
+    history_added = 0
+    for item in ledger.get("exit_history") or []:
+        if not isinstance(item, dict):
+            continue
+        marker = json.dumps(item, sort_keys=True, default=str)
+        if marker not in known_history:
+            history.append(item)
+            known_history.add(marker)
+            history_added += 1
+
+    state["_exit_ledger_restored"] = True
+    state["_exit_ledger_source_day"] = ledger.get("source_day")
+    active_statuses = {"submitting", "submitted", "partial_submission", "needs_review"}
+    active_intents = [
+        intent for intent in local_intents.values()
+        if isinstance(intent, dict)
+        and str(intent.get("status", "")).lower() in active_statuses
+    ]
+    if active_intents:
+        state["_broker_reconciliation_halt"] = True
+    logger.info(
+        "BOOT: exit ledger restaurado desde Firestore día=%s intents=%d "
+        "nuevos=%d history_nuevos=%d active=%d",
+        ledger.get("source_day"), len(local_intents), restored,
+        history_added, len(active_intents))
+    return bool(restored or history_added or ledger.get("source_day"))
 
 
 def _position_key(pos: dict) -> str:
@@ -709,6 +774,27 @@ def _position_leg_symbols(pos: dict) -> set[str]:
         for spec in (pos.get("legs") or [])
         if spec.get("symbol")
     }
+
+
+def _exit_statuses_need_review(statuses: list[dict]) -> bool:
+    """Indica si los estados consultados requieren revisión manual.
+
+    Una respuesta vacía no prueba que una orden haya desaparecido; un fill
+    parcial o una mezcla de fills y rechazos tampoco permite reconstruir una
+    salida segura. En ambos casos el caller debe mantener el halt y no reintentar.
+    """
+    if not statuses:
+        return True
+    normalized = {
+        str(order.get("status", "")).lower()
+        for order in statuses
+        if isinstance(order, dict)
+    }
+    if not normalized:
+        return True
+    terminal_failed = {"canceled", "rejected", "expired", "replaced"}
+    filled = {"filled", "partially_filled"}
+    return normalized.issubset(terminal_failed) or bool(normalized & filled and normalized & terminal_failed)
 
 
 def _entry_halt(cfg: dict, state: dict) -> bool:
@@ -743,12 +829,18 @@ def reconcile_positions_with_broker(executor: AlpacaExecutor, state: dict) -> in
     state.setdefault("unmanaged_state_positions", [])
     state["unmanaged_broker_legs"] = []
     state["unmanaged_state_positions"] = []
-    state["_broker_reconciliation_halt"] = False
+    exit_intents = state.setdefault("exit_intents", {})
+    active_intents = any(
+        isinstance(intent, dict)
+        and str(intent.get("status", "")).lower()
+        in {"submitting", "submitted", "partial_submission", "needs_review"}
+        for intent in exit_intents.values()
+    )
+    state["_broker_reconciliation_halt"] = active_intents
 
     broker_qty = {leg["symbol"]: float(leg["qty"]) for leg in legs}
     managed_positions = []
     closed_by_intent = []
-    exit_intents = state.setdefault("exit_intents", {})
     for pos in state.get("positions", []):
         expected_qty = {}
         for spec in pos.get("legs") or []:
@@ -811,9 +903,15 @@ def reconcile_positions_with_broker(executor: AlpacaExecutor, state: dict) -> in
         for spec in (pos.get("legs") or [])
     }
     unknown = [leg for leg in legs if leg["symbol"] not in known_symbols]
+    remaining_active_intents = any(
+        isinstance(intent, dict)
+        and str(intent.get("status", "")).lower()
+        in {"submitting", "submitted", "partial_submission", "needs_review"}
+        for intent in exit_intents.values()
+    )
     if not unknown:
-        if state["unmanaged_state_positions"]:
-            state["_broker_reconciliation_halt"] = True
+        state["_broker_reconciliation_halt"] = bool(
+            state["unmanaged_state_positions"] or remaining_active_intents)
         return 0
 
     by_underlying = {}
@@ -914,6 +1012,8 @@ def reconcile_positions_with_broker(executor: AlpacaExecutor, state: dict) -> in
             "entradas",
             len(state["unmanaged_broker_legs"]),
             len(state["unmanaged_state_positions"]))
+    else:
+        state["_broker_reconciliation_halt"] = remaining_active_intents
     return reconstructed
 
 
@@ -1329,6 +1429,9 @@ def main():
     logger.info("BOOT: strategies built")
     state = load_state()
     logger.info("BOOT: local state loaded")
+    if FIRESTORE_ENABLED:
+        _restore_persistent_exit_ledger(state)
+        save_state(state)
     if FIRESTORE_ENABLED and ("_floor_below" not in state
                               or "_challenge_armed" not in state):
         # data/bot_state.json es efímero (se resetea en cada redeploy/reinicio
@@ -1362,6 +1465,20 @@ def main():
             logger.warning(
                 "Reconciliación al arrancar: %d posición(es) reconstruida(s) "
                 "desde Alpaca que no estaban en el estado local", n_reconciled)
+        try:
+            boot_open_orders = _call_with_timeout(
+                executor.open_orders, 30.0, "Alpaca boot open orders")
+            state["open_broker_orders"] = boot_open_orders
+            if boot_open_orders:
+                state["_broker_reconciliation_halt"] = True
+                logger.critical(
+                    "BOOT: %d orden(es) abiertas en Alpaca; entradas bloqueadas",
+                    len(boot_open_orders))
+        except Exception:  # noqa: BLE001
+            state["_broker_reconciliation_halt"] = True
+            logger.exception(
+                "BOOT: no se pudieron consultar órdenes abiertas; "
+                "entradas bloqueadas")
         if state.get("_broker_reconciliation_halt"):
             save_state(state)
 
@@ -1932,7 +2049,6 @@ def main():
             # repetir cierres o declarar una salida completa tras un fill parcial.
             exit_intents = state.setdefault("exit_intents", {})
             open_orders = state.get("open_broker_orders", [])
-            terminal_failed = {"canceled", "rejected", "expired", "replaced"}
             for p in list(state["positions"]):
                 position_key = _position_key(p)
                 intent = exit_intents.get(position_key)
@@ -1949,16 +2065,14 @@ def main():
                         continue
                     if order_ids and not executor.dry_run:
                         statuses = executor.order_statuses(order_ids)
-                        if statuses and all(
-                            str(order.get("status", "")).lower() in terminal_failed
-                            for order in statuses
-                        ):
+                        if _exit_statuses_need_review(statuses):
                             intent["status"] = "needs_review"
                             intent["last_checked_ts"] = datetime.utcnow().isoformat()
                             state["_broker_reconciliation_halt"] = True
                             logger.critical(
-                                "Salida %s falló/canceló todas sus órdenes; "
-                                "no se reintenta automáticamente", p.get("symbol"))
+                                "Salida %s tiene estados incompletos, fallidos o "
+                                "parciales; no se reintenta automáticamente",
+                                p.get("symbol"))
                     continue
                 try:
                     cuts = (regime or {}).get("intraday_cuts", {})
@@ -2080,6 +2194,8 @@ def main():
                         "open_broker_orders": state.get("open_broker_orders", []),
                         "exit_intents": state.get("exit_intents", {}),
                         "exit_history": state.get("exit_history", [])[-50:],
+                        "unmanaged_broker_legs": state.get("unmanaged_broker_legs", []),
+                        "unmanaged_state_positions": state.get("unmanaged_state_positions", []),
                         "risk": {
                             # Canonical display field: percentage points (5.0 = 5%).
                             "risk_per_trade_pct": max_risk_pct,
@@ -2130,6 +2246,9 @@ def main():
                      "alpaca_positions": enriched_positions,
                      "open_broker_orders": state.get("open_broker_orders", []),
                      "exit_intents": state.get("exit_intents", {}),
+                     "exit_history": state.get("exit_history", [])[-50:],
+                     "unmanaged_broker_legs": state.get("unmanaged_broker_legs", []),
+                     "unmanaged_state_positions": state.get("unmanaged_state_positions", []),
                      "risk": {"halted": rm.is_halted(),
                                 "new_entries_halted": _entry_halt(cfg, state),
                                 "broker_reconciliation_halt": bool(

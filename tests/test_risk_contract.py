@@ -47,6 +47,28 @@ class TestRiskContract(unittest.TestCase):
         self.assertEqual(result["n"], 0)
         self.assertFalse(result["crash_event"])
 
+    def test_telegram_snapshot_flat_exposes_containment(self):
+        with patch.object(telegram_bot, "_state", {"payload": {}}):
+            telegram_bot.update_state({
+                "equity": 96915.63,
+                "risk": {
+                    "new_entries_halted": True,
+                    "broker_reconciliation_halt": True,
+                    "max_risk_per_trade_pct": 5.0,
+                    "max_open_positions": 2,
+                },
+                "open_broker_orders": [{"id": "open-1"}],
+                "exit_intents": {"position-key": {"status": "needs_review"}},
+                "unmanaged_broker_legs": [{"symbol": "AMD"}],
+                "unmanaged_state_positions": [],
+            })
+            msg = telegram_bot._cmd_riesgo()
+        self.assertIn("Entradas nuevas: BLOQUEADAS", msg)
+        self.assertIn("Reconciliación broker: HALT", msg)
+        self.assertIn("Órdenes broker abiertas: 1", msg)
+        self.assertIn("Exit intents activos: 1", msg)
+        self.assertIn("1 broker / 0 estado", msg)
+
     def test_telegram_risk_supports_canonical_percentage_and_legacy_fraction(self):
         with patch.object(telegram_bot, "_state", {
             "payload": {"equity": 100.0, "risk": {

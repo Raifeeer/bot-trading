@@ -1,10 +1,16 @@
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from bot import reconcile_positions_with_broker, _call_with_timeout
+from bot import (
+    _call_with_timeout,
+    _exit_statuses_need_review,
+    _restore_persistent_exit_ledger,
+    reconcile_positions_with_broker,
+)
 
 
 class _FakeExecutor:
@@ -192,6 +198,56 @@ class TestPositionReconciliation(unittest.TestCase):
         self.assertEqual(state["exit_history"][0]["status"], "completed")
         self.assertEqual(state["decisions"][0]["action"],
                          "POSITION_CLOSED_RECONCILED")
+
+    def test_restores_exit_intent_from_firestore_before_reconciliation(self):
+        position = {
+            "symbol": "TQQQ", "strategy": "reconciled_broker",
+            "structure": "call_spread_TQQQ_85.0_100.0",
+            "legs": [
+                {"symbol": "TQQQ260918C00085000", "side": "buy", "qty": 1},
+                {"symbol": "TQQQ260918C00100000", "side": "sell", "qty": 1},
+            ],
+        }
+        position_key = (
+            "TQQQ|reconciled_broker|call_spread_TQQQ_85.0_100.0|"
+            "TQQQ260918C00085000,TQQQ260918C00100000"
+        )
+        state = {"positions": [position], "decisions": [], "orders": []}
+        ledger = {
+            "source_day": "2026-08-24",
+            "exit_intents": {
+                position_key: {
+                    "status": "submitted", "reason": "stop",
+                    "order_ids": ["close-1", "close-2"],
+                }
+            },
+            "exit_history": [],
+        }
+        with patch("bot.FIRESTORE_ENABLED", True), patch(
+            "bot.read_exit_ledger", return_value=ledger
+        ):
+            self.assertTrue(_restore_persistent_exit_ledger(state))
+
+        self.assertEqual(state["exit_intents"][position_key]["status"], "submitted")
+        self.assertTrue(state["_broker_reconciliation_halt"])
+        self.assertEqual(
+            reconcile_positions_with_broker(_FakeExecutor([]), state), 0
+        )
+        self.assertEqual(state["positions"], [])
+        self.assertFalse(state["_broker_reconciliation_halt"])
+        self.assertEqual(state["exit_history"][0]["status"], "completed")
+
+    def test_order_status_api_failure_is_review_and_fail_closed(self):
+        self.assertTrue(_exit_statuses_need_review([]))
+        self.assertTrue(_exit_statuses_need_review([
+            {"status": "filled"}, {"status": "rejected"}
+        ]))
+        self.assertTrue(_exit_statuses_need_review([
+            {"status": "canceled"}, {"status": "rejected"}
+        ]))
+        self.assertFalse(_exit_statuses_need_review([
+            {"status": "filled"}, {"status": "filled"}
+        ]))
 
     def test_no_option_positions_is_a_noop(self):
         state = {"positions": [], "decisions": [], "orders": []}
