@@ -112,7 +112,7 @@ class AlpacaExecutor:
         soporta multi-leg vía Bracket/legged orders en plan Advanced).
         """
         from alpaca.trading.requests import MarketOrderRequest, LimitOrderRequest
-        from alpaca.trading.enums import OrderSide, TimeInForce, AssetClass
+        from alpaca.trading.enums import OrderSide, TimeInForce
         tif = TimeInForce.DAY if time_in_force == "day" else TimeInForce.GTC
         if self.dry_run:
             rec = dict(ts=datetime.utcnow().isoformat(), type="option", symbol=contract_symbol,
@@ -123,17 +123,19 @@ class AlpacaExecutor:
             return rec
         # Las órdenes de opciones van al endpoint de opciones de Alpaca
         if order_type == "market":
-            req = MarketOrderRequest(symbol=contract_symbol, qty=qty,
-                                     side=OrderSide(side), time_in_force=tif,
-                                     asset_class=AssetClass.OPTION)
+            req = MarketOrderRequest(
+                symbol=contract_symbol,
+                qty=qty,
+                side=OrderSide(side),
+                time_in_force=tif,
+            )
         else:
             if limit_price is None or float(limit_price) <= 0:
                 raise ExecutionError(
                     f"Precio límite inválido para {contract_symbol}: {limit_price!r}")
             req = LimitOrderRequest(symbol=contract_symbol, qty=qty,
                                     side=OrderSide(side), time_in_force=tif,
-                                    limit_price=float(limit_price),
-                                    asset_class=AssetClass.OPTION)
+                                    limit_price=float(limit_price))
         order = self.trading.submit_order(req)
         rec = dict(ts=datetime.utcnow().isoformat(), type="option", symbol=contract_symbol,
                    side=side, qty=qty, order_type=order_type, status=order.status)

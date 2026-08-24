@@ -1,13 +1,23 @@
 import sys
 import unittest
 from datetime import date
+from types import SimpleNamespace
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from bot import _option_order_specs
-from execution.alpaca_executor import ExecutionError
+from execution.alpaca_executor import AlpacaExecutor, ExecutionError
 from options.chains import Leg, OptionContract, OptionStructure, OptionType
+
+
+class _FakeTrading:
+    def __init__(self):
+        self.requests = []
+
+    def submit_order(self, request):
+        self.requests.append(request)
+        return SimpleNamespace(status="accepted")
 
 
 class TestExecutionContract(unittest.TestCase):
@@ -35,6 +45,18 @@ class TestExecutionContract(unittest.TestCase):
         self.assertEqual([s["side"] for s in specs], ["buy", "sell"])
         self.assertEqual([s["limit_price"] for s in specs], [1.2, 0.4])
         self.assertTrue(all(s["limit_price"] > 0 for s in specs))
+
+    def test_option_request_uses_supported_request_schema(self):
+        executor = AlpacaExecutor()
+        executor.trading = _FakeTrading()
+        result = executor.submit_option_order(
+            "TESTC1", "buy", 1, order_type="limit", limit_price=1.2)
+
+        request = executor.trading.requests[0]
+        self.assertEqual(result["status"], "accepted")
+        self.assertEqual(request.symbol, "TESTC1")
+        self.assertEqual(float(request.limit_price), 1.2)
+        self.assertNotIn("asset_class", type(request).model_fields)
 
     def test_missing_quote_is_rejected_before_any_order(self):
         with self.assertRaises(ExecutionError):

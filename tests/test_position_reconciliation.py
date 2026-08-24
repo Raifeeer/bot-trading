@@ -99,6 +99,22 @@ class TestPositionReconciliation(unittest.TestCase):
         self.assertEqual(n, 0)
         self.assertEqual(state["positions"], [])
 
+    def test_mixed_group_is_marked_unmanaged_and_halts_entries(self):
+        state = {"positions": [], "decisions": [], "orders": []}
+        legs = [
+            dict(symbol="AMD260911P00420000", qty=2.0, avg_entry=8.0,
+                 asset_class="us_option"),
+            dict(symbol="AMD260911P00425000", qty=1.0, avg_entry=9.5,
+                 asset_class="us_option"),
+            dict(symbol="AMD260911P00430000", qty=-1.0, avg_entry=11.0,
+                 asset_class="us_option"),
+        ]
+        n = reconcile_positions_with_broker(_FakeExecutor(legs), state)
+
+        self.assertEqual(n, 0)
+        self.assertTrue(state["_broker_reconciliation_halt"])
+        self.assertEqual(len(state["unmanaged_broker_legs"]), 3)
+
     def test_no_option_positions_is_a_noop(self):
         state = {"positions": [], "decisions": [], "orders": []}
         executor = _FakeExecutor([])

@@ -703,8 +703,42 @@ def reconcile_positions_with_broker(executor: AlpacaExecutor, state: dict) -> in
         logger.exception("Reconciliación: no se pudo leer posiciones de Alpaca")
         return 0
     legs = [leg for leg in legs if leg.get("asset_class") == "us_option"]
-    if not legs:
-        return 0
+    state.setdefault("unmanaged_broker_legs", [])
+    state.setdefault("unmanaged_state_positions", [])
+    state["unmanaged_broker_legs"] = []
+    state["unmanaged_state_positions"] = []
+    state["_broker_reconciliation_halt"] = False
+
+    broker_qty = {leg["symbol"]: float(leg["qty"]) for leg in legs}
+    managed_positions = []
+    for pos in state.get("positions", []):
+        expected_qty = {}
+        for spec in pos.get("legs") or []:
+            symbol = spec.get("symbol")
+            if not symbol:
+                continue
+            sign = 1.0 if spec.get("side") == "buy" else -1.0
+            expected_qty[symbol] = expected_qty.get(symbol, 0.0) + sign * abs(float(spec.get("qty", 0.0)))
+        matches_broker = bool(expected_qty) and all(
+            abs(broker_qty.get(symbol, 0.0) - expected) <= 1e-6
+            for symbol, expected in expected_qty.items()
+        )
+        if matches_broker:
+            managed_positions.append(pos)
+        else:
+            state["unmanaged_state_positions"].append(pos)
+            logger.critical(
+                "Reconciliación: posición local stale/no coincidente para %s; "
+                "se retira de gestión automática y se bloquean nuevas entradas",
+                pos.get("symbol"))
+    state["positions"] = managed_positions
+    if not legs and state["unmanaged_state_positions"]:
+        state["_broker_reconciliation_halt"] = True
+        logger.critical(
+            "Reconciliación: Alpaca no devuelve las patas esperadas; %d "
+            "posición(es) locales quedan sin confirmar y se bloquean nuevas "
+            "entradas",
+            len(state["unmanaged_state_positions"]))
 
     known_symbols = {
         spec.get("symbol")
@@ -713,6 +747,8 @@ def reconcile_positions_with_broker(executor: AlpacaExecutor, state: dict) -> in
     }
     unknown = [leg for leg in legs if leg["symbol"] not in known_symbols]
     if not unknown:
+        if state["unmanaged_state_positions"]:
+            state["_broker_reconciliation_halt"] = True
         return 0
 
     by_underlying = {}
@@ -738,6 +774,8 @@ def reconcile_positions_with_broker(executor: AlpacaExecutor, state: dict) -> in
                     "Reconciliación: %s %s %s no forma un vertical de 2 patas "
                     "(%d patas encontradas); no se reconstruye automáticamente",
                     underlying, exp, otype, len(pair))
+                state["unmanaged_broker_legs"].extend(
+                    leg for leg, _ in pair)
                 continue
             (leg_a, occ_a), (leg_b, occ_b) = pair
             long_leg, short_leg = ((leg_a, occ_a), (leg_b, occ_b)) \
@@ -747,6 +785,8 @@ def reconcile_positions_with_broker(executor: AlpacaExecutor, state: dict) -> in
                     "Reconciliación: %s %s %s no tiene una pata long y otra "
                     "short claras; no se reconstruye automáticamente",
                     underlying, exp, otype)
+                state["unmanaged_broker_legs"].extend(
+                    leg for leg, _ in pair)
                 continue
             direction = "call" if otype == "CALL" else "put"
             structure = (f"{direction}_spread_{underlying}_"
@@ -773,6 +813,14 @@ def reconcile_positions_with_broker(executor: AlpacaExecutor, state: dict) -> in
             logger.warning(
                 "Reconciliación: reconstruida posición %s (%s) desde Alpaca; "
                 "no estaba en el estado local del bot", underlying, structure)
+    if state["unmanaged_broker_legs"] or state["unmanaged_state_positions"]:
+        state["_broker_reconciliation_halt"] = True
+        logger.critical(
+            "Reconciliación incompleta: %d pata(s) broker y %d posición(es) "
+            "locales quedan sin estructura gestionable; se bloquean nuevas "
+            "entradas",
+            len(state["unmanaged_broker_legs"]),
+            len(state["unmanaged_state_positions"]))
     return reconstructed
 
 
@@ -784,6 +832,8 @@ def bear_entry_candidates(regime: dict, state: dict, cfg: dict) -> list:
     y respeta el límite propio del motor bajista.
     """
     b = options_bear_cfg(cfg)
+    if state.get("_broker_reconciliation_halt"):
+        return []
     # SOLO en régimen "bear" (>=30% del universo con CHoCH, o crash_event), no
     # en cualquier cosa que no sea bull. El régimen "cash" (lateral y bear
     # SUAVE bajo SMA200 sin CHoCH) tiene prohibido operar defensivas por
@@ -1219,6 +1269,7 @@ def main():
             logger.warning(
                 "Reconciliación al arrancar: %d posición(es) reconstruida(s) "
                 "desde Alpaca que no estaban en el estado local", n_reconciled)
+        if state.get("_broker_reconciliation_halt"):
             save_state(state)
 
     tickers = cfg["universo"]["tickers"]
@@ -1347,6 +1398,12 @@ def main():
                 "approved": 0,
                 "orders": 0,
                 "bear_candidates": 0,
+                "broker_reconciliation_halt": bool(
+                    state.get("_broker_reconciliation_halt")),
+                "unmanaged_broker_legs": len(
+                    state.get("unmanaged_broker_legs", [])),
+                "unmanaged_state_positions": len(
+                    state.get("unmanaged_state_positions", [])),
                 "by_strategy": {},
                 "by_symbol": {},
             }
@@ -1404,7 +1461,9 @@ def main():
                     # (bear/cash = cash; el piso de equity también bloquea).
                     if sig.tradable and strat.last_structure and \
                             regime.get("regime") == "bull" and \
-                            not (regime.get("floor") or {}).get("below_floor"):
+                            not (regime.get("floor") or {}).get("below_floor") \
+                            and not state.get("_broker_reconciliation_halt"):
+
                         # Filtro anti-earnings: no entrar en posiciones N días
                         # antes de reportes de ganancias (riesgo de gap y
                         # IV crush). La decisión queda registrada como
