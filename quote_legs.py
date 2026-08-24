@@ -6,9 +6,13 @@ import os
 import requests
 import json
 
-key = os.environ.get("APCA_API_KEY_ID", "PK6NXQZR54PK7DKCFEM7U3ULNE")
-secret = os.environ.get("APCA_API_SECRET_KEY",
-                        "8HqWabPkVeWgig67o9topXdo6y65scrVuvVyoPK4Jkj5")
+key = os.environ.get("APCA_API_KEY_ID")
+secret = os.environ.get("APCA_API_SECRET_KEY")
+if not key or not secret:
+    raise SystemExit(
+        "Faltan APCA_API_KEY_ID/APCA_API_SECRET_KEY en el entorno; "
+        "no se realizan consultas."
+    )
 h = {"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret}
 
 # Descubrir el endpoint correcto por intento

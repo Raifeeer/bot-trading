@@ -14,13 +14,14 @@ from statistics import NormalDist
 pd.set_option("display.width", 250)
 
 CANDIDATES = ["F", "TQQQ", "NOK"]
-key = os.environ.get("APCA_API_KEY_ID", "PK6NXQZR54PK7DKCFEM7U3ULNE")
-secret = os.environ.get("APCA_API_SECRET_KEY",
-                        "8HqWabPkVeWgig67o9topXdo6y65scrVuvVyoPK4Jkj5")
+key = os.environ.get("APCA_API_KEY_ID")
+secret = os.environ.get("APCA_API_SECRET_KEY")
 
 
 def get_spot(t):
     try:
+        if not key or not secret:
+            raise RuntimeError("credenciales Alpaca ausentes; usar yfinance")
         r = requests.get("https://data.alpaca.markets/v2/stocks/snapshots",
                          params={"symbols": t},
                          headers={"APCA-API-KEY-ID": key,

@@ -20,9 +20,10 @@ CANDIDATES = ["F", "TQQQ", "NOK"]
 
 try:
     import requests as _rq
-    key = os.environ.get("APCA_API_KEY_ID", "PK6NXQZR54PK7DKCFEM7U3ULNE")
-    secret = os.environ.get("APCA_API_SECRET_KEY",
-                            "8HqWabPkVeWgig67o9topXdo6y65scrVuvVyoPK4Jkj5")
+    key = os.environ.get("APCA_API_KEY_ID")
+    secret = os.environ.get("APCA_API_SECRET_KEY")
+    if not key or not secret:
+        raise RuntimeError("credenciales Alpaca ausentes; usar yfinance")
     for t in CANDIDATES:
         r = _rq.get(f"https://data.alpaca.markets/v1beta1/stocks/{t}/snapshots",
                     headers={"APCA-API-KEY-ID": key,
