@@ -17,6 +17,7 @@ Variables de entorno:
       proyecto está en modo Datastore y no sirve para el SDK web)
   GOOGLE_APPLICATION_CREDENTIALS: clave de service account (Cloud Run)
 """
+import hashlib
 import logging
 import os
 from datetime import date, datetime, timezone
@@ -25,6 +26,11 @@ from datetime import timedelta as _timedelta
 logger = logging.getLogger("state.firestore")
 
 _state_client = None
+_EXIT_LEDGER_COLLECTION = "polaris_exit_ledger"
+_TERMINAL_EXIT_STATUSES = {"completed"}
+_ACTIVE_EXIT_STATUSES = {
+    "submitting", "submitted", "partial_submission", "needs_review"
+}
 
 
 def _get_db():
@@ -134,6 +140,113 @@ def read_challenge_armed() -> bool | None:
         return None
 
 
+def _exit_ledger_id(position_key: str, intent: dict | None = None) -> str:
+    """Genera una identidad estable para una posición y su generación."""
+    intent = intent or {}
+    position = intent.get("position") or {}
+    generation = intent.get("entry_ts") or position.get("entry_ts") or ""
+    raw = f"{position_key}|{generation}".encode("utf-8")
+    return f"exit-{hashlib.sha256(raw).hexdigest()[:40]}"
+
+
+def _exit_ledger_active(status: str) -> bool:
+    return str(status or "").lower() in _ACTIVE_EXIT_STATUSES
+
+
+def claim_exit_intent(position_key: str, intent: dict) -> dict:
+    """Reclama un intent antes de enviar la primera pata.
+
+    ``create`` es deliberadamente no sobrescribible: dos instancias que intenten
+    enviar la misma salida reciben el mismo documento y solo una puede reclamarlo.
+    """
+    ledger_id = _exit_ledger_id(position_key, intent)
+    now = datetime.now(timezone.utc).isoformat()
+    record = dict(intent)
+    record.update({
+        "ledger_id": ledger_id,
+        "position_key": position_key,
+        "active": _exit_ledger_active(record.get("status")),
+        "version": 1,
+        "created_at": record.get("created_at") or now,
+        "updated_at": now,
+    })
+    try:
+        db = _get_db()
+        ref = db.collection(_EXIT_LEDGER_COLLECTION).document(ledger_id)
+        ref.create(record, timeout=10.0)
+        return {"claimed": True, "ledger_id": ledger_id, "record": record}
+    except Exception as exc:  # noqa: BLE001
+        try:
+            from google.api_core.exceptions import AlreadyExists
+        except ImportError:
+            AlreadyExists = ()
+        if AlreadyExists and isinstance(exc, AlreadyExists):
+            try:
+                existing = ref.get(timeout=10.0)
+                if existing.exists:
+                    return {
+                        "claimed": False, "ledger_id": ledger_id,
+                        "record": existing.to_dict() or {},
+                    }
+            except Exception as read_exc:  # noqa: BLE001
+                logger.error("No se pudo leer intent existente %s: %s", ledger_id, read_exc)
+        logger.error("No se pudo reclamar exit intent %s: %s", ledger_id, exc)
+        return {"claimed": False, "ledger_id": ledger_id, "unavailable": True}
+
+
+def update_exit_intent(ledger_id: str, updates: dict) -> bool:
+    """Actualiza un intent dedicado y deja el estado activo explícito."""
+    if not ledger_id:
+        return False
+    try:
+        db = _get_db()
+        ref = db.collection(_EXIT_LEDGER_COLLECTION).document(str(ledger_id))
+        current = ref.get(timeout=10.0)
+        version = int((current.to_dict() or {}).get("version", 0)) + 1 if current.exists else 1
+        data = dict(updates)
+        if "status" in data:
+            data["active"] = _exit_ledger_active(data["status"])
+        data.update({
+            "version": version,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        })
+        ref.set(data, merge=True, timeout=10.0)
+        return True
+    except Exception as exc:  # noqa: BLE001
+        logger.error("No se pudo actualizar exit intent %s: %s", ledger_id, exc)
+        return False
+
+
+def complete_exit_intent(ledger_id: str, reason: str = "") -> bool:
+    """Marca completada una salida solo después de confirmar patas ausentes."""
+    updates = {"status": "completed", "active": False}
+    if reason:
+        updates["completion_reason"] = reason
+    return update_exit_intent(ledger_id, updates)
+
+
+def read_active_exit_ledger() -> dict | None:
+    """Lee intents activos de la colección dedicada.
+
+    ``None`` significa fallo de lectura; ``{}`` significa consulta exitosa sin
+    intents. El caller puede usar esa diferencia para no resucitar snapshots
+    históricos tras una consulta dedicada exitosa.
+    """
+    try:
+        db = _get_db()
+        query = db.collection(_EXIT_LEDGER_COLLECTION).where("active", "==", True)
+        result = {}
+        for snap in query.stream(timeout=10.0):
+            record = snap.to_dict() or {}
+            position_key = record.get("position_key")
+            if position_key:
+                result[str(position_key)] = record
+        return result
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Fallo leyendo colección dedicada de exit intents: %s", exc)
+        return None
+
+
 def read_exit_ledger(max_days: int = 30) -> dict | None:
     """Lee el ledger de salidas persistido en los snapshots recientes.
 
@@ -145,6 +258,15 @@ def read_exit_ledger(max_days: int = 30) -> dict | None:
     directamente al broker durante el arranque.
     """
     try:
+        dedicated = read_active_exit_ledger()
+        if dedicated is not None:
+            return {
+                "source": "dedicated",
+                "source_day": date.today().isoformat(),
+                "exit_intents": dedicated,
+                "exit_history": [],
+                "open_broker_orders": [],
+            }
         db = _get_db()
         latest_ledger = None
         history = []
@@ -159,9 +281,13 @@ def read_exit_ledger(max_days: int = 30) -> dict | None:
                 continue
             if latest_ledger is None and "exit_intents" in payload:
                 intents = payload.get("exit_intents")
+                normalized_intents = intents if isinstance(intents, dict) else {}
+                for position_key, intent in normalized_intents.items():
+                    if isinstance(intent, dict) and not intent.get("ledger_id"):
+                        intent["ledger_id"] = _exit_ledger_id(position_key, intent)
                 latest_ledger = {
                     "source_day": day,
-                    "exit_intents": intents if isinstance(intents, dict) else {},
+                    "exit_intents": normalized_intents,
                     "open_broker_orders": (
                         payload.get("open_broker_orders")
                         if isinstance(payload.get("open_broker_orders"), list)

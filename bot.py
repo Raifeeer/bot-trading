@@ -142,11 +142,24 @@ try:
                                       append_equity_point,
                                       read_last_equity,
                                       read_challenge_armed,
-                                      read_exit_ledger)
+                                      read_exit_ledger,
+                                      claim_exit_intent,
+                                      update_exit_intent,
+                                      complete_exit_intent)
     FIRESTORE_ENABLED = True
 except Exception:  # noqa: BLE001
     logger.exception("Firestore NO disponible (import de state.firestore_state falló)")
     FIRESTORE_ENABLED = False
+
+    def claim_exit_intent(*args, **kwargs):
+        return {"claimed": False, "unavailable": True}
+
+    def update_exit_intent(*args, **kwargs):
+        return False
+
+    def complete_exit_intent(*args, **kwargs):
+        return False
+
 from strategies.day_trading import DayMomentum, DayBreakout
 try:
     from state.telegram_notify import (notify_position_open,
@@ -861,10 +874,22 @@ def reconcile_positions_with_broker(executor: AlpacaExecutor, state: dict) -> in
         if matches_broker:
             managed_positions.append(pos)
         elif no_legs_remain and position_key in exit_intents:
-            closed_by_intent.append((position_key, pos))
-            logger.info(
-                "Reconciliación: salida confirmada por Alpaca para %s; "
-                "se retira la posición sin marcarla stale", pos.get("symbol"))
+            intent = exit_intents[position_key]
+            ledger_id = intent.get("ledger_id") if isinstance(intent, dict) else None
+            if ledger_id and complete_exit_intent(
+                    ledger_id, intent.get("reason", "")):
+                closed_by_intent.append((position_key, pos))
+                logger.info(
+                    "Reconciliación: salida confirmada por Alpaca y Firestore "
+                    "para %s; se retira la posición", pos.get("symbol"))
+            else:
+                managed_positions.append(pos)
+                intent["status"] = "needs_review"
+                intent["last_error"] = "exit_ledger_completion_failed"
+                state["_broker_reconciliation_halt"] = True
+                logger.critical(
+                    "Reconciliación: patas ausentes para %s pero el ledger no "
+                    "confirmó completed; se conserva bloqueada", pos.get("symbol"))
         else:
             state["unmanaged_state_positions"].append(pos)
             logger.critical(
@@ -2108,8 +2133,22 @@ def main():
                         "specs": close_specs,
                         "order_ids": [],
                     }
-                    # Persistir antes del primer envío: un reinicio entre patas
-                    # no puede volver a interpretar la posición como sin salida.
+                    # La reclamación dedicada es obligatoria antes de la primera
+                    # pata. Si Firestore no responde, no se envía ninguna orden.
+                    claim = claim_exit_intent(position_key, intent)
+                    if not claim.get("claimed"):
+                        intent["status"] = "needs_review"
+                        intent["last_error"] = (
+                            "exit_ledger_claim_unavailable_or_already_claimed")
+                        intent["ledger_id"] = claim.get("ledger_id")
+                        exit_intents[position_key] = intent
+                        state["_broker_reconciliation_halt"] = True
+                        save_state(state)
+                        logger.critical(
+                            "Salida %s no reclamada en ledger dedicado; no se envía "
+                            "ninguna pata", p.get("symbol"))
+                        continue
+                    intent["ledger_id"] = claim["ledger_id"]
                     exit_intents[position_key] = intent
                     save_state(state)
                     submitted = []
@@ -2127,6 +2166,13 @@ def main():
                             intent["status"] = "submitted"
                             intent["submitted_ts"] = datetime.utcnow().isoformat()
                             intent["close_orders"] = submitted
+                            persisted = update_exit_intent(
+                                intent["ledger_id"], {
+                                    "status": intent["status"],
+                                    "order_ids": intent["order_ids"],
+                                    "close_orders": submitted,
+                                    "submitted_ts": intent["submitted_ts"],
+                                })
                             state["decisions"].append({
                                 "ts": datetime.utcnow().isoformat(),
                                 "position": p,
@@ -2136,6 +2182,16 @@ def main():
                                 "action": "EXIT_SUBMITTED",
                                 "position_key": position_key,
                             })
+                            if not persisted:
+                                intent["status"] = "needs_review"
+                                intent["last_error"] = (
+                                    "exit_ledger_update_failed_after_order")
+                                state["_broker_reconciliation_halt"] = True
+                                save_state(state)
+                                logger.critical(
+                                    "Salida %s enviada pero no persistida tras una "
+                                    "pata; no se reintenta", p.get("symbol"))
+                                break
                             logger.warning(
                                 "Salida enviada %s (%s); esperando reconciliación "
                                 "de fills antes de retirar la posición",
@@ -2151,6 +2207,13 @@ def main():
                             if order.get("id")
                         ]
                         state["_broker_reconciliation_halt"] = True
+                        update_exit_intent(
+                            intent.get("ledger_id"), {
+                                "status": intent["status"],
+                                "order_ids": intent["order_ids"],
+                                "close_orders": submitted,
+                                "last_error_ts": intent["last_error_ts"],
+                            })
                         save_state(state)
                         logger.exception(
                             "Salida parcial para %s; nuevas entradas y reintentos "

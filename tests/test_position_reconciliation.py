@@ -188,10 +188,12 @@ class TestPositionReconciliation(unittest.TestCase):
                 "TQQQ|reconciled_broker|call_spread_TQQQ_85.0_100.0|"
                 "TQQQ260918C00085000,TQQQ260918C00100000": {
                     "reason": "stop", "order_ids": ["close-1"],
+                "ledger_id": "exit-test-1",
                 }
             },
         }
-        n = reconcile_positions_with_broker(_FakeExecutor([]), state)
+        with patch("bot.complete_exit_intent", return_value=True):
+            n = reconcile_positions_with_broker(_FakeExecutor([]), state)
 
         self.assertEqual(n, 0)
         self.assertEqual(state["positions"], [])
@@ -219,6 +221,7 @@ class TestPositionReconciliation(unittest.TestCase):
                 position_key: {
                     "status": "submitted", "reason": "stop",
                     "order_ids": ["close-1", "close-2"],
+                    "ledger_id": "exit-restored-1",
                 }
             },
             "exit_history": [],
@@ -230,12 +233,37 @@ class TestPositionReconciliation(unittest.TestCase):
 
         self.assertEqual(state["exit_intents"][position_key]["status"], "submitted")
         self.assertTrue(state["_broker_reconciliation_halt"])
-        self.assertEqual(
-            reconcile_positions_with_broker(_FakeExecutor([]), state), 0
-        )
+        with patch("bot.complete_exit_intent", return_value=True):
+            self.assertEqual(
+                reconcile_positions_with_broker(_FakeExecutor([]), state), 0
+            )
         self.assertEqual(state["positions"], [])
         self.assertFalse(state["_broker_reconciliation_halt"])
         self.assertEqual(state["exit_history"][0]["status"], "completed")
+
+    def test_completion_failure_keeps_position_and_halts(self):
+        position = {
+            "symbol": "TQQQ", "strategy": "reconciled_broker",
+            "structure": "call_spread_TQQQ_85.0_100.0",
+            "legs": [
+                {"symbol": "TQQQ260918C00085000", "side": "buy", "qty": 1},
+                {"symbol": "TQQQ260918C00100000", "side": "sell", "qty": 1},
+            ],
+        }
+        key = "TQQQ|reconciled_broker|call_spread_TQQQ_85.0_100.0|"
+        key += "TQQQ260918C00085000,TQQQ260918C00100000"
+        state = {
+            "positions": [position], "decisions": [], "orders": [],
+            "exit_intents": {key: {
+                "status": "submitted", "ledger_id": "exit-failed-complete",
+                "reason": "stop", "order_ids": ["close-1"],
+            }},
+        }
+        with patch("bot.complete_exit_intent", return_value=False):
+            reconcile_positions_with_broker(_FakeExecutor([]), state)
+        self.assertEqual(len(state["positions"]), 1)
+        self.assertEqual(state["exit_intents"][key]["status"], "needs_review")
+        self.assertTrue(state["_broker_reconciliation_halt"])
 
     def test_order_status_api_failure_is_review_and_fail_closed(self):
         self.assertTrue(_exit_statuses_need_review([]))
