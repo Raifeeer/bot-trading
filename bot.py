@@ -768,60 +768,79 @@ def reconcile_positions_with_broker(executor: AlpacaExecutor, state: dict) -> in
         for leg, occ in group:
             key = (occ["expiration_date"], occ["option_type"])
             by_exp_type.setdefault(key, []).append((leg, occ))
-        for (exp, otype), pair in by_exp_type.items():
-            if len(pair) != 2:
+        for (exp, otype), group_legs in by_exp_type.items():
+            longs = [(leg, occ) for leg, occ in group_legs
+                     if float(leg["qty"]) > 0]
+            shorts = [(leg, occ) for leg, occ in group_legs
+                      if float(leg["qty"]) < 0]
+            candidates = []
+            for long_leg, long_occ in longs:
+                for short_leg, short_occ in shorts:
+                    same_qty = abs(abs(float(long_leg["qty"])) -
+                                   abs(float(short_leg["qty"]))) <= 1e-6
+                    vertical = (
+                        long_occ["strike"] > short_occ["strike"]
+                        if otype == "PUT"
+                        else long_occ["strike"] < short_occ["strike"]
+                    )
+                    if same_qty and vertical:
+                        distance = abs(long_occ["strike"] - short_occ["strike"])
+                        candidates.append((distance, long_leg, long_occ,
+                                           short_leg, short_occ))
+            candidates.sort(key=lambda item: (item[0], item[2]["strike"],
+                                              item[4]["strike"]))
+            used_long = set()
+            used_short = set()
+            matched = []
+            for _, long_leg, long_occ, short_leg, short_occ in candidates:
+                long_symbol = long_leg["symbol"]
+                short_symbol = short_leg["symbol"]
+                if long_symbol in used_long or short_symbol in used_short:
+                    continue
+                used_long.add(long_symbol)
+                used_short.add(short_symbol)
+                matched.append((long_leg, long_occ, short_leg, short_occ))
+
+            matched_symbols = {
+                leg["symbol"] for pair in matched for leg in (pair[0], pair[2])
+            }
+            unmatched = [leg for leg, _ in group_legs
+                         if leg["symbol"] not in matched_symbols]
+            if unmatched:
                 logger.warning(
-                    "Reconciliación: %s %s %s no forma un vertical de 2 patas "
-                    "(%d patas encontradas); no se reconstruye automáticamente",
-                    underlying, exp, otype, len(pair))
-                state["unmanaged_broker_legs"].extend(
-                    leg for leg, _ in pair)
-                continue
-            (leg_a, occ_a), (leg_b, occ_b) = pair
-            if abs(abs(float(leg_a["qty"])) - abs(float(leg_b["qty"]))) > 1e-6:
+                    "Reconciliación: %s %s %s deja %d pata(s) sin "
+                    "estructura vertical exacta; no se adivinan",
+                    underlying, exp, otype, len(unmatched))
+                state["unmanaged_broker_legs"].extend(unmatched)
+
+            for long_leg, long_occ, short_leg, short_occ in matched:
+                direction = "call" if otype == "CALL" else "put"
+                structure = (f"{direction}_spread_{underlying}_"
+                             f"{long_occ['strike']}_{short_occ['strike']}")
+                net_premium = (float(long_leg["avg_entry"]) -
+                               float(short_leg["avg_entry"]))
+                state["positions"].append({
+                    "symbol": underlying,
+                    "strategy": "reconciled_broker",
+                    "kind": "put" if otype == "PUT" else "call",
+                    "structure": structure,
+                    "net_premium": net_premium,
+                    "max_risk": abs(net_premium) * 100,
+                    "legs": [
+                        {"symbol": long_leg["symbol"], "side": "buy",
+                         "qty": abs(int(long_leg["qty"]))},
+                        {"symbol": short_leg["symbol"], "side": "sell",
+                         "qty": abs(int(short_leg["qty"]))},
+                    ],
+                    "entry_orders": [],
+                    "entry_ts": datetime.utcnow().isoformat(),
+                    "reconciled": True,
+                })
+                reconstructed += 1
                 logger.warning(
-                    "Reconciliación: %s %s %s tiene cantidades "
-                    "desiguales (%.4f/%.4f); no se reconstruye automáticamente",
-                    underlying, exp, otype, float(leg_a["qty"]),
-                    float(leg_b["qty"]))
-                state["unmanaged_broker_legs"].extend(
-                    leg for leg, _ in pair)
-                continue
-            long_leg, short_leg = ((leg_a, occ_a), (leg_b, occ_b)) \
-                if leg_a["qty"] > 0 else ((leg_b, occ_b), (leg_a, occ_a))
-            if long_leg[0]["qty"] <= 0 or short_leg[0]["qty"] >= 0:
-                logger.warning(
-                    "Reconciliación: %s %s %s no tiene una pata long y otra "
-                    "short claras; no se reconstruye automáticamente",
-                    underlying, exp, otype)
-                state["unmanaged_broker_legs"].extend(
-                    leg for leg, _ in pair)
-                continue
-            direction = "call" if otype == "CALL" else "put"
-            structure = (f"{direction}_spread_{underlying}_"
-                        f"{long_leg[1]['strike']}_{short_leg[1]['strike']}")
-            net_premium = float(long_leg[0]["avg_entry"]) - float(short_leg[0]["avg_entry"])
-            state["positions"].append({
-                "symbol": underlying,
-                "strategy": "reconciled_broker",
-                "kind": "put" if otype == "PUT" else "call",
-                "structure": structure,
-                "net_premium": net_premium,
-                "max_risk": abs(net_premium) * 100,
-                "legs": [
-                    {"symbol": long_leg[0]["symbol"], "side": "buy",
-                     "qty": abs(int(long_leg[0]["qty"]))},
-                    {"symbol": short_leg[0]["symbol"], "side": "sell",
-                     "qty": abs(int(short_leg[0]["qty"]))},
-                ],
-                "entry_orders": [],
-                "entry_ts": datetime.utcnow().isoformat(),
-                "reconciled": True,
-            })
-            reconstructed += 1
-            logger.warning(
-                "Reconciliación: reconstruida posición %s (%s) desde Alpaca; "
-                "no estaba en el estado local del bot", underlying, structure)
+                    "Reconciliación: reconstruida posición %s (%s) desde "
+                    "Alpaca; no estaba en el estado local del bot",
+                    underlying, structure)
     if state["unmanaged_broker_legs"] or state["unmanaged_state_positions"]:
         state["_broker_reconciliation_halt"] = True
         logger.critical(

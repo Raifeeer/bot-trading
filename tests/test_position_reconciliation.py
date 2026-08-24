@@ -28,10 +28,10 @@ TQQQ_LONG = dict(symbol="TQQQ260918C00085000", qty=10.0, avg_entry=2.32,
 TQQQ_SHORT = dict(symbol="TQQQ260918C00100000", qty=-10.0, avg_entry=0.35,
                   market_value=-350.0, unrealized_pl=0.0,
                   unrealized_pl_pct=0.0, asset_class="us_option")
-TQQQ_PUT_LONG = dict(symbol="TQQQ260918P00085000", qty=10.0, avg_entry=2.32,
+TQQQ_PUT_LONG = dict(symbol="TQQQ260918P00100000", qty=10.0, avg_entry=2.32,
                      market_value=2010.0, unrealized_pl=-310.0,
                      unrealized_pl_pct=-0.1336, asset_class="us_option")
-TQQQ_PUT_SHORT = dict(symbol="TQQQ260918P00100000", qty=-10.0, avg_entry=0.35,
+TQQQ_PUT_SHORT = dict(symbol="TQQQ260918P00085000", qty=-10.0, avg_entry=0.35,
                       market_value=-350.0, unrealized_pl=0.0,
                       unrealized_pl_pct=0.0, asset_class="us_option")
 
@@ -114,6 +114,38 @@ class TestPositionReconciliation(unittest.TestCase):
         self.assertEqual(n, 0)
         self.assertTrue(state["_broker_reconciliation_halt"])
         self.assertEqual(len(state["unmanaged_broker_legs"]), 3)
+
+    def test_reconstructs_valid_spread_and_keeps_orphans_unmanaged(self):
+        state = {"positions": [], "decisions": [], "orders": []}
+        legs = [
+            {
+                "symbol": "AMD260911P00420000", "qty": 6.0,
+                "avg_entry": 8.025, "asset_class": "us_option",
+            },
+            {
+                "symbol": "AMD260911P00425000", "qty": 3.0,
+                "avg_entry": 9.5, "asset_class": "us_option",
+            },
+            {
+                "symbol": "AMD260911P00452500", "qty": -2.0,
+                "avg_entry": 19.15, "asset_class": "us_option",
+            },
+            {
+                "symbol": "AMD260911P00455000", "qty": 2.0,
+                "avg_entry": 22.2, "asset_class": "us_option",
+            },
+        ]
+        n = reconcile_positions_with_broker(_FakeExecutor(legs), state)
+
+        self.assertEqual(n, 1)
+        self.assertEqual(len(state["positions"]), 1)
+        self.assertIn("put_spread_AMD_455.0_452.5",
+                      state["positions"][0]["structure"])
+        self.assertTrue(state["_broker_reconciliation_halt"])
+        self.assertEqual(
+            {leg["symbol"] for leg in state["unmanaged_broker_legs"]},
+            {"AMD260911P00420000", "AMD260911P00425000"},
+        )
 
     def test_unequal_vertical_quantities_are_unmanaged(self):
         state = {"positions": [], "decisions": [], "orders": []}
