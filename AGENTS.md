@@ -2158,3 +2158,21 @@ La única discrepancia operativa sensible encontrada está en el spec actual de 
 También existían estados históricos que decían que el parche shadow o Breakout20/55 estaban pendientes de deploy. No se borran porque forman parte de la trazabilidad; la sección 0 y las verificaciones fechadas de las secciones posteriores los superseden. En adelante, agentes nuevos deben leer primero la sección 0 y luego `docs/skills/estado_operativo_skill.md`.
 
 Estado de cierre de esta auditoría: AGENTS.md actualizado, sin cambios de código runtime ni despliegue nuevo. El siguiente agente debe verificar el token de Telegram antes de cualquier redeploy, confirmar nuevamente tráfico/equity/órdenes y no asumir que la popularidad o las señales de TradingAgents prueban alpha.
+
+
+## Readiness de promoción de capas shadow — 2026-08-24
+
+Se evaluaron `setup_confluence`, `vix_shadow`, `structure_mtf_shadow` y `defined_risk_shadow` contra los criterios de promoción vigentes: al menos tres folds/ventanas fuera de muestra comparables, mejora de retorno o drawdown en la mediana, ausencia de deterioro material, costes/slippage y datos point-in-time, valor incremental, muestra suficiente por régimen y ruta reversible compatible con RiskManager.
+
+**Decisión:** ninguna capa cumple hoy todos los criterios para promoción. `setup_confluence` mejora solo la ventana reciente cuando se aplica sobre una política de régimen proxy, pero empeora el selloff y no supera al `SwingTrend` live exacto en retorno. Su valor observado es defensivo y proviene principalmente de reducir exposición. `vix_shadow` es el candidato más cercano: `shock_10` fue elegido en 4/4 folds y solo superó el retorno en 2/4; el retorno compuesto fue 0.43 pp mejor, con drawdown medio 0.06 pp peor. No puede bloquear entradas todavía y usa fallback real de yfinance porque Alpaca rechaza `^VIX`. Estructura/MSS perdió frente al baseline en walk-forward; defined-risk sigue bloqueado por la falta de atomicidad multi-leg del executor.
+
+El snapshot PAPER mostró solapamiento total entre las capas intradía: 16 confirmaciones agregadas en 8 símbolos, con cada símbolo confirmado por dos capas. Esto no demuestra confluencia independiente. La acción correcta es mantener estas capas en shadow/contexto y construir un ledger común por timestamp, símbolo y régimen con señal, gate, resultado forward neto, costes y solapamiento antes de revisar promoción. El informe reproducible está en `docs/shadow_promotion_readiness_2026-08-24.md`.
+
+
+## Análisis de catálogo BuildWithClaude — 2026-08-24
+
+Se revisó `https://buildwithclaude.com/search?q=Trading&type=plugin` y se inspeccionaron repositorios de AGIPro `claude-trading-skills`, `leCheeseRoyale/trading-experiment`, Joel Lewis `finance_skills`, `lgbarn/trading-indicator-plugins`, Kisune, Daodan y Skills Registry. El catálogo es un índice de plugins, no una validación de seguridad ni rentabilidad.
+
+Los candidatos con valor potencial para Polaris son componentes selectivos de walk-forward, purging/embargo, Deflated Sharpe/PBO, riesgo, slippage, microestructura, calidad de datos y order lifecycle. AGIPro contiene 67 skills, pero mezcla análisis con `dex-execution`, `rl-execution` y APIs crypto; no copiar completo. `Trading Experiment` genera y ejecuta código dinámico (`exec(strategy_code, namespace)`), usa ccxt/yfinance y backtesting, y debe permanecer en sandbox sin secretos ni acceso al executor. `finance_skills/trading-operations` aporta guidance de lifecycle/riesgo sin scripts de ejecución. Los plugins de Pine/Ninja/Tradovate, brokers, DEX, wallet, escrow y MCP de órdenes no son compatibles para conexión directa con Alpaca.
+
+**Decisión:** no instalar ningún marketplace completo ni conceder permisos de broker. La próxima prueba recomendada es adaptar internamente purging + embargo + Deflated Sharpe/PBO a los backtests existentes, usando estos repositorios solo como referencia. El informe detallado está en `docs/buildwithclaude_trading_catalog_analysis_2026-08-24.md` y las notas de trazabilidad en `/home/ubuntu/buildwithclaude_trading_catalog_notes.md`.

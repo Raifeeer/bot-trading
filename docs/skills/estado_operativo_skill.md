@@ -321,3 +321,10 @@ La investigación de ORB, VWAP, relative strength y priority overlay, RSI bounce
 6. Si se observan `same_bar_context`, interpretarlo como deduplicación de la misma vela, no como ausencia definitiva de mercado; revisar frescura del feed y el timestamp del último ciclo.
 
 Los informes más recientes son `docs/shadow_layers_audit_2026-08-19.md`, `docs/tradingagents_x_analysis_2026-08-24.md` y `docs/tradingagents_pilot_2026-08-24.md`. El código del piloto de TradingAgents es investigación local y no debe entrar en la imagen de producción.
+
+
+## Catálogo BuildWithClaude — 2026-08-24
+
+Se analizó el catálogo público de plugins de trading y varios repositorios candidatos. No se recomienda instalar marketplaces completos dentro de Polaris ni conectar plugins de broker, DEX, wallets, escrow, copy-trading o MCP de órdenes. Los componentes potencialmente útiles son únicamente referencias selectivas para walk-forward con purging/embargo, Deflated Sharpe/PBO, riesgo, slippage, microestructura, calidad de datos y order lifecycle.
+
+`Trading Experiment` debe permanecer aislado porque genera y ejecuta código dinámico y usa ccxt/yfinance. AGIPro mezcla skills de investigación con ejecución DEX/crypto; usar solo una allowlist documental. `finance_skills/trading-operations` es guidance, no reemplazo del RiskManager. El informe está en `docs/buildwithclaude_trading_catalog_analysis_2026-08-24.md`; no hay cambios de runtime ni producción por este análisis.
