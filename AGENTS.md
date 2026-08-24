@@ -8,7 +8,7 @@ Esta sección tiene prioridad sobre las descripciones históricas y los estados 
 
 | Área | Estado vigente verificado |
 |---|---|
-| Repositorio | `Raifeeer/bot-trading`, `main`, HEAD `852a827`; árbol limpio al último cierre |
+| Repositorio | `Raifeeer/bot-trading`, `main`, HEAD `66f255b`; árbol limpio al último cierre |
 | Cloud Run | Servicio `polaris-bot`, us-central1, proyecto `gen-lang-client-0746441136`; revisión `polaris-bot-promob66a78b` con 100% del tráfico |
 | Broker | Alpaca **PAPER**; `broker.paper=true`; no cambiar a REAL sin confirmación explícita nueva |
 | Recursos | `minScale=1`, `maxScale=1`, CPU always-on (`cpu-throttling=false`), `POLL_SECONDS=60`; `BOT_POLL_MINUTES=5` es compatibilidad histórica y no sustituye al poll efectivo |
@@ -2149,7 +2149,7 @@ Informe: `docs/tradingagents_pilot_2026-08-24.md`. Script: `scripts/run_tradinga
 
 ## Auditoría de actualidad de AGENTS.md — 2026-08-24
 
-Se comparó este documento con el historial real de Git hasta `852a827`, los archivos versionados de estrategias/tests/scripts/docs y la revisión Cloud Run que recibe tráfico. La auditoría confirmó que el trabajo de las últimas semanas sí está documentado: corrección del floor, VIX shadow, estructura MTF, breakdown/retest, trend pullback, Breakout20/55, ORB, VWAP, relative strength y priority overlay, RSI bounce, failure/retest, mean-reversion, endurecimiento shadow, promoción controlada PAPER, auditoría de solapamiento, y análisis/piloto aislado de TradingAgents.
+Se comparó este documento con el historial real de Git hasta `66f255b`, los archivos versionados de estrategias/tests/scripts/docs y la revisión Cloud Run que recibe tráfico. La auditoría confirmó que el trabajo de las últimas semanas sí está documentado: corrección del floor, VIX shadow, estructura MTF, breakdown/retest, trend pullback, Breakout20/55, ORB, VWAP, relative strength y priority overlay, RSI bounce, failure/retest, mean-reversion, endurecimiento shadow, promoción controlada PAPER, auditoría de solapamiento, y análisis/piloto aislado de TradingAgents.
 
 Los commits recientes de referencia son: `217e0b2` (floor de recuperación), `0724650`/`b6d7ed3` (breakdown/retest shadow y verificación), `30f17eb`/`d37db2a` (estructura MTF), `4a2c643`/`379dc84`/`99d4829` (VIX shadow), `899dc35`/`f6eb11b`/`8f1cc88` (trend pullback), `c4f3ff4`/`5db5ef0` (Breakout20/55), `5d7b290` (ORB), `e8693e2` (VWAP), `66df9cd` (relative strength), `0cdfd11` (RSI bounce), `9655692` (failure/retest), `bf2dcf8` (priority overlay), `4468204` (mean-reversion), `9fdcd06` (endurecimiento de contratos shadow), `b66a78b`/`d1f3303` (promoción controlada PAPER) y `fbe37b4`/`852a827` (análisis y piloto aislado de TradingAgents).
 
