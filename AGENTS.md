@@ -2187,3 +2187,14 @@ Los candidatos de investigación potencial son VARRD (event studies/backtesting)
 Los MCP de órdenes, brokers, DEX, wallets, escrow, copy-trading o custodia —incluidos Trading, Trading212, Kite, AlgoVesta, Sentinel, FINOPTIMA, Openmm y HashLock OTC— quedan clasificados como **NO CONECTAR** a Polaris. No se debe enviar a ningún MCP una clave Alpaca, token de Secret Manager, acceso Firestore o acceso directo al executor.
 
 **Decisión:** no se instaló ni conectó ningún MCP nuevo. Si se prueba alguno, debe ser en sandbox separado, con herramientas listadas y auditadas, autenticación/scopes mínimos, verificación de mutaciones, límites de coste/rate, datos point-in-time y salida estructurada. Polaris conserva RiskManager, floor, circuit breakers y executor como autoridades únicas. El informe actualizado está en `docs/buildwithclaude_trading_catalog_analysis_2026-08-24.md`; las notas detalladas están en `/home/ubuntu/buildwithclaude_trading_catalog_notes.md`.
+
+
+## Revisión de Skills de BuildWithClaude — 2026-08-24
+
+La vista filtrada mostró 104 Skills relacionadas con Trading. La comparación con el inventario local confirma que Polaris ya posee skills específicas para setups, opciones, backtesting, análisis financiero, VIX, datos, riesgo, operación y validación. Por tanto, no se recomienda instalar la sección completa ni sustituir el conocimiento local por paquetes externos.
+
+La skill externa con mayor valor metodológico es `backtest-expert`, por sus reglas de hipótesis determinista, sensibilidad, slippage pesimista, walk-forward, muestras mínimas y control de sobreajuste. Se adoptarán selectivamente esos conceptos junto con purging, embargo, Deflated Sharpe y PBO. `options-strategy-advisor` aporta pricing/greeks/P&L teóricos, pero no sustituye cadenas, bid/ask, IV point-in-time, fills ni RiskManager de Polaris. `market-environment-analysis` puede estructurar contexto macro, siempre con timestamps y fuentes verificables.
+
+`trade-performance-coach` podría inspirar una futura skill de revisión post-trade porque no recomienda compras/ventas ni ejecuta broker. `longbridge-quant` contiene ideas estadísticas útiles, pero depende de Longbridge; `trading-strategy-backtest` está orientada a datos diarios y no cubre el núcleo intradía/opciones; `trading-signal` y `trading-analysis` no muestran metodología suficiente en sus fichas. OKX, Binance, MT5, Longbridge y skills de ejecución/cartera quedan fuera por incompatibilidad o riesgo de credenciales.
+
+**Decisión:** extraer conceptos puntuales y mantener el código, datos, fuentes de verdad, RiskManager y executor propios. No instalar automáticamente ninguna skill de marketplace ni conceder credenciales externas. El informe actualizado es `docs/buildwithclaude_trading_catalog_analysis_2026-08-24.md`; las notas de fichas están en `/home/ubuntu/buildwithclaude_trading_catalog_notes.md`.

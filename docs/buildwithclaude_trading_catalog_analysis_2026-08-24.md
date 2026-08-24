@@ -78,6 +78,23 @@ La vista filtrada del catálogo mostró **55 MCP Servers** relacionados con Trad
 
 Las fichas muestran endpoints HTTP remotos o comandos stdio/npx y, en algunos casos, fechas de última prueba antiguas o instrucciones ausentes. Antes de añadir cualquier MCP hay que consultar el registry, listar herramientas, identificar operaciones de mutación, autenticación y scopes, política de retención, rate limits y existencia de sandbox. Ningún MCP debe recibir claves de Alpaca, tokens de Secret Manager, acceso a Firestore ni acceso directo al executor.
 
+## Revisión específica de Skills
+
+La vista filtrada mostró **104 Skills relacionadas con Trading**. La comparación con el inventario local de Polaris indica que muchas son duplicadas o demasiado generales para reemplazar nuestros módulos existentes.
+
+| Skill del catálogo | Qué aporta | Solapamiento con Polaris | Decisión |
+|---|---|---|---|
+| `backtest-expert` | Hipótesis determinista, slippage pesimista, sensibilidad, walk-forward y criterios contra sobreajuste | Se solapa con `deep-research`, `finance-pro-playbooks` y nuestros arneses | **Adoptar conceptos selectivos** |
+| `options-strategy-advisor` | Black-Scholes, griegas, P/L teórico y estrategias de opciones | Se solapa con `financial-analysis`, `the-wheel`, `0dte-credit-spreads`, `earnings-event-spreads` y `broken-wing-butterfly` | **Referencia educativa, no executor** |
+| `market-environment-analysis` | Contexto macro, risk-on/risk-off, sectores y VIX | Se solapa con `deep-research`, `financial-analysis` y `vix-filter` | **Usar con timestamps y fuentes verificables** |
+| `trading-strategy-backtest` | Backtests diarios y dashboards; declara fuera de alcance minutos/ticks y derivados | No cubre el núcleo intradía/opciones de Polaris | **No integrar** |
+| `trade-performance-coach` | Revisión de operaciones cerradas, riesgo y adherencia al proceso | No hay una skill local equivalente completa | **Posible skill futura de post-trade** |
+| `longbridge-quant` | Pairs, cointegration, factores, ADF/GARCH, ML y optimización | Hay solapamiento conceptual, pero depende de Longbridge | **Copiar ideas, no dependencia** |
+| `trading-signal` / `trading-analysis` | Descripciones breves de señales y análisis | Sin metodología ni evidencia suficiente | **No adoptar** |
+| OKX/Binance/MT5/Longbridge | Datos o ejecución en otras plataformas | Incompatibles con Alpaca y pueden requerir credenciales | **No instalar** |
+
+La Skill con mayor valor metodológico es `backtest-expert`, pero no justifica instalar un paquete externo completo. Lo útil es incorporar internamente una revisión estándar de purging, embargo, Deflated Sharpe, PBO, sensibilidad, costes y muestra. `trade-performance-coach` podría convertirse en una futura skill de post-trade porque analiza el proceso sin recomendar compras ni ejecutar órdenes; no es un motor de señal.
+
 ## Conclusión
 
 El catálogo no ofrece un plugin que deba conectarse directamente a Polaris. Su mayor valor es servir como fuente de patrones para investigación, validación y controles operacionales. La integración segura sería selectiva y documental, no una instalación masiva.
