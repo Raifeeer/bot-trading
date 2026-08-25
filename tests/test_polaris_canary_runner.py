@@ -83,6 +83,36 @@ class TestPolarisCanaryRunner(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "already_attempted"):
                 canary.claim_or_resume_canary_run({"status": "preflight"})
 
+    def test_resume_rejects_cas_conflict_without_reusing_attempt(self):
+        existing = {
+            "fields": {"status": {"stringValue": "preflight"}},
+            "updateTime": "t-old",
+        }
+        with patch.object(canary, "fs_create", return_value=(409, {})), patch.object(
+            canary, "fs_get", return_value=(200, existing)
+        ), patch.object(
+            canary, "fs_patch", return_value=(412, {"error": "precondition"})
+        ):
+            with self.assertRaisesRegex(RuntimeError, "resume_failed_http_412"):
+                canary.claim_or_resume_canary_run({"status": "preflight"})
+
+    def test_existing_active_attempt_is_fail_closed(self):
+        existing = {
+            "fields": {"status": {"stringValue": "entry_submitted"}},
+            "updateTime": "t-old",
+        }
+        with patch.object(canary, "fs_create", return_value=(409, {})), patch.object(
+            canary, "fs_get", return_value=(200, existing)
+        ):
+            with self.assertRaisesRegex(RuntimeError, "already_attempted"):
+                canary.claim_or_resume_canary_run({"status": "preflight"})
+
+    def test_firestore_claim_failure_is_not_retried(self):
+        with patch.object(canary, "fs_create", return_value=(503, {})) as create:
+            with self.assertRaisesRegex(RuntimeError, "claim_failed_http_503"):
+                canary.claim_or_resume_canary_run({"status": "preflight"})
+        create.assert_called_once()
+
     def test_market_closed_aborts_without_order_submission(self):
         with patch.object(canary, "fs_create", return_value=(200, {"updateTime": "t1"})), patch.object(
             canary, "verify_cloud_run_contained", return_value="contained"
