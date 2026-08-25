@@ -112,9 +112,14 @@ def fs_get(collection: str, document_id: str):
 
 def fs_patch(collection: str, document_id: str, data: dict, update_time: str | None = None):
     body = {"fields": fs_fields(data)}
+    params = None
     if update_time:
-        body["currentDocument"] = {"updateTime": update_time}
-    return firestore_request("PATCH", f"{collection}/{document_id}", body=body)
+        # En Firestore REST la precondición es un query parameter del PATCH,
+        # no un campo del documento.
+        params = {"currentDocument.updateTime": update_time}
+    return firestore_request(
+        "PATCH", f"{collection}/{document_id}", params=params, body=body
+    )
 
 
 def write_run(data: dict, update_time: str | None = None):
@@ -130,6 +135,32 @@ def persist_run(data: dict, update_time: str | None = None) -> str | None:
     if code not in (200, 201):
         raise RuntimeError(f"canary_run_update_failed_http_{code}")
     return payload.get("updateTime")
+
+
+def claim_or_resume_canary_run(run: dict):
+    code, document = fs_create(CANARY_COLLECTION, RUN_ID, run)
+    if code in (200, 201):
+        return document
+    if code != 409:
+        raise RuntimeError(f"canary_run_claim_failed_http_{code}")
+    code, existing = fs_get(CANARY_COLLECTION, RUN_ID)
+    if code != 200:
+        raise RuntimeError(f"canary_run_existing_read_failed_http_{code}")
+    previous_status = ((existing.get("fields") or {}).get("status") or {}).get("stringValue")
+    previous_fields = existing.get("fields") or {}
+    previous_entry_id = (previous_fields.get("entry_order_id") or {}).get("stringValue")
+    previous_exit_id = (previous_fields.get("exit_order_id") or {}).get("stringValue")
+    if previous_status not in {"aborted_market_closed", "preflight"}:
+        raise RuntimeError("canary_run_already_attempted")
+    if previous_entry_id or previous_exit_id:
+        raise RuntimeError("canary_run_already_attempted")
+    previous_update_time = existing.get("updateTime")
+    code, updated = fs_patch(
+        CANARY_COLLECTION, RUN_ID, run, update_time=previous_update_time
+    )
+    if code not in (200, 201):
+        raise RuntimeError(f"canary_run_resume_failed_http_{code}")
+    return updated
 
 
 def order_status(order_id: str):
@@ -221,9 +252,7 @@ def main():
         "max_debit": QTY * ENTRY_LIMIT * 100,
         "started_at": now,
     }
-    code, run_doc = fs_create(CANARY_COLLECTION, RUN_ID, run)
-    if code not in (200, 201):
-        raise RuntimeError(f"canary_run_claim_failed_http_{code}")
+    run_doc = claim_or_resume_canary_run(run)
     run_update_time = run_doc.get("updateTime")
 
     run["cloud_run_traffic"] = verify_cloud_run_contained()
@@ -243,7 +272,17 @@ def main():
     ask = float(quote.get("ap") or 0)
     bid = float(quote.get("bp") or 0)
     if not entry_quote_allowed(ask):
-        raise RuntimeError(f"entry_ask_above_limit:{ask}")
+        run.update({
+            "status": "aborted_entry_quote_above_limit",
+            "entry_ask": ask,
+            "abort_reason": "entry_ask_above_confirmed_limit",
+        })
+        persist_run(run, run_update_time)
+        print(json.dumps({
+            "status": run["status"], "entry_ask": ask,
+            "entry_limit": ENTRY_LIMIT,
+        }))
+        return 0
 
     run.update({
         "status": "entry_submitting",

@@ -55,6 +55,34 @@ class TestPolarisCanaryRunner(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "open_orders_not_empty"):
                 canary.verify_empty_account()
 
+    def test_resume_allows_preflight_without_order_ids(self):
+        existing = {
+            "fields": {"status": {"stringValue": "preflight"}},
+            "updateTime": "t-old",
+        }
+        with patch.object(canary, "fs_create", return_value=(409, {})), patch.object(
+            canary, "fs_get", return_value=(200, existing)
+        ), patch.object(
+            canary, "fs_patch", return_value=(200, {"updateTime": "t-new"})
+        ) as patch_run:
+            result = canary.claim_or_resume_canary_run({"status": "preflight"})
+        self.assertEqual(result["updateTime"], "t-new")
+        patch_run.assert_called_once()
+
+    def test_resume_rejects_prior_order_attempt(self):
+        existing = {
+            "fields": {
+                "status": {"stringValue": "preflight"},
+                "entry_order_id": {"stringValue": "order-1"},
+            },
+            "updateTime": "t-old",
+        }
+        with patch.object(canary, "fs_create", return_value=(409, {})), patch.object(
+            canary, "fs_get", return_value=(200, existing)
+        ):
+            with self.assertRaisesRegex(RuntimeError, "already_attempted"):
+                canary.claim_or_resume_canary_run({"status": "preflight"})
+
     def test_market_closed_aborts_without_order_submission(self):
         with patch.object(canary, "fs_create", return_value=(200, {"updateTime": "t1"})), patch.object(
             canary, "verify_cloud_run_contained", return_value="contained"
