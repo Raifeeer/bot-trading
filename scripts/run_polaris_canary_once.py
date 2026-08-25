@@ -156,6 +156,20 @@ def cancel_order(order_id: str):
         raise RuntimeError(f"cancel_http_{code}:{payload}")
 
 
+def entry_quote_allowed(ask: float, max_debit: float = ENTRY_LIMIT) -> bool:
+    try:
+        return 0 < float(ask) <= float(max_debit)
+    except (TypeError, ValueError):
+        return False
+
+
+def exit_quote_allowed(bid: float, ask: float) -> bool:
+    try:
+        return 0 < float(bid) <= float(ask)
+    except (TypeError, ValueError):
+        return False
+
+
 def verify_cloud_run_contained():
     output = subprocess.check_output([
         GCLOUD, "run", "services", "describe", "polaris-bot",
@@ -228,7 +242,7 @@ def main():
     quote = snapshot.get("latestQuote") or {}
     ask = float(quote.get("ap") or 0)
     bid = float(quote.get("bp") or 0)
-    if not (0 < ask <= ENTRY_LIMIT):
+    if not entry_quote_allowed(ask):
         raise RuntimeError(f"entry_ask_above_limit:{ask}")
 
     run.update({
@@ -303,7 +317,7 @@ def main():
     quote = snapshot.get("latestQuote") or {}
     bid = float(quote.get("bp") or 0)
     ask = float(quote.get("ap") or 0)
-    if not (0 < bid <= ask):
+    if not exit_quote_allowed(bid, ask):
         update = {**intent, "status": "needs_review", "active": True, "version": 2}
         fs_patch(EXIT_COLLECTION, exit_id, update, ledger_doc.get("updateTime"))
         run.update({"status": "exit_quote_unsafe_needs_review", "ledger_id": exit_id})
