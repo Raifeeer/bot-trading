@@ -374,3 +374,10 @@ La canary del 25-ago abortó porque el ask de `F260828C00015000` fue `$0.04` fre
 Se analizaron 44 archivos históricos locales. El corte temporal llega como máximo a 2026-08-19 y varias ventanas terminan en 2026-08-07. El readiness final clasifica 41 archivos con evidencia insuficiente y 3 en `RESEARCH_ONLY`; ningún archivo tiene simultáneamente OOS verificable, muestra suficiente, drawdown comparable, gaps controlados, profit factor robusto y fills point-in-time. No se promueve ningún motor. El informe reproducible está en `docs/polaris_strategy_readiness_2026-08-25.md` y el catálogo en `docs/polaris_backtest_catalog_summary_2026-08-25.{json,md}`.
 
 Siguiente trabajo seguro: reconstruir la evaluación con datos point-in-time recientes, purging/embargo, costes y slippage, walk-forward no solapado y A/B en shadow. Las entradas generales, los motores nuevos y los spreads multi-pata permanecen bloqueados. La publicación de los commits locales en GitHub sigue pendiente de recuperar la autenticación.
+
+
+## Datos OOS de opciones — 25 de agosto de 2026
+
+La investigación de fuente confirmó que el SDK de Alpaca instalado expone barras, trades históricos, última cotización, snapshot y cadena, pero no un método `get_option_quotes` histórico. La documentación oficial distingue el feed Indicative del OPRA y señala que Indicative no representa quotes OPRA reales; el cache local de Polaris solo contiene OHLC diario y carece de bid/ask intradía, cadena point-in-time y timestamps de listado. Por tanto, no existe todavía un OOS de ejecución válido para 0DTE/1DTE ni para spreads; las tablas existentes permanecen en `RESEARCH_ONLY`.
+
+El documento reproducible `docs/options_oos_data_requirements_2026-08-25.md` fija los requisitos antes de cualquier promoción: NBBO histórico sincronizado, pertenencia histórica de la cadena, timestamps de contrato, underlying intradía, costes, slippage, fills parciales, purging/embargo y walk-forward no solapado. No se conectó un proveedor externo ni se modificó el executor. Entradas generales, spreads multi-pata y `risk.halt_new_entries` siguen bloqueados.
