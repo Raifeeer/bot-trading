@@ -8,7 +8,7 @@ Esta sección tiene prioridad sobre las descripciones históricas y los estados 
 
 | Área | Estado vigente verificado |
 |---|---|
-| Repositorio | `Raifeeer/bot-trading`, rama `main`; Cloud Run ejecuta `cbdc186`; herramientas de canary/seguridad versionadas hasta `6825f6c`; handoff actualizado en `2a671f2` |
+| Repositorio | `Raifeeer/bot-trading`, rama `main`; Cloud Run ejecuta `cbdc186`; cambios locales de canary hasta `3dbf60d`, pendientes de publicar por autenticación GitHub; handoff local actualizado |
 | Cloud Run | Servicio `polaris-bot`, us-central1, proyecto `gen-lang-client-0746441136`; revisión `polaris-bot-cbdc186` con 100% del tráfico, digest `sha256:459c189f39e24cf5bc04a3aa2e39d6dbc8ff7787d666868eb8d2ff676270a878` |
 | Broker | Alpaca **PAPER**; `broker.paper=true`; no cambiar a REAL sin confirmación explícita nueva |
 | Recursos | `minScale=1`, `maxScale=1`, CPU always-on (`cpu-throttling=false`), `POLL_SECONDS=60`; `BOT_POLL_MINUTES=5` es compatibilidad histórica y no sustituye al poll efectivo |
@@ -25,7 +25,7 @@ Esta sección tiene prioridad sobre las descripciones históricas y los estados 
 
 **Secretos verificados:** `APCA_API_KEY_ID`, `APCA_API_SECRET_KEY`, `DEEPSEEK_API_KEY` y `TELEGRAM_BOT_TOKEN` llegan desde Secret Manager en `polaris-bot-cbdc186`; `telegram-bot-token` coincide por hash con el valor que estaba embebido, por lo que se migró sin cambiar el token. La cuenta de servicio tiene `roles/secretmanager.secretAccessor` aplicado a los cuatro secretos usados. La rotación criptográfica del token Telegram queda pendiente porque requiere emitir un token nuevo desde BotFather; no se inventa ni se cambia el valor operativo sin esa intervención.
 
-**Canary autorizada:** existe una única ejecución programada para la próxima apertura en `America/Santo_Domingo` (`2026-08-25T13:30:05Z` objetivo). Solo puede usar `F260828C00015000`, compra de 1 contrato, orden límite máxima `$0.02` por acción (`$2` más comisiones), sin persecución de precio. Si no llena, cancela; si llena, intenta una sola venta límite al bid vigente. Cualquier estado ambiguo queda `needs_review` sin reintento. No modifica `risk.halt_new_entries`, no activa motores y no usa spreads. **Reglas de promoción:** ninguna capa se habilita por detectar observaciones shadow. Exigir datos point-in-time, costes/slippage, walk-forward no solapado, muestra suficiente, análisis de solapamiento, pruebas de ejecución y rollback. Toda nueva promoción debe ser PAPER, limitada y reversible.
+**Canary autorizada:** se intentó una única ejecución el `2026-08-25` durante mercado abierto para `F260828C00015000`, 1 contrato y orden límite máxima `$0.02` por acción (`$2` más comisiones). El ask observado fue `$0.04`; abortó antes de enviar, sin ID de orden, posición ni orden abierta. Firestore quedó en `aborted_entry_quote_above_limit` y la programación one-shot fue desactivada. No modificar `risk.halt_new_entries`, no activar motores ni usar spreads para repetirla sin una autorización específica con precio actualizado. **Reglas de promoción:** ninguna capa se habilita por detectar observaciones shadow. Exigir datos point-in-time, costes/slippage, walk-forward no solapado, muestra suficiente, análisis de solapamiento, pruebas de ejecución y rollback. Toda nueva promoción debe ser PAPER, limitada y reversible.
 
 ## 1. Qué es el sistema
 
