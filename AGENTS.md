@@ -1,24 +1,24 @@
 # PolarIS Trading Bot — Guía de Operación para Agentes
 
-> Documento de referencia para cualquier agente de IA que opere, diagnostique o extienda el sistema Polaris (bot de trading de opciones sobre Alpaca, desplegado en Google Cloud Run). Última actualización: **24 de agosto de 2026 UTC**.
+> Documento de referencia para cualquier agente de IA que opere, diagnostique o extienda el sistema Polaris (bot de trading de opciones sobre Alpaca, desplegado en Google Cloud Run). Última actualización: **25 de agosto de 2026 UTC**.
 
-## 0. Estado vigente y fuente de verdad — 24 de agosto de 2026
+## 0. Estado vigente y fuente de verdad — 25 de agosto de 2026
 
 Esta sección tiene prioridad sobre las descripciones históricas y los estados previos que aparecen más abajo. Las entradas fechadas documentan la evolución; un pendiente antiguo solo se considera resuelto cuando existe una verificación posterior explícita.
 
 | Área | Estado vigente verificado |
 |---|---|
-| Repositorio | `Raifeeer/bot-trading`, rama `main`; Cloud Run ejecuta `669a164s2`; cambios locales hasta `7f23c73`, pendientes de publicar por autenticación GitHub; handoff local actualizado |
+| Repositorio | `Raifeeer/bot-trading`, rama `main`; Cloud Run ejecuta `669a164s2`; último commit publicado `f8a2226` antes del adaptador Databento; árbol limpio al cerrar cada cambio |
 | Cloud Run | Servicio `polaris-bot`, us-central1, proyecto `gen-lang-client-0746441136`; revisión `polaris-bot-669a164s2` con 100% del tráfico, digest `sha256:9c698deec55707b15b709ddcea69a89f5e782ee758aba7cbd13702dd704c0256`; rollback `polaris-bot-cbdc186` |
 | Broker | Alpaca **PAPER**; `broker.paper=true`; no cambiar a REAL sin confirmación explícita nueva |
 | Recursos | `minScale=1`, `maxScale=1`, CPU always-on (`cpu-throttling=false`), `POLL_SECONDS=60`; `BOT_POLL_MINUTES=5` es compatibilidad histórica y no sustituye al poll efectivo |
-| Equity observada | Verificación directa PAPER posterior a la liquidación: `$96,915.63`; cash y portfolio value iguales; piso activo `$99,000` mientras equity < `$100,000`; `risk.halt_new_entries=true` |
+| Equity observada | Verificación directa PAPER del 25-ago: `$96,914.08`; cash y portfolio value iguales; piso activo `$99,000` mientras equity < `$100,000`; `risk.halt_new_entries=true` |
 | Posiciones/órdenes | Verificación directa Alpaca posterior al deploy: 0 posiciones y 0 órdenes abiertas; órdenes del día terminales. Firestore: posiciones 0, open_broker_orders 0, exit_intents 0 |
 | Universo activo | `universo_reto`: SOFI, PLTR, F, TSLA, AMD, NOK, BB y TQQQ; SOFI puede faltar en caches históricos, pero no se debe inventar su histórico |
 | Motores live base | `day_momentum` 5m, `day_breakout` 15m y `swing_trend` 1d; el motor bearish live funciona aparte en régimen bear |
 | Promoción PAPER | `trend_pullback`, `breakout_20_55` y `breakdown_retest` usan adaptadores controlados y pasan por `OptionsStrategy`/`RiskManager`; long promoted limitado inicialmente a 1 contrato |
 | Contexto shadow | `setup_confluence`, `vix_shadow`, `structure_mtf_shadow` y `defined_risk_shadow` publican telemetría; VIX/estructura/setups no generan órdenes y defined-risk no se ejecuta por falta de atomicidad multi-leg |
-| Investigación | ORB, VWAP reclaim, relative strength, priority overlay, RSI bounce, failure/retest, mean-reversion, Wheel, SMC ampliado, Volume Profile, Williams %R, patrones, fundamentales y gamma walls siguen `RESEARCH_ONLY` o `REJECT_DATA` según informe |
+| Investigación | Las estrategias adicionales siguen `RESEARCH_ONLY`/`REJECT_DATA`; el readiness de 44 artefactos no justificó promoción. Databento fue seleccionado como candidato de piloto OOS, pero no hay API key ni conexión activa |
 | Seguridad | Wrappers shadow fuerzan `mode=shadow`, `influence_entries=false` y `orders_allowed=false`; RiskManager, floor, circuit breakers, límites de posiciones y cotizaciones son autoridad final. `cbdc186` añade fail-closed ante fallo de lectura dedicada y CAS por timestamp; `669a164` también bloquea ante timeout/error de lectura de posiciones de Alpaca |
 | Ledger de salidas | `8c5f1dc` usa `polaris_exit_ledger/{ledger_id}` con `create()` idempotente, actualización versionada por pata, restauración de intents activos y cierre `completed` solo tras confirmación broker+Firestore; entradas siguen bloqueadas |
 | TradingAgents | Piloto aislado, commit `852a827`, `RESEARCH_ONLY`; no está en Cloud Run, no recibe credenciales, no escribe Firestore y no envía órdenes |
@@ -99,7 +99,7 @@ El service Cloud Run `polaris-bot` referencia estos secretos de Secret Manager c
 | `APCA_API_SECRET_KEY` | `alpaca-secret` (Secret Manager) | Secreto de la API de Alpaca |
 | `APCA_API_BASE_URL` | env var (valor) | `https://paper-api.alpaca.markets` — **PAPER; cambiar a `https://api.alpaca.markets` para REAL** |
 | `DEEPSEEK_API_KEY` | deepseek-api-key (Secret Manager) | Asistente IA de Telegram (modelo `deepseek-chat`, sobrescribible con `DEEPSEEK_MODEL`) |
-| `TELEGRAM_BOT_TOKEN` | **Pendiente de saneamiento:** la revisión activa fue observada con valor literal en el spec; debe migrarse a Secret Manager y rotarse | Token del bot @Raifeeer; no documentar el valor |
+| `TELEGRAM_BOT_TOKEN` | `telegram-bot-token` (Secret Manager) | Token del bot @Raifeeer; migración completada, rotación pendiente vía BotFather |
 | `TELEGRAM_CHAT_ID` | env var (valor) | Chat autorizado del dueño (1779931930) |
 | `DATA_PROVIDER` | env var (valor) | `alpaca` con fallback real a yfinance |
 | `FIRESTORE_DATABASE` | env var (valor) | `polaris` (base de datos Firestore Native) |
@@ -287,7 +287,7 @@ El directorio **`docs/skills/`** contiene la documentación exhaustiva de cada c
 | `docs/skills/datos_skill.md` | Feed yfinance/Alpaca, caché TTL por timeframe, timeouts, watchdog, decisiones deliberadas (sin TradingView) |
 | `docs/skills/infra_skill.md` | Build/deploy Cloud Run, traps de envs, deploy estático de Vercel, credenciales |
 | `docs/skills/dashboard_telegram_skill.md` | Contrato Firestore ↔ dashboard, comandos Telegram, asistente IA con fallbacks |
-| `docs/skills/estado_operativo_skill.md` | **PUNTO DE ENTRADA para agentes nuevos**: mapa del sistema, incidente Firestore resuelto (14–15 ago 2026), limpieza pendiente y plan de reanudación |
+| `docs/skills/estado_operativo_skill.md` | **PUNTO DE ENTRADA para agentes nuevos**: mapa del sistema, incidente Firestore, estado vigente del 25-ago, piloto Databento y límites de reanudación |
 
 ## 12. Cómo operar este sistema un nuevo agente
 
