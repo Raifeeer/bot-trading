@@ -8,7 +8,7 @@ Esta sección tiene prioridad sobre las descripciones históricas y los estados 
 
 | Área | Estado vigente verificado |
 |---|---|
-| Repositorio | `Raifeeer/bot-trading`, rama `main`; Cloud Run ejecuta `cbdc186`; cambios locales de canary hasta `45f89ea`, pendientes de publicar por autenticación GitHub; handoff local actualizado |
+| Repositorio | `Raifeeer/bot-trading`, rama `main`; Cloud Run ejecuta `669a164s2`; cambios locales hasta `7f23c73`, pendientes de publicar por autenticación GitHub; handoff local actualizado |
 | Cloud Run | Servicio `polaris-bot`, us-central1, proyecto `gen-lang-client-0746441136`; revisión `polaris-bot-669a164s2` con 100% del tráfico, digest `sha256:9c698deec55707b15b709ddcea69a89f5e782ee758aba7cbd13702dd704c0256`; rollback `polaris-bot-cbdc186` |
 | Broker | Alpaca **PAPER**; `broker.paper=true`; no cambiar a REAL sin confirmación explícita nueva |
 | Recursos | `minScale=1`, `maxScale=1`, CPU always-on (`cpu-throttling=false`), `POLL_SECONDS=60`; `BOT_POLL_MINUTES=5` es compatibilidad histórica y no sustituye al poll efectivo |
@@ -23,7 +23,7 @@ Esta sección tiene prioridad sobre las descripciones históricas y los estados 
 | Ledger de salidas | `8c5f1dc` usa `polaris_exit_ledger/{ledger_id}` con `create()` idempotente, actualización versionada por pata, restauración de intents activos y cierre `completed` solo tras confirmación broker+Firestore; entradas siguen bloqueadas |
 | TradingAgents | Piloto aislado, commit `852a827`, `RESEARCH_ONLY`; no está en Cloud Run, no recibe credenciales, no escribe Firestore y no envía órdenes |
 
-**Secretos verificados:** `APCA_API_KEY_ID`, `APCA_API_SECRET_KEY`, `DEEPSEEK_API_KEY` y `TELEGRAM_BOT_TOKEN` llegan desde Secret Manager en `polaris-bot-cbdc186`; `telegram-bot-token` coincide por hash con el valor que estaba embebido, por lo que se migró sin cambiar el token. La cuenta de servicio tiene `roles/secretmanager.secretAccessor` aplicado a los cuatro secretos usados. La rotación criptográfica del token Telegram queda pendiente porque requiere emitir un token nuevo desde BotFather; no se inventa ni se cambia el valor operativo sin esa intervención.
+**Secretos verificados:** `APCA_API_KEY_ID`, `APCA_API_SECRET_KEY`, `DEEPSEEK_API_KEY` y `TELEGRAM_BOT_TOKEN` llegan desde Secret Manager en `polaris-bot-669a164s2`; `telegram-bot-token` coincide por hash con el valor que estaba embebido, por lo que se migró sin cambiar el token. La cuenta de servicio tiene `roles/secretmanager.secretAccessor` aplicado a los cuatro secretos usados. La rotación criptográfica del token Telegram queda pendiente porque requiere emitir un token nuevo desde BotFather; no se inventa ni se cambia el valor operativo sin esa intervención.
 
 **Canary autorizada:** se intentó una única ejecución el `2026-08-25` durante mercado abierto para `F260828C00015000`, 1 contrato y orden límite máxima `$0.02` por acción (`$2` más comisiones). El ask observado fue `$0.04`; abortó antes de enviar, sin ID de orden, posición ni orden abierta. Firestore quedó en `aborted_entry_quote_above_limit` y la programación one-shot fue desactivada. No modificar `risk.halt_new_entries`, no activar motores ni usar spreads para repetirla sin una autorización específica con precio actualizado. **Reglas de promoción:** ninguna capa se habilita por detectar observaciones shadow. Exigir datos point-in-time, costes/slippage, walk-forward no solapado, muestra suficiente, análisis de solapamiento, pruebas de ejecución y rollback. Toda nueva promoción debe ser PAPER, limitada y reversible.
 
