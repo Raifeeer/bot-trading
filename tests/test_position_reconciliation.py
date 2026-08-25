@@ -28,6 +28,11 @@ class _HangingExecutor:
         return []
 
 
+class _FailingExecutor:
+    def positions(self):
+        raise RuntimeError("alpaca unavailable")
+
+
 TQQQ_LONG = dict(symbol="TQQQ260918C00085000", qty=10.0, avg_entry=2.32,
                  market_value=2010.0, unrealized_pl=-310.0,
                  unrealized_pl_pct=-0.1336, asset_class="us_option")
@@ -47,6 +52,21 @@ class TestPositionReconciliation(unittest.TestCase):
         with self.assertRaises(TimeoutError):
             _call_with_timeout(_HangingExecutor().positions, 0.01,
                                "test positions")
+
+    def test_position_read_failure_halts_entries_fail_closed(self):
+        state = {"positions": [], "decisions": [], "orders": []}
+        n = reconcile_positions_with_broker(_FailingExecutor(), state)
+        self.assertEqual(n, 0)
+        self.assertTrue(state["_broker_reconciliation_halt"])
+        self.assertIn("alpaca unavailable", state["broker_reconciliation_error"])
+
+    def test_position_timeout_halts_entries_fail_closed(self):
+        state = {"positions": [], "decisions": [], "orders": []}
+        with patch("bot._positions_with_timeout", side_effect=TimeoutError("stale")):
+            n = reconcile_positions_with_broker(_FakeExecutor([]), state)
+        self.assertEqual(n, 0)
+        self.assertTrue(state["_broker_reconciliation_halt"])
+        self.assertIn("stale", state["broker_reconciliation_error"])
 
     def test_reconstructs_vertical_spread_missing_from_local_state(self):
         state = {"positions": [], "decisions": [], "orders": []}

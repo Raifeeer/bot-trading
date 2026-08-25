@@ -847,11 +847,25 @@ def reconcile_positions_with_broker(executor: AlpacaExecutor, state: dict) -> in
     try:
         legs = _positions_with_timeout(executor)
     except TimeoutError as exc:
-        logger.error("Reconciliación: %s; se continúa sin reconstrucción", exc)
+        state.setdefault("unmanaged_broker_legs", [])
+        state.setdefault("unmanaged_state_positions", [])
+        state["_broker_reconciliation_halt"] = True
+        state["broker_reconciliation_error"] = str(exc)
+        logger.critical(
+            "Reconciliación: %s; se bloquean entradas hasta confirmar Alpaca", exc
+        )
         return 0
-    except Exception:  # noqa: BLE001
-        logger.exception("Reconciliación: no se pudo leer posiciones de Alpaca")
+    except Exception as exc:  # noqa: BLE001
+        state.setdefault("unmanaged_broker_legs", [])
+        state.setdefault("unmanaged_state_positions", [])
+        state["_broker_reconciliation_halt"] = True
+        state["broker_reconciliation_error"] = str(exc)
+        logger.exception(
+            "Reconciliación: no se pudo leer posiciones de Alpaca; "
+            "se bloquean entradas"
+        )
         return 0
+    state["broker_reconciliation_error"] = None
     legs = [leg for leg in legs if leg.get("asset_class") == "us_option"]
     state.setdefault("unmanaged_broker_legs", [])
     state.setdefault("unmanaged_state_positions", [])
