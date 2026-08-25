@@ -112,11 +112,11 @@ def fs_get(collection: str, document_id: str):
 
 def fs_patch(collection: str, document_id: str, data: dict, update_time: str | None = None):
     body = {"fields": fs_fields(data)}
-    params = None
+    params = [("updateMask.fieldPaths", key) for key in data]
     if update_time:
         # En Firestore REST la precondición es un query parameter del PATCH,
         # no un campo del documento.
-        params = {"currentDocument.updateTime": update_time}
+        params.append(("currentDocument.updateTime", update_time))
     return firestore_request(
         "PATCH", f"{collection}/{document_id}", params=params, body=body
     )
