@@ -443,3 +443,12 @@ El usuario autorizó explícitamente una tarea única autónoma para el 2026-08-
 Política: Alpaca PAPER únicamente; una vertical MLeg de calls de 2 patas; un contrato; débito neto máximo `$0.20` por acción; pérdida máxima de prima `$20` más comisiones; `DAY`; cancelar si entrada o salida no llena en 120 segundos. El runner debe bloquearse y registrar aborto ante cualquier fallo de revisión, Cloud Run, feed, cuenta, Firestore, cotización, posición, orden o lifecycle; no puede hacer fallback a patas individuales ni reintentar una respuesta ambigua. Si la entrada llena, enviará automáticamente el cierre MLeg y verificará cuenta plana; si no, queda `needs_review`.
 
 La tarea no es recurrente, no reutiliza la canary anterior y no modifica Cloud Run, `config/config.yaml`, `risk.halt_new_entries` ni el bot principal. Antes del disparo no existen órdenes nuevas creadas por esta autorización. El resultado se espera en `polaris_canary_runs` y en el artefacto local de la fecha, sin secretos.
+
+
+## Rotación Telegram y canary autónoma — 26 de agosto de 2026
+
+Se creó la versión 2 habilitada del secreto `telegram-bot-token` con el token proporcionado por el usuario. El valor no se guardó en GitHub, documentos ni logs. Cloud Run usa `telegram-bot-token:latest`, por lo que se creó `polaris-bot-telegramrotate2` con la misma imagen inmutable y se movió 100% del tráfico a la nueva revisión. `getMe` de Telegram respondió HTTP 200 y `ok=true`. La revisión completó un ciclo, escribió Firestore y no mostró Traceback, CRITICAL, 409 Conflict ni órdenes; equity `$96,914.08`, posiciones 0 y `new_entries_halted=True`. Persisten warnings de SIP y `^VIX` que bloquean la canary por diseño.
+
+La tarea única `SX5nHwM1VFC9LKEtbruh1Q` quedó en `runAsNewTask=true`, `runMode=full_auto`, con playbook actualizado al commit `96446b5` y revisión `polaris-bot-telegramrotate2`. Está programada para el 2026-08-27 a las 09:30 en la zona registrada `America/Santo_Domingo` (UTC-4 en la fecha programada), expira 13:45 UTC y no se repite.
+
+La autorización automática queda limitada a Alpaca PAPER, una vertical MLeg de calls de 2 patas, un contrato, débito máximo `$0.20` por acción, pérdida máxima de prima `$20` más comisiones, `DAY`, timeout de entrada/salida de 120 s, sin fallback a patas individuales, sin reintentos ambiguos y con cierre automático más verificación de cuenta plana. Si falla cualquier preflight, feed, ledger, quote, posición u orden, aborta sin enviar. No modifica Cloud Run, `config/config.yaml` ni `risk.halt_new_entries`.

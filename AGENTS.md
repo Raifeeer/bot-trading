@@ -2311,3 +2311,14 @@ Tras confirmación explícita del usuario, se creó la tarea única `Canary PAPE
 La autorización automática permite únicamente Alpaca PAPER, una vertical MLeg de calls de 2 patas, un contrato, débito neto máximo de `$0.20` por acción, pérdida máxima de prima de `$20` más comisiones y `DAY`. El runner verifica Cloud Run `polaris-bot-00118-d45` al 100%, cuenta activa, cero posiciones, cero órdenes, Firestore, salud reciente del feed y quotes válidas. Si falla cualquier guardarraíl no envía y registra el aborto. Usa client ID determinista, no reintenta respuestas ambiguas, cancela entradas/salidas no llenadas dentro de 120 segundos, marca revisiones ante fill parcial o cierre incierto y confirma cuenta plana después del cierre. No modifica Cloud Run, `config/config.yaml`, `risk.halt_new_entries` ni el bot principal.
 
 La tarea aún no se ha disparado y no se ha creado ninguna orden con esta autorización. El resultado quedará en `polaris_canary_runs` y en `/home/ubuntu/backtests/canary-auto-YYYY-MM-DD.json`, sin secretos.
+
+
+## 56. Rotación Telegram y realineación de canary — 26 de agosto de 2026
+
+El usuario proporcionó un token nuevo de Telegram. Se creó la versión 2, `ENABLED`, del secreto `telegram-bot-token` en Secret Manager sin imprimir ni guardar el valor en el repositorio. La referencia de Cloud Run ya usaba `telegram-bot-token:latest`.
+
+Se creó la revisión `polaris-bot-telegramrotate2` con la misma imagen inmutable `sha256:5da658c626ed87c16d9418397beea36b85b49eb3c3fdc46022519b22624e71d1`, se verificaron `PAPER`, `DATA_PROVIDER=alpaca`, secretos APCA/DeepSeek/Telegram, variables operativas y estado `Ready`, y se movió 100% del tráfico a esta revisión. La llamada Telegram Bot API `getMe` respondió HTTP 200 y `ok=true`, con bot ID y username presentes, sin exponer ninguno de esos valores sensibles.
+
+La ventana posterior registró un `Tick OK`, escritura Firestore y `CYCLE TIMING` de 115,243 s; no hubo `Traceback`, `CRITICAL`, `409 Conflict` ni envíos MLeg. Se mantuvieron `approved=0`, `orders=0`, `open_broker_orders=0`, `new_entries_halted=True` y posiciones 0. Persisten warnings conocidos de feed SIP y `^VIX`, por lo que la canary autónoma abortará fail-closed mientras aparezcan en la ventana reciente.
+
+La tarea única `Canary PAPER MLeg acotada Polaris` fue actualizada al commit `96446b5`, revisión esperada `polaris-bot-telegramrotate2`, `runAsNewTask=true` y `runMode=full_auto`. Sigue activa para el 2026-08-27 a las 09:30 en la zona registrada `America/Santo_Domingo` (UTC-4 en la fecha programada), con expiración 13:45 UTC. La política no cambia: una vertical MLeg de calls, 1 contrato, débito máximo `$0.20` por acción, pérdida máxima `$20` más comisiones, `DAY`, timeout de 120 s, cierre automático y revisión ante cualquier ambigüedad. El bot principal continúa con `risk.halt_new_entries=true`; la canary no reutiliza la anterior.
