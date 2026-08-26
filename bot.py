@@ -14,6 +14,7 @@ Uso:
   APCA_API_KEY_ID=... APCA_API_SECRET_KEY=... python bot.py [--dry-run]
 """
 import argparse
+import hashlib
 import json
 import logging
 import os
@@ -143,6 +144,9 @@ try:
                                       read_last_equity,
                                       read_challenge_armed,
                                       read_exit_ledger,
+                                      read_active_entry_ledger,
+                                      claim_entry_intent,
+                                      update_entry_intent,
                                       claim_exit_intent,
                                       update_exit_intent,
                                       complete_exit_intent)
@@ -150,6 +154,15 @@ try:
 except Exception:  # noqa: BLE001
     logger.exception("Firestore NO disponible (import de state.firestore_state falló)")
     FIRESTORE_ENABLED = False
+
+    def read_active_entry_ledger(*args, **kwargs):
+        return None
+
+    def claim_entry_intent(*args, **kwargs):
+        return {"claimed": False, "unavailable": True}
+
+    def update_entry_intent(*args, **kwargs):
+        return False
 
     def claim_exit_intent(*args, **kwargs):
         return {"claimed": False, "unavailable": True}
@@ -698,6 +711,7 @@ def load_state() -> dict:
     state.setdefault("decisions", [])
     state.setdefault("orders", [])
     state.setdefault("exit_intents", {})
+    state.setdefault("entry_intents", {})
     state.setdefault("exit_history", [])
     state.setdefault("open_broker_orders", [])
     state.setdefault("_broker_reconciliation_halt", False)
@@ -782,6 +796,36 @@ def _restore_persistent_exit_ledger(state: dict) -> bool:
     return bool(restored or history_added or ledger.get("source_day"))
 
 
+def _restore_persistent_entry_ledger(state: dict) -> bool:
+    """Restaura entradas activas antes de consultar/gestionar posiciones."""
+    if not FIRESTORE_ENABLED:
+        state["_broker_reconciliation_halt"] = True
+        return False
+    try:
+        ledger = read_active_entry_ledger()
+    except Exception:  # noqa: BLE001
+        logger.exception("BOOT: no se pudo leer entry ledger persistente")
+        state["_broker_reconciliation_halt"] = True
+        return False
+    if ledger is None:
+        state["_broker_reconciliation_halt"] = True
+        logger.critical(
+            "BOOT: entry ledger no disponible; se bloquean entradas hasta "
+            "reconciliación manual")
+        return False
+    local_intents = state.setdefault("entry_intents", {})
+    restored = 0
+    for client_id, intent in ledger.items():
+        if client_id not in local_intents and isinstance(intent, dict):
+            local_intents[str(client_id)] = intent
+            restored += 1
+    if ledger:
+        state["_broker_reconciliation_halt"] = True
+    logger.info("BOOT: entry ledger restaurado intents_activos=%d nuevos=%d",
+                len(ledger), restored)
+    return True
+
+
 def _position_key(pos: dict) -> str:
     symbols = sorted(
         str(spec.get("symbol"))
@@ -804,6 +848,40 @@ def _position_leg_symbols(pos: dict) -> set[str]:
     }
 
 
+def _order_symbols(order: dict) -> set[str]:
+    """Devuelve símbolos de una orden simple o de un padre MLeg."""
+    symbols = {
+        str(symbol) for symbol in (order.get("symbols") or []) if symbol
+    }
+    if order.get("symbol"):
+        symbols.add(str(order["symbol"]))
+    for leg in order.get("legs") or []:
+        if isinstance(leg, dict) and leg.get("symbol"):
+            symbols.add(str(leg["symbol"]))
+    return symbols
+
+
+def _execution_client_order_id(kind: str, identity: str) -> str:
+    """Identidad estable y opaca para idempotencia en Alpaca."""
+    digest = hashlib.sha256(str(identity).encode("utf-8")).hexdigest()[:40]
+    return f"polaris-{kind}-{digest}"
+
+
+def _claim_entry_for_execution(executor: AlpacaExecutor,
+                               client_order_id: str, intent: dict) -> dict:
+    """Claim persistente obligatorio en PAPER; dry-run no toca Firestore."""
+    if executor.dry_run:
+        return {"claimed": True, "ledger_id": None, "record": intent}
+    return claim_entry_intent(client_order_id, intent)
+
+
+def _update_entry_for_execution(executor: AlpacaExecutor, ledger_id: str,
+                                updates: dict) -> bool:
+    if executor.dry_run:
+        return True
+    return update_entry_intent(ledger_id, updates)
+
+
 def _exit_statuses_need_review(statuses: list[dict]) -> bool:
     """Indica si los estados consultados requieren revisión manual.
 
@@ -820,15 +898,157 @@ def _exit_statuses_need_review(statuses: list[dict]) -> bool:
     }
     if not normalized:
         return True
-    terminal_failed = {"canceled", "rejected", "expired", "replaced"}
-    filled = {"filled", "partially_filled"}
-    return normalized.issubset(terminal_failed) or bool(normalized & filled and normalized & terminal_failed)
+    # Para un padre MLeg, solo `filled` demuestra que la unidad combinada
+    # terminó completamente. `accepted`, `new`, `partially_filled`, `canceled`,
+    # lookup_error y cualquier estado desconocido requieren revisión: no se
+    # permite asumir que las patas desaparecieron ni reintentar automáticamente.
+    return normalized != {"filled"}
 
 
 def _entry_halt(cfg: dict, state: dict) -> bool:
     risk_cfg = cfg.get("risk", {}) or {}
     return bool(risk_cfg.get("halt_new_entries", False)
                 or state.get("_broker_reconciliation_halt"))
+
+
+_ENTRY_INTENT_ACTIVE_STATUSES = {
+    "submitting", "submitted", "partial_fill", "submission_unknown",
+    "needs_review",
+}
+_ENTRY_INTENT_FAILED_STATUSES = {
+    "canceled", "rejected", "expired", "replaced", "failed",
+}
+
+
+def _entry_intent_symbols(intent: dict) -> set[str]:
+    return {
+        str(spec.get("symbol"))
+        for spec in (intent.get("specs") or [])
+        if isinstance(spec, dict) and spec.get("symbol")
+    }
+
+
+def _position_matches_entry_intent(position: dict, intent: dict) -> bool:
+    """Compara símbolos, polaridad y cantidad firmada de cada pata."""
+    expected = {}
+    for spec in intent.get("specs") or []:
+        if not isinstance(spec, dict) or not spec.get("symbol"):
+            continue
+        sign = 1.0 if str(spec.get("side", "")).lower() == "buy" else -1.0
+        expected[str(spec["symbol"])] = expected.get(str(spec["symbol"]), 0.0) + sign * abs(float(spec.get("qty", 0)))
+    actual = {}
+    for spec in position.get("legs") or []:
+        if not isinstance(spec, dict) or not spec.get("symbol"):
+            continue
+        sign = 1.0 if str(spec.get("side", "")).lower() == "buy" else -1.0
+        actual[str(spec["symbol"])] = actual.get(str(spec["symbol"]), 0.0) + sign * abs(float(spec.get("qty", 0)))
+    return bool(expected) and expected == actual
+
+
+def _reconcile_entry_intents(executor: AlpacaExecutor, state: dict,
+                             open_orders: list[dict]) -> None:
+    """Concilia el padre MLeg de cada entrada sin reintentar órdenes.
+
+    Una entrada solo pasa a ``filled`` cuando existe una posición que coincide
+    con todas sus patas y ya no queda una orden abierta. Una orden terminal
+    fallida o una consulta ambigua queda en ``needs_review`` y mantiene el halt.
+    """
+    entry_intents = state.setdefault("entry_intents", {})
+    positions = state.get("positions", [])
+    for client_id, intent in entry_intents.items():
+        if not isinstance(intent, dict):
+            continue
+        status = str(intent.get("status", "")).lower()
+        if status not in _ENTRY_INTENT_ACTIVE_STATUSES:
+            continue
+        intent_symbols = _entry_intent_symbols(intent)
+        order_id = str(intent.get("order_id", "") or "")
+        open_match = any(
+            str(order.get("client_order_id", "")) == str(client_id)
+            or (order_id and str(order.get("id", "")) == order_id)
+            or bool(intent_symbols.intersection(_order_symbols(order)))
+            for order in open_orders
+        )
+        position_match = any(
+            intent_symbols
+            and intent_symbols == _position_leg_symbols(position)
+            and _position_matches_entry_intent(position, intent)
+            for position in positions
+        )
+        if open_match:
+            continue
+        if position_match:
+            reconciled_ts = datetime.utcnow().isoformat()
+            persisted = _update_entry_for_execution(
+                executor, intent.get("ledger_id"), {
+                    "status": "filled",
+                    "reconciled_ts": reconciled_ts,
+                })
+            if not persisted:
+                intent.update({
+                    "status": "needs_review",
+                    "last_error": "entry_ledger_fill_update_failed",
+                    "last_checked_ts": reconciled_ts,
+                })
+                state["_broker_reconciliation_halt"] = True
+                continue
+            intent.update({"status": "filled", "reconciled_ts": reconciled_ts})
+            continue
+        if order_id and not executor.dry_run:
+            statuses = executor.order_statuses([order_id])
+            normalized = {
+                str(item.get("status", "")).lower()
+                for item in statuses if isinstance(item, dict)
+            }
+            if normalized & _ENTRY_INTENT_FAILED_STATUSES:
+                checked_ts = datetime.utcnow().isoformat()
+                intent.update({
+                    "status": "needs_review",
+                    "last_error": "entry_order_terminal_without_position",
+                    "last_checked_ts": checked_ts,
+                })
+                _update_entry_for_execution(
+                    executor, intent.get("ledger_id"), {
+                        "status": "needs_review",
+                        "last_error": intent["last_error"],
+                        "last_checked_ts": checked_ts,
+                    })
+            elif not normalized or "lookup_error" in normalized:
+                checked_ts = datetime.utcnow().isoformat()
+                intent.update({
+                    "status": "needs_review",
+                    "last_error": "entry_order_status_unavailable",
+                    "last_checked_ts": checked_ts,
+                })
+                _update_entry_for_execution(
+                    executor, intent.get("ledger_id"), {
+                        "status": "needs_review",
+                        "last_error": intent["last_error"],
+                        "last_checked_ts": checked_ts,
+                    })
+            # `filled` without visible positions remains submitted: wait for
+            # the broker position snapshot instead of declaring success.
+    still_active = any(
+        isinstance(intent, dict)
+        and str(intent.get("status", "")).lower()
+        in _ENTRY_INTENT_ACTIVE_STATUSES
+        for intent in entry_intents.values()
+    )
+    if still_active:
+        state["_broker_reconciliation_halt"] = True
+    elif (
+        not open_orders
+        and not state.get("unmanaged_broker_legs")
+        and not state.get("unmanaged_state_positions")
+        and not any(
+            isinstance(intent, dict)
+            and str(intent.get("status", "")).lower()
+            in {"submitting", "submitted", "partial_submission", "partial_fill",
+                "submission_unknown", "needs_review"}
+            for intent in state.get("exit_intents", {}).values()
+        )
+    ):
+        state["_broker_reconciliation_halt"] = False
 
 
 def reconcile_positions_with_broker(executor: AlpacaExecutor, state: dict) -> int:
@@ -875,7 +1095,8 @@ def reconcile_positions_with_broker(executor: AlpacaExecutor, state: dict) -> in
     active_intents = any(
         isinstance(intent, dict)
         and str(intent.get("status", "")).lower()
-        in {"submitting", "submitted", "partial_submission", "needs_review"}
+        in {"submitting", "submitted", "partial_submission", "partial_fill",
+            "submission_unknown", "needs_review"}
         for intent in exit_intents.values()
     )
     state["_broker_reconciliation_halt"] = active_intents
@@ -960,7 +1181,8 @@ def reconcile_positions_with_broker(executor: AlpacaExecutor, state: dict) -> in
     remaining_active_intents = any(
         isinstance(intent, dict)
         and str(intent.get("status", "")).lower()
-        in {"submitting", "submitted", "partial_submission", "needs_review"}
+        in {"submitting", "submitted", "partial_submission", "partial_fill",
+            "submission_unknown", "needs_review"}
         for intent in exit_intents.values()
     )
     if not unknown:
@@ -1175,8 +1397,8 @@ def _option_order_specs(structure, cfg, closing=False, contracts: int = 1):
     """Prepara órdenes por pata con una cotización válida y precio límite.
 
     Alpaca no acepta limit orders de opciones a 0.0. Se prevalidan todas las
-    patas antes de enviar la primera para no dejar un spread parcialmente
-    ejecutado por una cotización ausente.
+    patas antes de construir la orden MLeg para no enviar una estructura con
+    cotización ausente o precio ambiguo.
     """
     execution = cfg.get("execution", {}) or {}
     order_type = execution.get("order_type", "limit")
@@ -1485,6 +1707,7 @@ def main():
     logger.info("BOOT: local state loaded")
     if FIRESTORE_ENABLED:
         _restore_persistent_exit_ledger(state)
+        _restore_persistent_entry_ledger(state)
         save_state(state)
     if FIRESTORE_ENABLED and ("_floor_below" not in state
                               or "_challenge_armed" not in state):
@@ -1523,6 +1746,7 @@ def main():
             boot_open_orders = _call_with_timeout(
                 executor.open_orders, 30.0, "Alpaca boot open orders")
             state["open_broker_orders"] = boot_open_orders
+            _reconcile_entry_intents(executor, state, boot_open_orders)
             if boot_open_orders:
                 state["_broker_reconciliation_halt"] = True
                 logger.critical(
@@ -1599,6 +1823,7 @@ def main():
                     open_orders = _call_with_timeout(
                         executor.open_orders, 30.0, "Alpaca open orders")
                     state["open_broker_orders"] = open_orders
+                    _reconcile_entry_intents(executor, state, open_orders)
                     if open_orders:
                         state["_broker_reconciliation_halt"] = True
                         logger.critical(
@@ -1814,31 +2039,113 @@ def main():
                                     abs(st.net_premium) * n_contratos,
                                     sizing["target_premium"],
                                     recovery_risk_budget(equity, cfg))
-                            # Validar TODAS las cotizaciones antes de enviar la
-                            # primera pata; evita spreads parciales y precios 0.
+                            # Validar TODAS las cotizaciones antes de enviar.
+                            # El executor convierte las patas en una sola orden
+                            # MLeg; nunca se hace fallback secuencial.
                             order_specs = _option_order_specs(
                                 st, cfg, contracts=n_contratos)
-                            submitted = []
-                            for spec in order_specs:
-                                submitted.append(executor.submit_option_order(
-                                    spec["symbol"], spec["side"], spec["qty"],
-                                    order_type=spec["order_type"],
-                                    limit_price=spec["limit_price"]))
-                            signal_stats["orders"] += len(submitted)
-                            strat_diag["reasons"]["orders_submitted"] = strat_diag["reasons"].get("orders_submitted", 0) + len(submitted)
-                            sym_diag["reasons"]["orders_submitted"] = sym_diag["reasons"].get("orders_submitted", 0) + len(submitted)
+                            entry_ts = datetime.utcnow().isoformat()
+                            entry_identity = repr((
+                                entry_context, sym, sname, st.name,
+                                [(s["symbol"], s["side"], s["qty"],
+                                  s.get("limit_price")) for s in order_specs],
+                            ))
+                            client_order_id = _execution_client_order_id(
+                                "entry", entry_identity)
+                            entry_intent = {
+                                "status": "submitting",
+                                "client_order_id": client_order_id,
+                                "created_ts": entry_ts,
+                                "symbol": sym,
+                                "strategy": sname,
+                                "structure": st.name,
+                                "specs": order_specs,
+                            }
+                            state.setdefault("entry_intents", {})[client_order_id] = entry_intent
+                            claim = _claim_entry_for_execution(
+                                executor, client_order_id, entry_intent)
+                            if not claim.get("claimed"):
+                                entry_intent.update({
+                                    "status": "needs_review",
+                                    "last_error": "entry_ledger_claim_failed",
+                                })
+                                state["_broker_reconciliation_halt"] = True
+                                save_state(state)
+                                logger.critical(
+                                    "Entrada MLeg %s no reclamada en ledger; "
+                                    "no se envía", sym)
+                                strat.reset()
+                                continue
+                            entry_intent["ledger_id"] = claim.get("ledger_id")
+                            save_state(state)
+                            try:
+                                submitted = executor.submit_spread(
+                                    order_specs,
+                                    time_in_force=(cfg.get("execution", {}) or {}).get(
+                                        "default_time_in_force", "day"),
+                                    order_type=order_specs[0].get("order_type"),
+                                    client_order_id=client_order_id,
+                                )
+                                if not executor.dry_run and not submitted.get("id"):
+                                    raise ExecutionError(
+                                        "Alpaca no devolvió ID para la orden MLeg de entrada")
+                                entry_intent.update({
+                                    "status": "submitted",
+                                    "order_id": submitted.get("id"),
+                                    "submitted_ts": datetime.utcnow().isoformat(),
+                                })
+                                persisted = _update_entry_for_execution(
+                                    executor, entry_intent.get("ledger_id"), {
+                                        "status": "submitted",
+                                        "order_id": submitted.get("id"),
+                                        "close_orders": [],
+                                        "submitted_ts": entry_intent["submitted_ts"],
+                                    })
+                                if not persisted:
+                                    raise ExecutionError(
+                                        "Entry ledger no confirmó la orden MLeg")
+                            except Exception as exc:  # noqa: BLE001
+                                entry_intent.update({
+                                    "status": "submission_unknown",
+                                    "last_error": str(exc),
+                                    "last_error_ts": datetime.utcnow().isoformat(),
+                                })
+                                state["_broker_reconciliation_halt"] = True
+                                state["decisions"].append({
+                                    "ts": datetime.utcnow().isoformat(),
+                                    "action": "ENTRY_SUBMISSION_REVIEW",
+                                    "symbol": sym,
+                                    "strategy": sname,
+                                    "client_order_id": client_order_id,
+                                    "reason": str(exc),
+                                })
+                                logger.critical(
+                                    "Entrada MLeg %s en estado desconocido; "
+                                    "no se reintenta automáticamente: %s",
+                                    sym, exc)
+                                strat.reset()
+                                save_state(state)
+                                continue
+                            signal_stats["orders"] += 1
+                            signal_stats["order_legs"] = signal_stats.get("order_legs", 0) + len(order_specs)
+                            strat_diag["reasons"]["orders_submitted"] = strat_diag["reasons"].get("orders_submitted", 0) + 1
+                            sym_diag["reasons"]["orders_submitted"] = sym_diag["reasons"].get("orders_submitted", 0) + 1
                             state["positions"].append({
                                 "symbol": sym, "strategy": sname,
                                 "structure": st.name,
                                 "net_premium": st.net_premium,
                                 "max_risk": st.max_risk,
                                 "legs": order_specs,
-                                "entry_orders": submitted,
-                                "entry_ts": datetime.utcnow().isoformat(),
+                                "entry_orders": [submitted],
+                                "entry_ts": entry_ts,
+                                "entry_client_order_id": client_order_id,
                             })
+                            # El padre puede tardar en llenar; el siguiente
+                            # ciclo debe reconciliarlo antes de otra entrada.
+                            state["_broker_reconciliation_halt"] = True
                             state["decisions"].append(dict(
                                 ts=datetime.utcnow().isoformat(), **vars(dec)))
-                            logger.info("POSICIÓN ABIERTA %s %s %s prima=%.2f",
+                            logger.info("POSICIÓN MLeg enviada %s %s %s prima=%.2f",
                                         sym, sname, st.name, st.net_premium)
                             try:
                                 notify_position_open(sym, sname, st.name,
@@ -2065,11 +2372,62 @@ def main():
                         signal_stats["approved"] += 1
                         order_specs = _option_order_specs(
                             st, cfg, contracts=n_contratos)
-                        submitted = [executor.submit_option_order(
-                            s["symbol"], s["side"], s["qty"],
-                            order_type=s["order_type"],
-                            limit_price=s["limit_price"]) for s in order_specs]
-                        signal_stats["orders"] += len(submitted)
+                        entry_ts = datetime.utcnow().isoformat()
+                        entry_identity = repr((
+                            "bear", sym, strategy_name, st.name,
+                            [(s["symbol"], s["side"], s["qty"],
+                              s.get("limit_price")) for s in order_specs],
+                        ))
+                        client_order_id = _execution_client_order_id(
+                            "entry", entry_identity)
+                        entry_intent = {
+                            "status": "submitting",
+                            "client_order_id": client_order_id,
+                            "created_ts": entry_ts,
+                            "symbol": sym,
+                            "strategy": strategy_name,
+                            "structure": st.name,
+                            "specs": order_specs,
+                        }
+                        state.setdefault("entry_intents", {})[client_order_id] = entry_intent
+                        save_state(state)
+                        try:
+                            submitted = executor.submit_spread(
+                                order_specs,
+                                time_in_force=(cfg.get("execution", {}) or {}).get(
+                                    "default_time_in_force", "day"),
+                                order_type=order_specs[0].get("order_type"),
+                                client_order_id=client_order_id,
+                            )
+                            if not executor.dry_run and not submitted.get("id"):
+                                raise ExecutionError(
+                                    "Alpaca no devolvió ID para la orden MLeg bajista")
+                            entry_intent.update({
+                                "status": "submitted",
+                                "order_id": submitted.get("id"),
+                                "submitted_ts": datetime.utcnow().isoformat(),
+                            })
+                        except Exception as exc:  # noqa: BLE001
+                            entry_intent.update({
+                                "status": "submission_unknown",
+                                "last_error": str(exc),
+                                "last_error_ts": datetime.utcnow().isoformat(),
+                            })
+                            state["_broker_reconciliation_halt"] = True
+                            state["decisions"].append({
+                                "ts": datetime.utcnow().isoformat(),
+                                "action": "ENTRY_SUBMISSION_REVIEW",
+                                "symbol": sym,
+                                "strategy": strategy_name,
+                                "client_order_id": client_order_id,
+                                "reason": str(exc),
+                            })
+                            logger.critical(
+                                "Entrada MLeg bajista %s en estado desconocido; "
+                                "no se reintenta automáticamente: %s", sym, exc)
+                            continue
+                        signal_stats["orders"] += 1
+                        signal_stats["order_legs"] = signal_stats.get("order_legs", 0) + len(order_specs)
                         state["positions"].append({
                             "symbol": sym, "strategy": strategy_name,
                             "kind": "put",
@@ -2077,11 +2435,13 @@ def main():
                             "net_premium": st.net_premium,
                             "max_risk": st.max_risk,
                             "legs": order_specs,
-                            "entry_orders": submitted,
-                            "entry_ts": datetime.utcnow().isoformat(),
+                            "entry_orders": [submitted],
+                            "entry_ts": entry_ts,
+                            "entry_client_order_id": client_order_id,
                         })
+                        state["_broker_reconciliation_halt"] = True
                         logger.warning(
-                            "PUT SPREAD ABIERTO %s %s prima/contrato=%.2f "
+                            "PUT SPREAD MLeg enviado %s %s prima/contrato=%.2f "
                             "contratos=%d prima_total=%.2f (régimen %s)",
                             sym, st.name, prima_uno, n_contratos, prima_total,
                             regime.get("regime"))
@@ -2108,9 +2468,10 @@ def main():
                 intent = exit_intents.get(position_key)
                 if intent:
                     order_ids = [str(order_id) for order_id in intent.get("order_ids", [])]
+                    position_symbols = _position_leg_symbols(p)
                     related_open = [
                         order for order in open_orders
-                        if order.get("symbol") in _position_leg_symbols(p)
+                        if _order_symbols(order).intersection(position_symbols)
                     ]
                     if related_open:
                         logger.info(
@@ -2144,7 +2505,7 @@ def main():
                     symbols = {spec["symbol"] for spec in close_specs}
                     existing = [
                         order for order in open_orders
-                        if order.get("symbol") in symbols
+                        if _order_symbols(order).intersection(symbols)
                     ]
                     if existing:
                         state["_broker_reconciliation_halt"] = True
@@ -2166,11 +2527,20 @@ def main():
                     # pata. Si Firestore no responde, no se envía ninguna orden.
                     claim = claim_exit_intent(position_key, intent)
                     if not claim.get("claimed"):
-                        intent["status"] = "needs_review"
-                        intent["last_error"] = (
-                            "exit_ledger_claim_unavailable_or_already_claimed")
-                        intent["ledger_id"] = claim.get("ledger_id")
-                        exit_intents[position_key] = intent
+                        existing_record = claim.get("record")
+                        if isinstance(existing_record, dict) and existing_record:
+                            # Otro proceso ya reclamó este lifecycle. Conservar
+                            # su identidad y order_ids; jamás reemplazarla por
+                            # un intent nuevo que pierda la trazabilidad.
+                            existing_record = dict(existing_record)
+                            existing_record.setdefault("ledger_id", claim.get("ledger_id"))
+                            exit_intents[position_key] = existing_record
+                        else:
+                            intent["status"] = "needs_review"
+                            intent["last_error"] = (
+                                "exit_ledger_claim_unavailable_or_already_claimed")
+                            intent["ledger_id"] = claim.get("ledger_id")
+                            exit_intents[position_key] = intent
                         state["_broker_reconciliation_halt"] = True
                         save_state(state)
                         logger.critical(
@@ -2180,73 +2550,83 @@ def main():
                     intent["ledger_id"] = claim["ledger_id"]
                     exit_intents[position_key] = intent
                     save_state(state)
-                    submitted = []
+                    submitted = None
                     try:
-                        for spec in close_specs:
-                            submitted.append(executor.submit_option_order(
-                                spec["symbol"], spec["side"], spec["qty"],
-                                order_type=spec["order_type"],
-                                limit_price=spec["limit_price"]))
-                            intent["order_ids"] = [
-                                str(order.get("id"))
-                                for order in submitted
-                                if order.get("id")
-                            ]
-                            intent["status"] = "submitted"
-                            intent["submitted_ts"] = datetime.utcnow().isoformat()
-                            intent["close_orders"] = submitted
-                            persisted = update_exit_intent(
-                                intent["ledger_id"], {
-                                    "status": intent["status"],
-                                    "order_ids": intent["order_ids"],
-                                    "close_orders": submitted,
-                                    "submitted_ts": intent["submitted_ts"],
-                                })
-                            state["decisions"].append({
-                                "ts": datetime.utcnow().isoformat(),
-                                "position": p,
-                                "exit_reason": reason,
-                                "signal_type": sig_type,
-                                "close_legs": submitted,
-                                "action": "EXIT_SUBMITTED",
-                                "position_key": position_key,
+                        close_client_order_id = _execution_client_order_id(
+                            "exit", position_key)
+                        intent["client_order_id"] = close_client_order_id
+                        submitted = executor.submit_spread(
+                            close_specs,
+                            time_in_force=(cfg.get("execution", {}) or {}).get(
+                                "default_time_in_force", "day"),
+                            order_type=close_specs[0].get("order_type"),
+                            client_order_id=close_client_order_id,
+                            closing=True,
+                        )
+                        if not executor.dry_run and not submitted.get("id"):
+                            raise ExecutionError(
+                                "Alpaca no devolvió ID para la orden MLeg de salida")
+                        intent["order_ids"] = [submitted.get("id")] if submitted.get("id") else []
+                        intent["status"] = "submitted"
+                        intent["submitted_ts"] = datetime.utcnow().isoformat()
+                        intent["close_orders"] = [submitted]
+                        persisted = update_exit_intent(
+                            intent["ledger_id"], {
+                                "status": intent["status"],
+                                "order_ids": intent["order_ids"],
+                                "close_orders": intent["close_orders"],
+                                "client_order_id": close_client_order_id,
+                                "submitted_ts": intent["submitted_ts"],
                             })
-                            if not persisted:
-                                intent["status"] = "needs_review"
-                                intent["last_error"] = (
-                                    "exit_ledger_update_failed_after_order")
-                                state["_broker_reconciliation_halt"] = True
-                                save_state(state)
-                                logger.critical(
-                                    "Salida %s enviada pero no persistida tras una "
-                                    "pata; no se reintenta", p.get("symbol"))
-                                break
-                            logger.warning(
-                                "Salida enviada %s (%s); esperando reconciliación "
-                                "de fills antes de retirar la posición",
-                                p.get("symbol"), reason)
+                        state["decisions"].append({
+                            "ts": datetime.utcnow().isoformat(),
+                            "position": p,
+                            "exit_reason": reason,
+                            "signal_type": sig_type,
+                            "close_orders": [submitted],
+                            "action": "EXIT_SUBMITTED",
+                            "position_key": position_key,
+                        })
+                        if not persisted:
+                            intent["status"] = "needs_review"
+                            intent["last_error"] = (
+                                "exit_ledger_update_failed_after_order")
+                            state["_broker_reconciliation_halt"] = True
                             save_state(state)
-                    except Exception:
-                        intent["status"] = "partial_submission"
+                            logger.critical(
+                                "Salida MLeg %s enviada pero no persistida; "
+                                "no se reintenta", p.get("symbol"))
+                            continue
+                        logger.warning(
+                            "Salida MLeg enviada %s (%s); esperando reconciliación "
+                            "de fills antes de retirar la posición",
+                            p.get("symbol"), reason)
+                        save_state(state)
+                    except Exception as exc:  # noqa: BLE001
+                        # Tras cualquier excepción de submit, la respuesta del
+                        # broker puede ser desconocida. Nunca se envía una pata
+                        # suelta ni se reintenta; reconciliación/manual review
+                        # decide el siguiente paso.
+                        intent["status"] = "submission_unknown"
+                        intent["last_error"] = str(exc)
                         intent["last_error_ts"] = datetime.utcnow().isoformat()
-                        intent["close_orders"] = submitted
-                        intent["order_ids"] = [
-                            str(order.get("id"))
-                            for order in submitted
-                            if order.get("id")
-                        ]
+                        intent["close_orders"] = [submitted] if submitted else []
+                        intent["order_ids"] = [submitted.get("id")] if (
+                            submitted and submitted.get("id")) else []
                         state["_broker_reconciliation_halt"] = True
                         update_exit_intent(
                             intent.get("ledger_id"), {
                                 "status": intent["status"],
                                 "order_ids": intent["order_ids"],
-                                "close_orders": submitted,
+                                "close_orders": intent["close_orders"],
+                                "last_error": intent["last_error"],
                                 "last_error_ts": intent["last_error_ts"],
                             })
                         save_state(state)
                         logger.exception(
-                            "Salida parcial para %s; nuevas entradas y reintentos "
-                            "bloqueados hasta conciliación", p.get("symbol"))
+                            "Salida MLeg %s en estado desconocido; nuevas entradas "
+                            "y reintentos bloqueados hasta conciliación",
+                            p.get("symbol"))
                 except Exception as e:  # noqa: BLE001
                     state["_broker_reconciliation_halt"] = True
                     logger.exception("Error gestionando posición %s: %s",
@@ -2284,6 +2664,7 @@ def main():
                         "alpaca_positions": enriched_positions,
                         "orders_executed": executor.order_log[-50:] if not executor.dry_run else [],
                         "open_broker_orders": state.get("open_broker_orders", []),
+                        "entry_intents": state.get("entry_intents", {}),
                         "exit_intents": state.get("exit_intents", {}),
                         "exit_history": state.get("exit_history", [])[-50:],
                         "unmanaged_broker_legs": state.get("unmanaged_broker_legs", []),
@@ -2337,6 +2718,7 @@ def main():
                      "positions": state["positions"],
                      "alpaca_positions": enriched_positions,
                      "open_broker_orders": state.get("open_broker_orders", []),
+                     "entry_intents": state.get("entry_intents", {}),
                      "exit_intents": state.get("exit_intents", {}),
                      "exit_history": state.get("exit_history", [])[-50:],
                      "unmanaged_broker_legs": state.get("unmanaged_broker_legs", []),

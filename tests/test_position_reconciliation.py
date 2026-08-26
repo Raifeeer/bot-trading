@@ -8,6 +8,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from bot import (
     _call_with_timeout,
     _exit_statuses_need_review,
+    _reconcile_entry_intents,
+    _restore_persistent_entry_ledger,
     _restore_persistent_exit_ledger,
     reconcile_positions_with_broker,
 )
@@ -31,6 +33,16 @@ class _HangingExecutor:
 class _FailingExecutor:
     def positions(self):
         raise RuntimeError("alpaca unavailable")
+
+
+class _EntryIntentExecutor:
+    dry_run = False
+
+    def __init__(self, statuses=None):
+        self.statuses = statuses or []
+
+    def order_statuses(self, order_ids):
+        return self.statuses
 
 
 TQQQ_LONG = dict(symbol="TQQQ260918C00085000", qty=10.0, avg_entry=2.32,
@@ -312,6 +324,88 @@ class TestPositionReconciliation(unittest.TestCase):
         n = reconcile_positions_with_broker(executor, state)
 
         self.assertEqual(n, 0)
+
+    def test_entry_ledger_is_restored_and_halts_on_boot(self):
+        state = {"entry_intents": {}, "_broker_reconciliation_halt": False}
+        active = {
+            "client-entry-boot": {
+                "status": "submitted",
+                "client_order_id": "client-entry-boot",
+                "order_id": "parent-boot",
+                "specs": [{"symbol": "TQQQ260918C00085000"}],
+            }
+        }
+        with patch("bot.FIRESTORE_ENABLED", True), patch(
+            "bot.read_active_entry_ledger", return_value=active
+        ):
+            self.assertTrue(_restore_persistent_entry_ledger(state))
+
+        self.assertIn("client-entry-boot", state["entry_intents"])
+        self.assertTrue(state["_broker_reconciliation_halt"])
+
+    def test_entry_intent_with_open_mleg_remains_submitted_and_halted(self):
+        client_id = "client-entry-1"
+        state = {
+            "positions": [], "entry_intents": {client_id: {
+                "status": "submitted", "order_id": "parent-1",
+                "specs": [
+                    {"symbol": "TQQQ260918C00085000"},
+                    {"symbol": "TQQQ260918C00100000"},
+                ],
+            }},
+            "_broker_reconciliation_halt": False,
+        }
+        open_orders = [{
+            "id": "parent-1", "client_order_id": client_id,
+            "symbol": "", "symbols": [
+                "TQQQ260918C00085000", "TQQQ260918C00100000"
+            ], "legs": [],
+        }]
+
+        _reconcile_entry_intents(
+            _EntryIntentExecutor(), state, open_orders)
+
+        self.assertEqual(state["entry_intents"][client_id]["status"], "submitted")
+        self.assertTrue(state["_broker_reconciliation_halt"])
+
+    def test_entry_intent_is_filled_only_after_matching_position(self):
+        client_id = "client-entry-2"
+        specs = [
+            {"symbol": "TQQQ260918C00085000", "side": "buy", "qty": 1},
+            {"symbol": "TQQQ260918C00100000", "side": "sell", "qty": 1},
+        ]
+        state = {
+            "positions": [{"legs": specs}],
+            "entry_intents": {client_id: {
+                "status": "submitted", "order_id": "parent-2",
+                "ledger_id": "entry-ledger-2", "specs": specs,
+            }},
+            "_broker_reconciliation_halt": True,
+            "unmanaged_broker_legs": [], "unmanaged_state_positions": [],
+            "exit_intents": {},
+        }
+
+        with patch("bot._update_entry_for_execution", return_value=True):
+            _reconcile_entry_intents(_EntryIntentExecutor(), state, [])
+
+        self.assertEqual(state["entry_intents"][client_id]["status"], "filled")
+        self.assertFalse(state["_broker_reconciliation_halt"])
+
+    def test_entry_intent_rejected_without_position_requires_review(self):
+        client_id = "client-entry-3"
+        state = {
+            "positions": [], "entry_intents": {client_id: {
+                "status": "submitted", "order_id": "parent-3",
+                "specs": [{"symbol": "TQQQ260918C00085000"}],
+            }}, "_broker_reconciliation_halt": False,
+        }
+
+        _reconcile_entry_intents(
+            _EntryIntentExecutor([{"id": "parent-3", "status": "rejected"}]),
+            state, [])
+
+        self.assertEqual(state["entry_intents"][client_id]["status"], "needs_review")
+        self.assertTrue(state["_broker_reconciliation_halt"])
 
 
 if __name__ == "__main__":

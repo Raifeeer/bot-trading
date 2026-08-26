@@ -392,3 +392,16 @@ El adaptador opcional `research/options_oos_databento.py`, el piloto `scripts/ru
 La auditoría de credenciales no encontró `DATABENTO_API_KEY`, conector Databento ni SDK instalado en esta sandbox. Por eso el piloto real no se ejecutó y no se inventaron datos. Se validó en modo bloqueado; la suite completa quedó en `215 passed`, 1 skipped, 2 xfailed y 8 subtests, con Ruff F/B/E9 limpio. El commit de esta incorporación y el handoff se publicará solo después de la comprobación final del diff.
 
 Mientras no exista una key autorizada y el data gate pase sobre una muestra real de los siete símbolos, todas las estrategias nuevas permanecen `RESEARCH_ONLY`, no se habilitan spreads y `risk.halt_new_entries=true` se conserva.
+
+
+## Lifecycle multi-pata MLeg — 26 de agosto de 2026
+
+El punto 1 quedó resuelto en código local, sin operaciones. Los spreads ya no se envían pata por pata. `execution/alpaca_executor.py::submit_spread()` construye una sola orden nativa Alpaca `mleg` de 2–4 patas, con `qty` padre, ratios, polaridad, intents de apertura/cierre, precio neto y `time_in_force=day`. No hay fallback secuencial.
+
+La idempotencia usa `client_order_id` estable y `get_order_by_client_id()`: solo un 404 confirmado autoriza crear una orden. Una orden activa o filled se reutiliza; una fallida no se reenvía; timeout, error de red, payload malformado o estado no confirmado bloquean. Las consultas de órdenes y estados recuperan padre y patas con `nested=True`, incluso cuando el padre MLeg no tiene `symbol` propio.
+
+Se añadió `polaris_entry_ledger` con claim no sobrescribible, versionado/CAS, restauración en el arranque y estados `submitting`, `submitted`, `submission_unknown`, `needs_review` y `filled`. El entry intent solo se marca `filled` tras coincidencia de símbolos, cantidades y polaridad con las posiciones reales de Alpaca. Las salidas conservan `polaris_exit_ledger`, preservan la identidad del primer reclamante y pasan por MLeg con BTC/STC. Un error posterior al submit no genera reintento automático.
+
+Pruebas locales: `228 passed, 1 skipped, 2 xfailed, 8 subtests passed`; Ruff F/B/E9 y `git diff --check` limpios. Documentación detallada: `docs/mlifecycle_pairwise_matrix_2026-08-26.md` y `docs/lifecycle_alpaca_mleg_contract_2026-08-26.md`.
+
+**Importante:** el cambio aún no está desplegado. Cloud Run continúa en `polaris-bot-669a164s2`, PAPER, `risk.halt_new_entries=true`, sin posiciones ni órdenes abiertas. Para desplegar se requiere build inmutable, preservación de secretos y observación de al menos dos ciclos. Esto no autoriza una nueva canary; una canary futura debe definir contrato, cantidad, límite, pérdida máxima, cierre y rollback, y recibir confirmación explícita.

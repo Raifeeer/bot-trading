@@ -130,6 +130,58 @@ class TestDedicatedExitLedger(unittest.TestCase):
         self.assertEqual(first["ledger_id"], second["ledger_id"])
         self.assertEqual(second["record"]["version"], 1)
 
+    def test_entry_claim_is_unique_and_second_claim_preserves_record(self):
+        intent = {
+            "status": "submitting",
+            "symbol": "TQQQ",
+            "specs": [{"symbol": "TQQQ260918C00085000"}],
+        }
+        with patch.object(firestore_state, "_get_db", return_value=self.db):
+            first = firestore_state.claim_entry_intent("entry-client-1", intent)
+            second = firestore_state.claim_entry_intent("entry-client-1", intent)
+
+        self.assertTrue(first["claimed"])
+        self.assertFalse(second["claimed"])
+        self.assertEqual(first["ledger_id"], second["ledger_id"])
+        self.assertEqual(second["record"]["client_order_id"], "entry-client-1")
+        self.assertTrue(second["record"]["active"])
+
+    def test_entry_updates_are_versioned_and_terminal_status_is_inactive(self):
+        intent = {"status": "submitting", "specs": []}
+        with patch.object(firestore_state, "_get_db", return_value=self.db):
+            claimed = firestore_state.claim_entry_intent("entry-client-2", intent)
+            collection = self.db.collection("polaris_entry_ledger")
+            collection.update_time = "version-1"
+            self.assertTrue(firestore_state.update_entry_intent(
+                claimed["ledger_id"], {"status": "submitted", "order_id": "o2"}
+            ))
+            self.assertEqual(collection.last_option, {"last_update_time": "version-1"})
+            self.assertEqual(
+                firestore_state.read_active_entry_ledger(),
+                {"entry-client-2": {
+                    **intent,
+                    "ledger_id": claimed["ledger_id"],
+                    "client_order_id": "entry-client-2",
+                    "active": True,
+                    "version": 2,
+                    "created_at": collection.docs[claimed["ledger_id"]]["created_at"],
+                    "updated_at": collection.docs[claimed["ledger_id"]]["updated_at"],
+                    "status": "submitted",
+                    "order_id": "o2",
+                }},
+            )
+            self.assertTrue(firestore_state.update_entry_intent(
+                claimed["ledger_id"], {"status": "filled"}
+            ))
+            self.assertEqual(firestore_state.read_active_entry_ledger(), {})
+
+    def test_entry_claim_failure_is_not_authorized_to_send(self):
+        with patch.object(firestore_state, "_get_db", return_value=_FailingDb()):
+            result = firestore_state.claim_entry_intent(
+                "entry-client-3", {"status": "submitting"})
+        self.assertFalse(result["claimed"])
+        self.assertTrue(result["unavailable"])
+
     def test_updates_use_last_update_precondition_when_snapshot_has_timestamp(self):
         collection = self.db.collection("polaris_exit_ledger")
         with patch.object(firestore_state, "_get_db", return_value=self.db):

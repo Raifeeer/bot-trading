@@ -1,4 +1,4 @@
-alpaca-py>=0.35
+alpaca-py>=0.44,<0.45
 pandas>=2.1
 numpy>=1.26
 yfinance>=0.2.40

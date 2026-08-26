@@ -27,9 +27,15 @@ logger = logging.getLogger("state.firestore")
 
 _state_client = None
 _EXIT_LEDGER_COLLECTION = "polaris_exit_ledger"
+_ENTRY_LEDGER_COLLECTION = "polaris_entry_ledger"
 _TERMINAL_EXIT_STATUSES = {"completed"}
 _ACTIVE_EXIT_STATUSES = {
-    "submitting", "submitted", "partial_submission", "needs_review"
+    "submitting", "submitted", "partial_submission", "partial_fill",
+    "submission_unknown", "needs_review"
+}
+_ACTIVE_ENTRY_STATUSES = {
+    "submitting", "submitted", "partial_fill", "submission_unknown",
+    "needs_review"
 }
 
 
@@ -151,6 +157,103 @@ def _exit_ledger_id(position_key: str, intent: dict | None = None) -> str:
 
 def _exit_ledger_active(status: str) -> bool:
     return str(status or "").lower() in _ACTIVE_EXIT_STATUSES
+
+
+def _entry_ledger_id(client_order_id: str) -> str:
+    raw = str(client_order_id).encode("utf-8")
+    return f"entry-{hashlib.sha256(raw).hexdigest()[:40]}"
+
+
+def _entry_ledger_active(status: str) -> bool:
+    return str(status or "").lower() in _ACTIVE_ENTRY_STATUSES
+
+
+def claim_entry_intent(client_order_id: str, intent: dict) -> dict:
+    """Reclama una identidad de entrada antes de enviar una orden MLeg."""
+    if not client_order_id:
+        return {"claimed": False, "unavailable": True}
+    ledger_id = _entry_ledger_id(client_order_id)
+    now = datetime.now(timezone.utc).isoformat()
+    record = dict(intent)
+    record.update({
+        "ledger_id": ledger_id,
+        "client_order_id": str(client_order_id),
+        "active": _entry_ledger_active(record.get("status")),
+        "version": 1,
+        "created_at": record.get("created_at") or now,
+        "updated_at": now,
+    })
+    try:
+        db = _get_db()
+        ref = db.collection(_ENTRY_LEDGER_COLLECTION).document(ledger_id)
+        ref.create(record, timeout=10.0)
+        return {"claimed": True, "ledger_id": ledger_id, "record": record}
+    except Exception as exc:  # noqa: BLE001
+        try:
+            from google.api_core.exceptions import AlreadyExists
+        except ImportError:
+            AlreadyExists = ()
+        if AlreadyExists and isinstance(exc, AlreadyExists):
+            try:
+                existing = ref.get(timeout=10.0)
+                if existing.exists:
+                    return {
+                        "claimed": False, "ledger_id": ledger_id,
+                        "record": existing.to_dict() or {},
+                    }
+            except Exception as read_exc:  # noqa: BLE001
+                logger.error("No se pudo leer entry intent existente %s: %s",
+                             ledger_id, read_exc)
+        logger.error("No se pudo reclamar entry intent %s: %s", ledger_id, exc)
+        return {"claimed": False, "ledger_id": ledger_id, "unavailable": True}
+
+
+def update_entry_intent(ledger_id: str, updates: dict) -> bool:
+    """Actualiza un entry intent con versión y precondición CAS."""
+    if not ledger_id:
+        return False
+    try:
+        db = _get_db()
+        ref = db.collection(_ENTRY_LEDGER_COLLECTION).document(str(ledger_id))
+        current = ref.get(timeout=10.0)
+        if not current.exists:
+            logger.error("Entry intent %s no existe para actualización", ledger_id)
+            return False
+        version = int((current.to_dict() or {}).get("version", 0)) + 1
+        data = dict(updates)
+        if "status" in data:
+            data["active"] = _entry_ledger_active(data["status"])
+        data.update({
+            "version": version,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        })
+        update_time = getattr(current, "update_time", None)
+        if update_time is not None:
+            option = db.write_option(last_update_time=update_time)
+            ref.update(data, option=option, timeout=10.0)
+        else:
+            ref.set(data, merge=True, timeout=10.0)
+        return True
+    except Exception as exc:  # noqa: BLE001
+        logger.error("No se pudo actualizar entry intent %s: %s", ledger_id, exc)
+        return False
+
+
+def read_active_entry_ledger() -> dict | None:
+    """Lee intents de entrada activos; None representa fallo de lectura."""
+    try:
+        db = _get_db()
+        query = db.collection(_ENTRY_LEDGER_COLLECTION).where("active", "==", True)
+        result = {}
+        for snap in query.stream(timeout=10.0):
+            record = snap.to_dict() or {}
+            client_id = record.get("client_order_id")
+            if client_id:
+                result[str(client_id)] = record
+        return result
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Fallo leyendo colección dedicada de entry intents: %s", exc)
+        return None
 
 
 def claim_exit_intent(position_key: str, intent: dict) -> dict:
