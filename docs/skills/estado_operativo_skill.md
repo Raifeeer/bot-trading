@@ -1,6 +1,6 @@
 # Skill: Estado operativo del sistema Polaris (para agentes nuevos)
 
-Esta skill es el **punto de entrada obligatorio** para cualquier agente que continúe, diagnostique u opere el sistema Polaris desde una sesión nueva. Resume el estado exacto de la infraestructura, los incidentes operativos y cómo reanudar el trabajo sin perder horas de diagnóstico. Última actualización: **24 de agosto de 2026 UTC**. La sección 14 contiene el estado vigente y supersede los estados históricos anteriores.
+Esta skill es el **punto de entrada obligatorio** para cualquier agente que continúe, diagnostique u opere el sistema Polaris desde una sesión nueva. Resume el estado exacto de la infraestructura, los incidentes operativos y cómo reanudar el trabajo sin perder horas de diagnóstico. Última actualización: **26 de agosto de 2026 UTC**. La sección 14 contiene el estado vigente y supersede los estados históricos anteriores.
 
 ## 1. Mapa del sistema en una mirada
 
@@ -405,3 +405,12 @@ Se añadió `polaris_entry_ledger` con claim no sobrescribible, versionado/CAS, 
 Pruebas locales: `228 passed, 1 skipped, 2 xfailed, 8 subtests passed`; Ruff F/B/E9 y `git diff --check` limpios. Documentación detallada: `docs/mlifecycle_pairwise_matrix_2026-08-26.md` y `docs/lifecycle_alpaca_mleg_contract_2026-08-26.md`.
 
 **Importante:** el cambio aún no está desplegado. Cloud Run continúa en `polaris-bot-669a164s2`, PAPER, `risk.halt_new_entries=true`, sin posiciones ni órdenes abiertas. Para desplegar se requiere build inmutable, preservación de secretos y observación de al menos dos ciclos. Esto no autoriza una nueva canary; una canary futura debe definir contrato, cantidad, límite, pérdida máxima, cierre y rollback, y recibir confirmación explícita.
+
+
+## Despliegue MLeg y verificación — 26 de agosto de 2026
+
+El commit `c852cfa` se publicó en `origin/main`, Cloud Build `361f77d0-25ee-43c4-b647-2938de0662e9` terminó en `SUCCESS` y la imagen desplegada es `us-central1-docker.pkg.dev/gen-lang-client-0746441136/polaris-images/polaris-bot@sha256:5da658c626ed87c16d9418397beea36b85b49eb3c3fdc46022519b22624e71d1`. La revisión activa es `polaris-bot-00118-d45` con 100% del tráfico.
+
+La revisión conserva `minScale=1`, `maxScale=1`, CPU always-on, PAPER, `APCA_API_BASE_URL`, `DATA_PROVIDER` y las referencias secretas existentes. El arranque registró restauración correcta de entry/exit ledgers, conexión Alpaca exitosa y `Bot iniciado` con `dry_run=False`. Se verificaron al menos cinco ciclos iniciales y escrituras Firestore. No hubo `Traceback`, `CRITICAL`, `ERROR`, órdenes MLeg ni `409 Conflict`; la telemetría confirmó `approved=0`, `orders=0`, `open_broker_orders=0`, `unmanaged_broker_legs=0`, `unmanaged_state_positions=0` y `new_entries_halted=true`.
+
+El primer ciclo tardó 110.322 s, principalmente por `risk_shadow=104.620 s`; los ciclos posteriores observados tardaron aproximadamente 1.45 s con caché. El nuevo lifecycle está desplegado, pero el bot continúa como observador PAPER: `risk.halt_new_entries=true` no se modificó. No se ejecutó ninguna canary nueva ni se autoriza una operación por este cambio.

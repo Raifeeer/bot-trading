@@ -1,15 +1,15 @@
 # PolarIS Trading Bot — Guía de Operación para Agentes
 
-> Documento de referencia para cualquier agente de IA que opere, diagnostique o extienda el sistema Polaris (bot de trading de opciones sobre Alpaca, desplegado en Google Cloud Run). Última actualización: **25 de agosto de 2026 UTC**.
+> Documento de referencia para cualquier agente de IA que opere, diagnostique o extienda el sistema Polaris (bot de trading de opciones sobre Alpaca, desplegado en Google Cloud Run). Última actualización: **26 de agosto de 2026 UTC**.
 
-## 0. Estado vigente y fuente de verdad — 25 de agosto de 2026
+## 0. Estado vigente y fuente de verdad — 26 de agosto de 2026
 
 Esta sección tiene prioridad sobre las descripciones históricas y los estados previos que aparecen más abajo. Las entradas fechadas documentan la evolución; un pendiente antiguo solo se considera resuelto cuando existe una verificación posterior explícita.
 
 | Área | Estado vigente verificado |
 |---|---|
-| Repositorio | `Raifeeer/bot-trading`, rama `main`; Cloud Run ejecuta `669a164s2`; último commit publicado `f8a2226` antes del adaptador Databento; árbol limpio al cerrar cada cambio |
-| Cloud Run | Servicio `polaris-bot`, us-central1, proyecto `gen-lang-client-0746441136`; revisión `polaris-bot-669a164s2` con 100% del tráfico, digest `sha256:9c698deec55707b15b709ddcea69a89f5e782ee758aba7cbd13702dd704c0256`; rollback `polaris-bot-cbdc186` |
+| Repositorio | `Raifeeer/bot-trading`, rama `main`; último commit publicado `c852cfa`; árbol limpio al cerrar cada cambio |
+| Cloud Run | Servicio `polaris-bot`, us-central1, proyecto `gen-lang-client-0746441136`; revisión `polaris-bot-00118-d45` con 100% del tráfico, digest `sha256:5da658c626ed87c16d9418397beea36b85b49eb3c3fdc46022519b22624e71d1`; rollback preferente `polaris-bot-669a164s2` y conservadores `polaris-bot-cbdc186`/`polaris-bot-secretmigrate3` |
 | Broker | Alpaca **PAPER**; `broker.paper=true`; no cambiar a REAL sin confirmación explícita nueva |
 | Recursos | `minScale=1`, `maxScale=1`, CPU always-on (`cpu-throttling=false`), `POLL_SECONDS=60`; `BOT_POLL_MINUTES=5` es compatibilidad histórica y no sustituye al poll efectivo |
 | Equity observada | Verificación directa PAPER del 25-ago: `$96,914.08`; cash y portfolio value iguales; piso activo `$99,000` mientras equity < `$100,000`; `risk.halt_new_entries=true` |
@@ -17,10 +17,10 @@ Esta sección tiene prioridad sobre las descripciones históricas y los estados 
 | Universo activo | `universo_reto`: SOFI, PLTR, F, TSLA, AMD, NOK, BB y TQQQ; SOFI puede faltar en caches históricos, pero no se debe inventar su histórico |
 | Motores live base | `day_momentum` 5m, `day_breakout` 15m y `swing_trend` 1d; el motor bearish live funciona aparte en régimen bear |
 | Promoción PAPER | `trend_pullback`, `breakout_20_55` y `breakdown_retest` usan adaptadores controlados y pasan por `OptionsStrategy`/`RiskManager`; long promoted limitado inicialmente a 1 contrato |
-| Contexto shadow | `setup_confluence`, `vix_shadow`, `structure_mtf_shadow` y `defined_risk_shadow` publican telemetría; VIX/estructura/setups no generan órdenes y defined-risk no se ejecuta por falta de atomicidad multi-leg |
+| Contexto shadow | `setup_confluence`, `vix_shadow`, `structure_mtf_shadow` y `defined_risk_shadow` publican telemetría; todas las capas shadow fuerzan `orders_allowed=false` e `influence_entries=false`; los spreads MLeg ya tienen ruta atómica nativa, pero no se promueven por esta corrección |
 | Investigación | Las estrategias adicionales siguen `RESEARCH_ONLY`/`REJECT_DATA`; el readiness de 44 artefactos no justificó promoción. Databento fue seleccionado como candidato de piloto OOS, pero no hay API key ni conexión activa |
 | Seguridad | Wrappers shadow fuerzan `mode=shadow`, `influence_entries=false` y `orders_allowed=false`; RiskManager, floor, circuit breakers, límites de posiciones y cotizaciones son autoridad final. `cbdc186` añade fail-closed ante fallo de lectura dedicada y CAS por timestamp; `669a164` también bloquea ante timeout/error de lectura de posiciones de Alpaca |
-| Ledger de salidas | `8c5f1dc` usa `polaris_exit_ledger/{ledger_id}` con `create()` idempotente, actualización versionada por pata, restauración de intents activos y cierre `completed` solo tras confirmación broker+Firestore; entradas siguen bloqueadas |
+| Ledger de salidas | `8c5f1dc` usa `polaris_exit_ledger/{ledger_id}` con `create()` idempotente, actualización versionada por pata, restauración de intents activos y cierre `completed` solo tras confirmación broker+Firestore; `c852cfa` añade `polaris_entry_ledger`, client IDs deterministas y MLeg única; entradas siguen bloqueadas |
 | TradingAgents | Piloto aislado, commit `852a827`, `RESEARCH_ONLY`; no está en Cloud Run, no recibe credenciales, no escribe Firestore y no envía órdenes |
 
 **Secretos verificados:** `APCA_API_KEY_ID`, `APCA_API_SECRET_KEY`, `DEEPSEEK_API_KEY` y `TELEGRAM_BOT_TOKEN` llegan desde Secret Manager en `polaris-bot-669a164s2`; `telegram-bot-token` coincide por hash con el valor que estaba embebido, por lo que se migró sin cambiar el token. La cuenta de servicio tiene `roles/secretmanager.secretAccessor` aplicado a los cuatro secretos usados. La rotación criptográfica del token Telegram queda pendiente porque requiere emitir un token nuevo desde BotFather; no se inventa ni se cambia el valor operativo sin esa intervención.
@@ -2260,3 +2260,14 @@ Se añadió `polaris_entry_ledger` en `state/firestore_state.py`, con claim no s
 La evidencia local es: `228 passed, 1 skipped, 2 xfailed, 8 subtests passed`; Ruff F/B/E9 y `git diff --check` limpios. Las pruebas nuevas cubren una sola petición MLeg, precio neto, ratios, BTO/STO y BTC/STC, reuso por client ID, payload malformado, GTC rechazado, claim/CAS del entry ledger, restauración de intents, orden padre anidada y estados de fill/revisión. La matriz está en `docs/mlifecycle_pairwise_matrix_2026-08-26.md` y el contrato externo en `docs/lifecycle_alpaca_mleg_contract_2026-08-26.md`.
 
 **Estado de despliegue:** estos cambios todavía no están en Cloud Run. La revisión productiva sigue siendo `polaris-bot-669a164s2`, con `risk.halt_new_entries=true`, PAPER, cero posiciones y cero órdenes abiertas según el último estado verificado. Antes de cualquier despliegue se debe construir una imagen inmutable, preservar todos los secretos existentes, mantener 100% PAPER y observar al menos dos ciclos. La nueva canary no está autorizada por este cambio; la ejecución externa de una MLeg requiere contrato, cantidad, límite, pérdida máxima, regla de cierre y confirmación explícita independientes.
+
+
+## 52. Despliegue y verificación inicial del lifecycle MLeg — 26 de agosto de 2026
+
+El commit `c852cfa` (`execution: make multi-leg lifecycle atomic and idempotent`) se publicó en `origin/main`, se construyó con Cloud Build `361f77d0-25ee-43c4-b647-2938de0662e9` y terminó en `SUCCESS`. La imagen inmutable publicada es `us-central1-docker.pkg.dev/gen-lang-client-0746441136/polaris-images/polaris-bot@sha256:5da658c626ed87c16d9418397beea36b85b49eb3c3fdc46022519b22624e71d1`.
+
+La revisión `polaris-bot-00118-d45` quedó con 100% del tráfico. La configuración verificada conserva `minScale=1`, `maxScale=1`, `cpu-throttling=false`, `PAPER`, `APCA_API_BASE_URL` y `DATA_PROVIDER`, además de las referencias Secret Manager para APCA, DeepSeek y Telegram. El arranque registró `entry ledger restaurado intents_activos=0`, `exit ledger ... intents=0`, `Bot iniciado: 3 estrategias, 8 tickers, poll=60s, dry_run=False` y conexión Alpaca exitosa.
+
+La revisión completó al menos cinco ciclos iniciales y escrituras Firestore (`Tick OK`/`Estado escrito en Firestore`), sin `Traceback`, sin `CRITICAL`, sin `ERROR`, sin `MLeg` enviado y sin `409 Conflict` en la ventana comprobada. El ciclo 1 tardó 110.322 s —principalmente por `risk_shadow=104.620 s`— y los siguientes ciclos observados tardaron aproximadamente 1.45 s con caché. La telemetría confirmó `approved=0`, `orders=0`, `open_broker_orders=0`, `unmanaged_broker_legs=0`, `unmanaged_state_positions=0` y `new_entries_halted=true`.
+
+La revisión quedó operativa como **observador PAPER bloqueado**. El cambio MLeg está activo en producción, pero no reactivó la capacidad de abrir operaciones: `risk.halt_new_entries=true` permanece intacto. La canary real anterior no se reutiliza y no se autorizó una nueva. Rollback preferente: `polaris-bot-669a164s2`; rollback conservador: `polaris-bot-cbdc186` o `polaris-bot-secretmigrate3`.
