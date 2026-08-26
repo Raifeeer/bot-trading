@@ -414,3 +414,14 @@ El commit `c852cfa` se publicó en `origin/main`, Cloud Build `361f77d0-25ee-43c
 La revisión conserva `minScale=1`, `maxScale=1`, CPU always-on, PAPER, `APCA_API_BASE_URL`, `DATA_PROVIDER` y las referencias secretas existentes. El arranque registró restauración correcta de entry/exit ledgers, conexión Alpaca exitosa y `Bot iniciado` con `dry_run=False`. Se verificaron al menos cinco ciclos iniciales y escrituras Firestore. No hubo `Traceback`, `CRITICAL`, `ERROR`, órdenes MLeg ni `409 Conflict`; la telemetría confirmó `approved=0`, `orders=0`, `open_broker_orders=0`, `unmanaged_broker_legs=0`, `unmanaged_state_positions=0` y `new_entries_halted=true`.
 
 El primer ciclo tardó 110.322 s, principalmente por `risk_shadow=104.620 s`; los ciclos posteriores observados tardaron aproximadamente 1.45 s con caché. El nuevo lifecycle está desplegado, pero el bot continúa como observador PAPER: `risk.halt_new_entries=true` no se modificó. No se ejecutó ninguna canary nueva ni se autoriza una operación por este cambio.
+
+
+## Investigación EOD preliminar sin entitlement OPRA — 26 de agosto de 2026
+
+El token de Market Data App fue generado correctamente, pero la cuenta no tiene entitlement OPRA (`Not Entitled`). AAPL respondió por la demo pública; una consulta protegida de TSLA devolvió HTTP 401 y cero créditos consumidos. No se añadió tarjeta ni se generaron cargos. Se documentó la evidencia en `docs/marketdata_free_alternative_notes_2026-08-26.md`.
+
+Se ejecutó una investigación preliminar EOD con los caches reales de Alpaca, aislada en `/home/ubuntu/backtests/free_eod_preliminary_2026-08-26_*`. La corrida evaluó 1.800 combinaciones de 10 estructuras, 3 DTE, 2 anchuras, 3 perfiles de gestión, 2 modos de régimen y 5 ventanas del 2026-04-01 al 2026-08-07. Media por corrida: -2,2779%; mediana: -0,8403%; corridas positivas: 18,4444%; drawdown medio: -2,6960%; peor drawdown: -32,4303%; fallbacks por datos faltantes: 19.285.
+
+Las mejores medias descriptivas fueron `bull_put_credit` (-0,4576%), `iron_condor` (-0,4863%) y `put_diagonal` (-0,4880%). La mejor corrida `full_recent` fue `bull_call_debit` 45 DTE, anchura 0,05 y gestión conservadora con 4,6240%, pero la comparación buy-and-hold fue 57,9919% y la selección se hizo sobre la misma muestra. El ranking estable descriptivo fue `bear_call_credit` 45 DTE, anchura 0,10, gestión conservadora y `neutral_ok`, con 0,8789% medio en cinco ventanas; no es evidencia independiente.
+
+Clasificación: `status=EOD_PRELIMINARY`, `promotion=REJECTED_FOR_EXECUTION_OOS`, `orders_allowed=false`, `production_config_changed=false`. La fuente carece de NBBO intradía, trades tick-by-tick, cadena point-in-time, lifecycle verificable, fill parcial y latencia. Todas las estrategias permanecen `RESEARCH_ONLY`; el bot sigue PAPER con `risk.halt_new_entries=true`.

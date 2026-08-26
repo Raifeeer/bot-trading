@@ -2271,3 +2271,23 @@ La revisión `polaris-bot-00118-d45` quedó con 100% del tráfico. La configurac
 La revisión completó al menos cinco ciclos iniciales y escrituras Firestore (`Tick OK`/`Estado escrito en Firestore`), sin `Traceback`, sin `CRITICAL`, sin `ERROR`, sin `MLeg` enviado y sin `409 Conflict` en la ventana comprobada. El ciclo 1 tardó 110.322 s —principalmente por `risk_shadow=104.620 s`— y los siguientes ciclos observados tardaron aproximadamente 1.45 s con caché. La telemetría confirmó `approved=0`, `orders=0`, `open_broker_orders=0`, `unmanaged_broker_legs=0`, `unmanaged_state_positions=0` y `new_entries_halted=true`.
 
 La revisión quedó operativa como **observador PAPER bloqueado**. El cambio MLeg está activo en producción, pero no reactivó la capacidad de abrir operaciones: `risk.halt_new_entries=true` permanece intacto. La canary real anterior no se reutiliza y no se autorizó una nueva. Rollback preferente: `polaris-bot-669a164s2`; rollback conservador: `polaris-bot-cbdc186` o `polaris-bot-secretmigrate3`.
+
+
+## 53. Investigación EOD preliminar sin entitlement OPRA — 26 de agosto de 2026
+
+La cuenta gratuita de Market Data App generó el token correctamente, pero la cuenta mostró OPRA `Not Entitled`; AAPL funciona como demo pública y una consulta protegida de TSLA devolvió HTTP 401 con cero créditos consumidos. No se añadió tarjeta, no se contrató plan y no se generaron cargos. Las conclusiones y URLs oficiales están en `docs/marketdata_free_alternative_notes_2026-08-26.md`.
+
+Ante la falta de datos OPRA/NBBO gratuitos, se reutilizaron únicamente caches reales locales de Alpaca para una investigación preliminar EOD. Se ejecutaron 1.800 combinaciones con `scripts/run_defined_risk_backtests.py`, 10 estructuras, 3 objetivos DTE, 2 anchuras, 3 perfiles de gestión, 2 modos de régimen y 5 ventanas entre 2026-04-01 y 2026-08-07. Los resultados están aislados en `/home/ubuntu/backtests/free_eod_preliminary_2026-08-26_*` y el informe es `docs/options_eod_preliminary_research_2026-08-26.md`.
+
+El conjunto tuvo media de retorno por corrida de -2,2779%, mediana -0,8403%, 18,4444% de corridas positivas, drawdown medio -2,6960%, peor drawdown -32,4303% y 19.285 eventos de fallback por datos faltantes. Las tres medias menos negativas fueron `bull_put_credit` (-0,4576%), `iron_condor` (-0,4863%) y `put_diagonal` (-0,4880%); ningún resultado es evidencia suficiente para promoción. El mejor resultado `full_recent` fue una configuración `bull_call_debit` con 4,6240%, pero frente a buy-and-hold de 57,9919% y con selección sobre la misma muestra. El mejor ranking estable descriptivo fue `bear_call_credit` con 0,8789% medio en cinco ventanas, también sujeto a sobreajuste y limitaciones EOD.
+
+Clasificación obligatoria:
+
+```text
+status: EOD_PRELIMINARY
+promotion: REJECTED_FOR_EXECUTION_OOS
+orders_allowed: false
+production_config_changed: false
+```
+
+Los caches son barras OHLC diarias sin NBBO intradía, tamaños verificables, trades tick-by-tick, cadena point-in-time, lifecycle de contratos, fill parcial o latencia. La selección usa moneyness como proxy de delta histórico y un fallback intrínseco cuando falta una barra. Market Data App puede ser fuente EOD auxiliar si se obtiene entitlement, pero no sustituye Databento/algoseek/Cboe para execution-realistic OOS. El bot continúa PAPER, `risk.halt_new_entries=true`, sin cambio de revisión ni autorización de canary.
