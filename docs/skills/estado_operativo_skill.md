@@ -425,3 +425,12 @@ Se ejecutó una investigación preliminar EOD con los caches reales de Alpaca, a
 Las mejores medias descriptivas fueron `bull_put_credit` (-0,4576%), `iron_condor` (-0,4863%) y `put_diagonal` (-0,4880%). La mejor corrida `full_recent` fue `bull_call_debit` 45 DTE, anchura 0,05 y gestión conservadora con 4,6240%, pero la comparación buy-and-hold fue 57,9919% y la selección se hizo sobre la misma muestra. El ranking estable descriptivo fue `bear_call_credit` 45 DTE, anchura 0,10, gestión conservadora y `neutral_ok`, con 0,8789% medio en cinco ventanas; no es evidencia independiente.
 
 Clasificación: `status=EOD_PRELIMINARY`, `promotion=REJECTED_FOR_EXECUTION_OOS`, `orders_allowed=false`, `production_config_changed=false`. La fuente carece de NBBO intradía, trades tick-by-tick, cadena point-in-time, lifecycle verificable, fill parcial y latencia. Todas las estrategias permanecen `RESEARCH_ONLY`; el bot sigue PAPER con `risk.halt_new_entries=true`.
+
+
+## Ventana de observación PAPER completada — 26 de agosto de 2026
+
+Se observó `polaris-bot-00118-d45` desde 15:41:25 UTC hasta al menos 15:53:21 UTC, con 12 ciclos completos. Hubo 12 `Tick OK`, 12 `CYCLE TIMING`, 12 escrituras Firestore y 12 señales; todos mantuvieron `approved=0`, `orders=0`, `new_entries_halted=True`, `open_broker_orders=0`, `unmanaged_broker_legs=0` y `unmanaged_state_positions=0`. No hubo `Traceback`, `CRITICAL`, Telegram `409 Conflict` ni envíos MLeg. Equity: `$96,914.08`; posiciones: 0. Los ciclos posteriores usaron aproximadamente 1,441–2,602 s.
+
+Clasificación: `HEALTHY_BLOCKED_WITH_FEED_WARNINGS`. El lifecycle MLeg no mostró fallos, pero siguen warnings de consultas recientes SIP rechazadas por la suscripción y del símbolo `^VIX` inválido. No provocaron caída ni órdenes en la ventana, pero son riesgo residual de calidad de datos.
+
+El detalle está en `docs/production_observation_2026-08-26.md`. El punto 3 queda cumplido como observación operativa estable bajo contención. No se autoriza todavía una canary: antes del punto 4 deben definirse contrato, cantidad, límite, pérdida máxima, regla de cierre y confirmación explícita nuevas; no reutilizar la canary anterior. El bot sigue PAPER con `risk.halt_new_entries=true`.

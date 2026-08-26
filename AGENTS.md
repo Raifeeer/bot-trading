@@ -2291,3 +2291,14 @@ production_config_changed: false
 ```
 
 Los caches son barras OHLC diarias sin NBBO intradía, tamaños verificables, trades tick-by-tick, cadena point-in-time, lifecycle de contratos, fill parcial o latencia. La selección usa moneyness como proxy de delta histórico y un fallback intrínseco cuando falta una barra. Market Data App puede ser fuente EOD auxiliar si se obtiene entitlement, pero no sustituye Databento/algoseek/Cboe para execution-realistic OOS. El bot continúa PAPER, `risk.halt_new_entries=true`, sin cambio de revisión ni autorización de canary.
+
+
+## 54. Ventana de observación PAPER completada — 26 de agosto de 2026
+
+Se observó `polaris-bot-00118-d45` desde 15:41:25 UTC hasta al menos 15:53:21 UTC, con 12 ciclos completos. Cloud Run permaneció con 100% del tráfico, PAPER, una instancia, `risk.halt_new_entries=true` y sin cambios de configuración.
+
+Evidencia: 12 `Tick OK`, 12 `CYCLE TIMING`, 12 escrituras Firestore y 12 señales publicadas; 12/12 con `approved=0`, `orders=0`, `new_entries_halted=True`, `open_broker_orders=0`, `unmanaged_broker_legs=0` y `unmanaged_state_positions=0`. No hubo `Traceback`, `CRITICAL`, Telegram `409 Conflict` ni envíos MLeg. Equity observada: `$96,914.08`; posiciones observadas: 0. Los ciclos tardaron aproximadamente 1,441–2,602 s tras el primer ciclo con caché.
+
+La ventana se clasifica `HEALTHY_BLOCKED_WITH_FEED_WARNINGS`: el lifecycle desplegado se mantuvo estable, pero siguen apareciendo warnings conocidos de consultas recientes SIP rechazadas por la suscripción y el símbolo `^VIX` inválido. No provocaron caída ni órdenes durante la ventana, pero mantienen un riesgo residual de calidad de datos.
+
+El informe completo está en `docs/production_observation_2026-08-26.md`. El punto 3 queda cumplido como observación operativa estable bajo contención. Esto no autoriza una canary ni convierte una estrategia en candidata de promoción. El punto 4 requiere contrato, cantidad, límite, pérdida máxima, regla de cierre y confirmación explícita nuevos; la canary anterior no se reutiliza.
