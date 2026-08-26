@@ -2302,3 +2302,12 @@ Evidencia: 12 `Tick OK`, 12 `CYCLE TIMING`, 12 escrituras Firestore y 12 señale
 La ventana se clasifica `HEALTHY_BLOCKED_WITH_FEED_WARNINGS`: el lifecycle desplegado se mantuvo estable, pero siguen apareciendo warnings conocidos de consultas recientes SIP rechazadas por la suscripción y el símbolo `^VIX` inválido. No provocaron caída ni órdenes durante la ventana, pero mantienen un riesgo residual de calidad de datos.
 
 El informe completo está en `docs/production_observation_2026-08-26.md`. El punto 3 queda cumplido como observación operativa estable bajo contención. Esto no autoriza una canary ni convierte una estrategia en candidata de promoción. El punto 4 requiere contrato, cantidad, límite, pérdida máxima, regla de cierre y confirmación explícita nuevos; la canary anterior no se reutiliza.
+
+
+## 55. Canary automática única programada — 26 de agosto de 2026
+
+Tras confirmación explícita del usuario, se creó la tarea única `Canary PAPER MLeg acotada Polaris — 27 agosto 2026`, UID `SX5nHwM1VFC9LKEtbruh1Q`. Está activa, no es recurrente, se dispara el 2026-08-27 a las 09:30 en la zona registrada `America/La_Paz` (UTC-4 en la fecha programada), expira a las 13:45 UTC y usa `runAsNewTask=true` con el commit `48b3739` y `scripts/run_polaris_canary_auto_once.py`.
+
+La autorización automática permite únicamente Alpaca PAPER, una vertical MLeg de calls de 2 patas, un contrato, débito neto máximo de `$0.20` por acción, pérdida máxima de prima de `$20` más comisiones y `DAY`. El runner verifica Cloud Run `polaris-bot-00118-d45` al 100%, cuenta activa, cero posiciones, cero órdenes, Firestore, salud reciente del feed y quotes válidas. Si falla cualquier guardarraíl no envía y registra el aborto. Usa client ID determinista, no reintenta respuestas ambiguas, cancela entradas/salidas no llenadas dentro de 120 segundos, marca revisiones ante fill parcial o cierre incierto y confirma cuenta plana después del cierre. No modifica Cloud Run, `config/config.yaml`, `risk.halt_new_entries` ni el bot principal.
+
+La tarea aún no se ha disparado y no se ha creado ninguna orden con esta autorización. El resultado quedará en `polaris_canary_runs` y en `/home/ubuntu/backtests/canary-auto-YYYY-MM-DD.json`, sin secretos.

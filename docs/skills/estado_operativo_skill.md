@@ -434,3 +434,12 @@ Se observó `polaris-bot-00118-d45` desde 15:41:25 UTC hasta al menos 15:53:21 U
 Clasificación: `HEALTHY_BLOCKED_WITH_FEED_WARNINGS`. El lifecycle MLeg no mostró fallos, pero siguen warnings de consultas recientes SIP rechazadas por la suscripción y del símbolo `^VIX` inválido. No provocaron caída ni órdenes en la ventana, pero son riesgo residual de calidad de datos.
 
 El detalle está en `docs/production_observation_2026-08-26.md`. El punto 3 queda cumplido como observación operativa estable bajo contención. No se autoriza todavía una canary: antes del punto 4 deben definirse contrato, cantidad, límite, pérdida máxima, regla de cierre y confirmación explícita nuevas; no reutilizar la canary anterior. El bot sigue PAPER con `risk.halt_new_entries=true`.
+
+
+## Canary automática única programada — 26 de agosto de 2026
+
+El usuario autorizó explícitamente una tarea única autónoma para el 2026-08-27 a las 09:30 en la zona registrada `America/La_Paz` (UTC-4 en esa fecha), con expiración a las 13:45 UTC. UID de tarea: `SX5nHwM1VFC9LKEtbruh1Q`; `runAsNewTask=true`; commit ejecutable: `48b3739`; runner: `scripts/run_polaris_canary_auto_once.py`.
+
+Política: Alpaca PAPER únicamente; una vertical MLeg de calls de 2 patas; un contrato; débito neto máximo `$0.20` por acción; pérdida máxima de prima `$20` más comisiones; `DAY`; cancelar si entrada o salida no llena en 120 segundos. El runner debe bloquearse y registrar aborto ante cualquier fallo de revisión, Cloud Run, feed, cuenta, Firestore, cotización, posición, orden o lifecycle; no puede hacer fallback a patas individuales ni reintentar una respuesta ambigua. Si la entrada llena, enviará automáticamente el cierre MLeg y verificará cuenta plana; si no, queda `needs_review`.
+
+La tarea no es recurrente, no reutiliza la canary anterior y no modifica Cloud Run, `config/config.yaml`, `risk.halt_new_entries` ni el bot principal. Antes del disparo no existen órdenes nuevas creadas por esta autorización. El resultado se espera en `polaris_canary_runs` y en el artefacto local de la fecha, sin secretos.
