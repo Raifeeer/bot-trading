@@ -26,7 +26,7 @@ import requests
 PROJECT = "gen-lang-client-0746441136"
 REGION = "us-central1"
 SERVICE = "polaris-bot"
-EXPECTED_REVISION = "polaris-bot-00118-d45"
+EXPECTED_REVISION = "polaris-bot-telegramrotate2"
 TRADING_BASE = "https://paper-api.alpaca.markets/v2"
 DATA_BASE = "https://data.alpaca.markets/v2"
 OPTIONS_DATA_BASE = "https://data.alpaca.markets/v1beta1"
