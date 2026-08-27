@@ -236,19 +236,25 @@ def verify_cloud_run() -> dict:
         service = json.loads(raw)
     else:
         response = requests.get(
-            f"https://run.googleapis.com/apis/serving.knative.dev/v1/namespaces/{PROJECT}/services/{SERVICE}",
+            f"https://run.googleapis.com/v2/projects/{PROJECT}/locations/{REGION}/services/{SERVICE}",
             headers={"Authorization": f"Bearer {google_access_token()}"},
-            params={"location": REGION},
             timeout=30,
         )
         if response.status_code != 200:
             raise RuntimeError(f"cloud_run_lookup_failed_http_{response.status_code}")
         service = _json_response(response)
     traffic = service.get("status", {}).get("traffic", [])
+    if not traffic:
+        traffic = service.get("traffic", [])
     active = [item for item in traffic if int(item.get("percent", 0)) == 100]
-    if len(active) != 1 or active[0].get("revisionName") != EXPECTED_REVISION:
+    active_revision = active[0].get("revisionName") if active else None
+    if active_revision is None and active:
+        active_revision = active[0].get("revision")
+    if len(active) != 1 or active_revision != EXPECTED_REVISION:
         raise RuntimeError("cloud_run_revision_not_expected_or_not_100_percent")
     containers = service.get("spec", {}).get("template", {}).get("spec", {}).get("containers", [])
+    if not containers:
+        containers = service.get("template", {}).get("containers", [])
     if not containers:
         raise RuntimeError("cloud_run_container_missing")
     return {"revision": EXPECTED_REVISION, "image": containers[0].get("image", "")}

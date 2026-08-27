@@ -91,3 +91,107 @@ def test_firestore_encoding_keeps_nested_lifecycle_fields():
     encoded = canary._fs_encode({"status": "entry_submitted", "legs": [{"symbol": "A", "ratio": 1}]})
     assert encoded["mapValue"]["fields"]["status"] == {"stringValue": "entry_submitted"}
     assert encoded["mapValue"]["fields"]["legs"]["arrayValue"]["values"][0]["mapValue"]["fields"]["ratio"] == {"integerValue": "1"}
+
+
+class _FakeResponse:
+    def __init__(self, status_code, payload):
+        self.status_code = status_code
+        self._payload = payload
+        self.text = ""
+
+    def json(self):
+        return self._payload
+
+
+def test_verify_cloud_run_uses_regional_v2_endpoint_without_gcloud(monkeypatch):
+    calls = []
+
+    def fake_get(url, **kwargs):
+        calls.append((url, kwargs))
+        return _FakeResponse(
+            200,
+            {
+                "traffic": [{"revision": canary.EXPECTED_REVISION, "percent": 100}],
+                "template": {"containers": [{"image": "canary-image@sha256:test"}]},
+            },
+        )
+
+    monkeypatch.setattr(canary, "_gcloud_bin", lambda: None)
+    monkeypatch.setattr(canary, "google_access_token", lambda: "adc-token")
+    monkeypatch.setattr(canary.requests, "get", fake_get)
+
+    result = canary.verify_cloud_run()
+
+    assert result["revision"] == canary.EXPECTED_REVISION
+    assert result["image"] == "canary-image@sha256:test"
+    assert calls[0][0] == (
+        f"https://run.googleapis.com/v2/projects/{canary.PROJECT}/locations/"
+        f"{canary.REGION}/services/{canary.SERVICE}"
+    )
+    assert calls[0][1]["headers"] == {"Authorization": "Bearer adc-token"}
+
+
+def test_secret_uses_secret_manager_rest_fallback_without_gcloud(monkeypatch):
+    calls = []
+
+    def fake_get(url, **kwargs):
+        calls.append((url, kwargs))
+        return _FakeResponse(200, {"payload": {"data": "cGFwY2Etc2VjcmV0"}})
+
+    monkeypatch.delenv("APCA_API_KEY_ID", raising=False)
+    monkeypatch.setattr(canary, "_gcloud_bin", lambda: None)
+    monkeypatch.setattr(canary, "google_access_token", lambda: "adc-token")
+    monkeypatch.setattr(canary.requests, "get", fake_get)
+
+    assert canary.secret("alpaca-key") == "papca-secret"
+    assert calls[0][0].endswith(
+        f"/projects/{canary.PROJECT}/secrets/alpaca-key/versions/latest:access"
+    )
+    assert calls[0][1]["headers"] == {"Authorization": "Bearer adc-token"}
+
+
+def test_preflight_only_persists_and_never_submits_order(monkeypatch, tmp_path):
+    run_id = "canary-test-preflight-only"
+    persisted = []
+    submitted = []
+
+    monkeypatch.setenv("APCA_API_KEY_ID", "paper-key")
+    monkeypatch.setenv("APCA_API_SECRET_KEY", "paper-secret")
+    monkeypatch.setenv("CANARY_RUN_ID", run_id)
+    monkeypatch.setenv("CANARY_PREFLIGHT_ONLY", "1")
+    monkeypatch.setattr(canary, "RUN_ROOT", tmp_path)
+    monkeypatch.setattr(canary, "fs_get", lambda collection, document_id: (404, {}))
+    monkeypatch.setattr(canary, "fs_create", lambda collection, document_id, data: (201, {"updateTime": "t0"}))
+    monkeypatch.setattr(
+        canary,
+        "persist_run",
+        lambda current_run_id, data, update_time=None: persisted.append(dict(data)) or "t1",
+    )
+    monkeypatch.setattr(canary, "verify_cloud_run", lambda: {"revision": canary.EXPECTED_REVISION})
+    monkeypatch.setattr(canary, "verify_recent_cloud_run_health", lambda: {"bad_markers": 0})
+    monkeypatch.setattr(canary, "verify_paper_account", lambda: {"equity": "100000"})
+    monkeypatch.setattr(canary, "market_open", lambda: {"is_open": True})
+    monkeypatch.setattr(
+        canary,
+        "select_vertical",
+        lambda as_of: {
+            "underlying": "AMD",
+            "expiration": "2026-09-18",
+            "type": "call",
+            "spot": 100.0,
+            "long": {"symbol": "AMD260918C00100000", "ask": 0.10, "bid": 0.09},
+            "short": {"symbol": "AMD260918C00101000", "bid": 0.03, "ask": 0.04},
+            "debit": 0.07,
+            "max_loss_premium_usd": 7.0,
+            "max_profit_premium_usd": 93.0,
+            "exit_limit_preview": 0.03,
+            "width_usd": 100.0,
+        },
+    )
+    monkeypatch.setattr(canary, "find_existing_order", lambda client_id: submitted.append(("lookup", client_id)))
+    monkeypatch.setattr(canary, "submit_mleg", lambda *args, **kwargs: submitted.append(("submit", args, kwargs)))
+
+    assert canary.main() == 0
+    assert submitted == []
+    assert persisted[-1]["status"] == "preflight_only"
+    assert persisted[-1]["orders_allowed"] is False
