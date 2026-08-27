@@ -195,3 +195,65 @@ def test_preflight_only_persists_and_never_submits_order(monkeypatch, tmp_path):
     assert submitted == []
     assert persisted[-1]["status"] == "preflight_only"
     assert persisted[-1]["orders_allowed"] is False
+
+
+def test_recent_health_allows_handled_sip_fallback_with_fresh_telemetry(monkeypatch):
+    entries = [
+        {"textPayload": "feed WARNING AMD: subscription does not permit querying recent SIP data"},
+        {"textPayload": "feed WARNING AMD: reintento con yfinance"},
+        {"textPayload": "bot INFO Tick OK — equity=96914.08 posiciones=0"},
+        {"textPayload": "state.firestore INFO Estado escrito en Firestore: polaris/2026-08-27"},
+    ]
+
+    monkeypatch.setattr(canary, "_gcloud_bin", lambda: None)
+    monkeypatch.setattr(canary, "google_access_token", lambda: "adc-token")
+    monkeypatch.setattr(
+        canary.requests,
+        "post",
+        lambda *args, **kwargs: _FakeResponse(200, {"entries": entries}),
+    )
+
+    result = canary.verify_recent_cloud_run_health()
+
+    assert result["bad_markers"] == 0
+    assert result["tick_ok_count"] == 1
+    assert result["firestore_write_count"] == 1
+    assert result["handled_feed_fallback_count"] == 2
+
+
+def test_recent_health_fails_without_fresh_tick_or_firestore(monkeypatch):
+    monkeypatch.setattr(canary, "_gcloud_bin", lambda: None)
+    monkeypatch.setattr(canary, "google_access_token", lambda: "adc-token")
+    monkeypatch.setattr(
+        canary.requests,
+        "post",
+        lambda *args, **kwargs: _FakeResponse(
+            200,
+            {"entries": [{"textPayload": "feed WARNING AMD: reintento con yfinance"}]},
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="missing_recent_tick_ok"):
+        canary.verify_recent_cloud_run_health()
+
+
+def test_recent_health_still_fails_on_critical_traceback(monkeypatch):
+    monkeypatch.setattr(canary, "_gcloud_bin", lambda: None)
+    monkeypatch.setattr(canary, "google_access_token", lambda: "adc-token")
+    monkeypatch.setattr(
+        canary.requests,
+        "post",
+        lambda *args, **kwargs: _FakeResponse(
+            200,
+            {
+                "entries": [
+                    {"textPayload": "bot INFO Tick OK"},
+                    {"textPayload": "state.firestore INFO Estado escrito en Firestore"},
+                    {"textPayload": "Traceback (most recent call last):"},
+                ]
+            },
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="critical_error_in_recent_logs"):
+        canary.verify_recent_cloud_run_health()

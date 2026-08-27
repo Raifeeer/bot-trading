@@ -307,11 +307,31 @@ def verify_recent_cloud_run_health() -> dict:
             payload = entry.get("jsonPayload")
             if isinstance(payload, dict):
                 lines.append(json.dumps(payload, sort_keys=True))
-    bad_markers = ("Traceback", "CRITICAL", " ERROR ", "409 Conflict", "SIP", "^VIX")
-    warnings = [line.strip()[:300] for line in lines if any(marker in line for marker in bad_markers)]
-    if warnings:
-        raise RuntimeError("cloud_run_or_feed_warning_in_recent_logs")
-    return {"window_minutes": 10, "bad_markers": 0}
+    critical_markers = ("Traceback", "CRITICAL", " ERROR ", "409 Conflict")
+    critical_lines = [line.strip()[:300] for line in lines if any(marker in line for marker in critical_markers)]
+    if critical_lines:
+        raise RuntimeError("cloud_run_critical_error_in_recent_logs")
+    tick_ok_count = sum("Tick OK" in line for line in lines)
+    firestore_write_count = sum(
+        "Estado escrito en Firestore" in line or "Firestore write" in line
+        for line in lines
+    )
+    if tick_ok_count == 0:
+        raise RuntimeError("cloud_run_health_missing_recent_tick_ok")
+    if firestore_write_count == 0:
+        raise RuntimeError("cloud_run_health_missing_recent_firestore_write")
+    handled_feed_fallback_count = sum(
+        "subscription does not permit querying recent SIP data" in line
+        or "reintento con yfinance" in line
+        for line in lines
+    )
+    return {
+        "window_minutes": 10,
+        "bad_markers": 0,
+        "tick_ok_count": tick_ok_count,
+        "firestore_write_count": firestore_write_count,
+        "handled_feed_fallback_count": handled_feed_fallback_count,
+    }
 
 
 def verify_paper_account() -> dict:
