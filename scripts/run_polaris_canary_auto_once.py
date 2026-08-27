@@ -11,11 +11,13 @@ habilita el loop principal de Polaris.
 """
 from __future__ import annotations
 
+import base64
 import datetime as dt
 import hashlib
 import json
 import logging
 import os
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -23,10 +25,10 @@ from typing import Any
 
 import requests
 
-PROJECT = "gen-lang-client-0746441136"
-REGION = "us-central1"
-SERVICE = "polaris-bot"
-EXPECTED_REVISION = "polaris-bot-telegramrotate2"
+PROJECT = os.environ.get("GOOGLE_CLOUD_PROJECT", "gen-lang-client-0746441136")
+REGION = os.environ.get("CLOUD_RUN_REGION", "us-central1")
+SERVICE = os.environ.get("POLARIS_SERVICE", "polaris-bot")
+EXPECTED_REVISION = os.environ.get("POLARIS_EXPECTED_REVISION", "polaris-bot-telegramrotate2")
 TRADING_BASE = "https://paper-api.alpaca.markets/v2"
 DATA_BASE = "https://data.alpaca.markets/v2"
 OPTIONS_DATA_BASE = "https://data.alpaca.markets/v1beta1"
@@ -39,7 +41,7 @@ COMMISSION_PER_CONTRACT_SIDE = 0.65
 ENTRY_TIMEOUT = 120
 EXIT_TIMEOUT = 120
 POLL_SECONDS = 5
-RUN_ROOT = Path("/home/ubuntu/backtests")
+RUN_ROOT = Path(os.environ.get("CANARY_RUN_ROOT", "/tmp/polaris-canary"))
 logger = logging.getLogger("polaris.canary.auto")
 
 
@@ -79,16 +81,67 @@ def api(method: str, base: str, path: str, *, params: dict | None = None, body: 
     return response.status_code, _json_response(response)
 
 
+def _gcloud_bin() -> str | None:
+    return os.environ.get("GCLOUD_BIN") or shutil.which("gcloud")
+
+
+def google_access_token() -> str:
+    explicit = os.environ.get("GOOGLE_OAUTH_ACCESS_TOKEN")
+    if explicit:
+        return explicit
+    gcloud = _gcloud_bin()
+    if gcloud:
+        try:
+            return subprocess.check_output(
+                [gcloud, "auth", "print-access-token"], text=True, timeout=30
+            ).strip()
+        except (OSError, subprocess.SubprocessError):
+            pass
+    try:
+        import google.auth
+        from google.auth.transport.requests import Request
+
+        credentials, _ = google.auth.default(
+            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
+        if not credentials.valid or credentials.expired:
+            credentials.refresh(Request())
+        if not credentials.token:
+            raise RuntimeError("google_adc_token_missing")
+        return credentials.token
+    except Exception as exc:
+        raise RuntimeError("google_adc_unavailable") from exc
+
+
 def secret(name: str) -> str:
-    return subprocess.check_output(
-        [GCLOUD, "secrets", "versions", "access", "latest", f"--secret={name}", f"--project={PROJECT}"],
-        text=True,
+    env_name = {
+        "alpaca-key": "APCA_API_KEY_ID",
+        "alpaca-secret": "APCA_API_SECRET_KEY",
+    }.get(name)
+    if env_name and os.environ.get(env_name):
+        return os.environ[env_name]
+    gcloud = _gcloud_bin()
+    if gcloud:
+        return subprocess.check_output(
+            [gcloud, "secrets", "versions", "access", "latest", f"--secret={name}", f"--project={PROJECT}"],
+            text=True,
+            timeout=30,
+        ).strip()
+    response = requests.get(
+        f"https://secretmanager.googleapis.com/v1/projects/{PROJECT}/secrets/{name}/versions/latest:access",
+        headers={"Authorization": f"Bearer {google_access_token()}"},
         timeout=30,
-    ).strip()
+    )
+    if response.status_code != 200:
+        raise RuntimeError(f"secret_access_failed_http_{response.status_code}")
+    payload = _json_response(response).get("payload", {}).get("data")
+    if not payload:
+        raise RuntimeError(f"secret_payload_missing:{name}")
+    return base64.b64decode(payload).decode("utf-8").strip()
 
 
 def firestore_token() -> str:
-    return subprocess.check_output([GCLOUD, "auth", "print-access-token"], text=True, timeout=30).strip()
+    return google_access_token()
 
 
 def _fs_encode(value: Any) -> dict:
@@ -164,21 +217,33 @@ def persist_run(run_id: str, data: dict, update_time: str | None = None):
 
 
 def verify_cloud_run() -> dict:
-    raw = subprocess.check_output(
-        [
-            GCLOUD,
-            "run",
-            "services",
-            "describe",
-            SERVICE,
-            f"--project={PROJECT}",
-            f"--region={REGION}",
-            "--format=json",
-        ],
-        text=True,
-        timeout=30,
-    )
-    service = json.loads(raw)
+    gcloud = _gcloud_bin()
+    if gcloud:
+        raw = subprocess.check_output(
+            [
+                gcloud,
+                "run",
+                "services",
+                "describe",
+                SERVICE,
+                f"--project={PROJECT}",
+                f"--region={REGION}",
+                "--format=json",
+            ],
+            text=True,
+            timeout=30,
+        )
+        service = json.loads(raw)
+    else:
+        response = requests.get(
+            f"https://run.googleapis.com/apis/serving.knative.dev/v1/namespaces/{PROJECT}/services/{SERVICE}",
+            headers={"Authorization": f"Bearer {google_access_token()}"},
+            params={"location": REGION},
+            timeout=30,
+        )
+        if response.status_code != 200:
+            raise RuntimeError(f"cloud_run_lookup_failed_http_{response.status_code}")
+        service = _json_response(response)
     traffic = service.get("status", {}).get("traffic", [])
     active = [item for item in traffic if int(item.get("percent", 0)) == 100]
     if len(active) != 1 or active[0].get("revisionName") != EXPECTED_REVISION:
@@ -197,21 +262,47 @@ def verify_recent_cloud_run_health() -> dict:
         f'resource.labels.revision_name={EXPECTED_REVISION} AND '
         f'timestamp>="{start}"'
     )
-    raw = subprocess.check_output(
-        [
-            GCLOUD,
-            "logging",
-            "read",
-            filter_text,
-            f"--project={PROJECT}",
-            "--limit=250",
-            "--format=value(textPayload,jsonPayload.message)",
-        ],
-        text=True,
-        timeout=45,
-    )
+    gcloud = _gcloud_bin()
+    if gcloud:
+        raw = subprocess.check_output(
+            [
+                gcloud,
+                "logging",
+                "read",
+                filter_text,
+                f"--project={PROJECT}",
+                "--limit=250",
+                "--format=value(textPayload,jsonPayload.message)",
+            ],
+            text=True,
+            timeout=45,
+        )
+        lines = raw.splitlines()
+    else:
+        response = requests.post(
+            "https://logging.googleapis.com/v2/entries:list",
+            headers={"Authorization": f"Bearer {google_access_token()}"},
+            json={
+                "resourceNames": [f"projects/{PROJECT}"],
+                "filter": filter_text,
+                "orderBy": "timestamp desc",
+                "pageSize": 250,
+            },
+            timeout=45,
+        )
+        if response.status_code != 200:
+            raise RuntimeError(f"cloud_run_log_lookup_failed_http_{response.status_code}")
+        entries = _json_response(response).get("entries", [])
+        lines = []
+        for entry in entries:
+            payload = entry.get("textPayload")
+            if payload:
+                lines.append(str(payload))
+            payload = entry.get("jsonPayload")
+            if isinstance(payload, dict):
+                lines.append(json.dumps(payload, sort_keys=True))
     bad_markers = ("Traceback", "CRITICAL", " ERROR ", "409 Conflict", "SIP", "^VIX")
-    warnings = [line.strip()[:300] for line in raw.splitlines() if any(marker in line for marker in bad_markers)]
+    warnings = [line.strip()[:300] for line in lines if any(marker in line for marker in bad_markers)]
     if warnings:
         raise RuntimeError("cloud_run_or_feed_warning_in_recent_logs")
     return {"window_minutes": 10, "bad_markers": 0}

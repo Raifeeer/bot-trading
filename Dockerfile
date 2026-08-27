@@ -24,6 +24,7 @@ COPY risk/ risk/
 COPY engine/ engine/
 COPY execution/ execution/
 COPY state/ state/
+COPY scripts/ scripts/
 COPY bot.py .
 
 # Un servidor HTTP mínimo para que Cloud Run reciba health-checks
