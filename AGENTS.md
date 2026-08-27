@@ -2346,3 +2346,10 @@ La compuerta de salud fue ajustada con evidencia. Los warnings conocidos `subscr
 La canary real **no se ha ejecutado**. La política autorizada continúa limitada a una sola vertical MLeg de calls, 2 patas, 1 contrato, débito máximo `$0.20` por acción, pérdida máxima de prima `$20` más comisiones, `DAY`, timeout de entrada/salida 120 s, sin fallback individual ni reintentos ambiguos y cierre automático si entra. El job `polaris-canary-paper` no debe ejecutarse sin retirar explícitamente el modo preflight y usar un `CANARY_RUN_ID` nuevo. La tarea Manus `SX5nHwM1VFC9LKEtbruh1Q` permanece pausada y no debe reactivarse ni duplicarse.
 
 El token Telegram usado en la rotación v2 fue expuesto en la conversación y debe considerarse comprometido. No imprimirlo, guardarlo ni reutilizarlo: solicitar un token nuevo en BotFather, crear una nueva versión de `telegram-bot-token`, desplegar una revisión conservando toda la especificación y verificar `getMe`/polling antes de cualquier canary operativa. No operar REAL, no quitar `risk.halt_new_entries`, no comprar proveedores OOS y no promover estrategias por este preflight.
+
+
+### Preparación segura del job PAPER — 27 de agosto de 2026 UTC
+
+Después del preflight exitoso, `polaris-canary-paper` quedó actualizado a la imagen inmutable `polaris-canary:18e99cd@sha256:035cb0304ced6a293f924d3893157e4dfeefe60c43e1015e49d0f9047012c3d4`. Conserva una task, `maxRetries=0`, timeout de 600 s, el comando `python3 scripts/run_polaris_canary_auto_once.py`, la Compute default service account y las referencias de secretos Alpaca. Se fijaron `CANARY_PREFLIGHT_ONLY=1` y el ID inofensivo `canary-paper-armed-preflight-2026-08-27`.
+
+Este job está **armado, no ejecutado**. No retirar `CANARY_PREFLIGHT_ONLY`, no reutilizar ese ID y no invocar `polaris-canary-paper` hasta obtener confirmación explícita vigente con la operación exacta, el contrato MLeg, límite, pérdida máxima y ventana temporal. La producción continúa en `polaris-bot-telegramrotate2` al 100%, PAPER y con `risk.halt_new_entries=true`.
