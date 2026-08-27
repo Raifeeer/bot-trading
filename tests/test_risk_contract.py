@@ -76,12 +76,17 @@ class TestRiskContract(unittest.TestCase):
         config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
         risk = config["risk"]
         options = config["universo"]["options_reto"]
+        bear = config["universo"]["options_bear"]
 
         self.assertFalse(risk["halt_new_entries"])
         self.assertEqual(risk["max_open_positions"], 1)
         self.assertEqual(risk["max_daily_loss_usd"], 20.0)
         self.assertLessEqual(options["max_premium_net"], 20.0)
         self.assertEqual(options["direction"], "bull")
+        self.assertTrue(bear["enabled"])
+        self.assertEqual(bear["min_premium_net"], 0.0)
+        self.assertEqual(bear["max_premium_net"], 20.0)
+        self.assertEqual(bear["max_positions"], 1)
 
     def test_telegram_risk_supports_canonical_percentage_and_legacy_fraction(self):
         with patch.object(telegram_bot, "_state", {

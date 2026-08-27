@@ -1554,6 +1554,7 @@ def options_bear_cfg(cfg):
         sl_mult=float(uni.get("sl_premium_mult", 0.50)),
         close_dte=int(uni.get("close_dte", 7)),
         max_positions=int(uni.get("max_positions", 2)),
+        max_premium_net=float(uni.get("max_premium_net", 20.0)),
     )
 
 
@@ -2353,6 +2354,12 @@ def main():
                                 "el presupuesto seguro", sym)
                             continue
                         prima_total = prima_uno * n_contratos
+                        if prima_total > bcfg["max_premium_net"]:
+                            logger.info(
+                                "BEAR: %s descartado, prima total %.2f > "
+                                "tope PAPER %.2f",
+                                sym, prima_total, bcfg["max_premium_net"])
+                            continue
                         # Umbral medido en la ronda 5: por debajo de esta prima
                         # las 4 comisiones del spread se comen la ventaja.
                         if prima_total < bcfg["min_premium_net"]:
