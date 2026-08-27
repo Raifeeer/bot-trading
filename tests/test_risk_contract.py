@@ -1,8 +1,8 @@
 import sys
 import unittest
 from datetime import date
-from types import SimpleNamespace
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -68,6 +68,20 @@ class TestRiskContract(unittest.TestCase):
         self.assertIn("Órdenes broker abiertas: 1", msg)
         self.assertIn("Exit intents activos: 1", msg)
         self.assertIn("1 broker / 0 estado", msg)
+
+    def test_live_paper_activation_policy_is_bounded(self):
+        import yaml
+
+        config_path = Path(__file__).parents[1] / "config" / "config.yaml"
+        config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        risk = config["risk"]
+        options = config["universo"]["options_reto"]
+
+        self.assertFalse(risk["halt_new_entries"])
+        self.assertEqual(risk["max_open_positions"], 1)
+        self.assertEqual(risk["max_daily_loss_usd"], 20.0)
+        self.assertLessEqual(options["max_premium_net"], 20.0)
+        self.assertEqual(options["direction"], "bull")
 
     def test_telegram_risk_supports_canonical_percentage_and_legacy_fraction(self):
         with patch.object(telegram_bot, "_state", {

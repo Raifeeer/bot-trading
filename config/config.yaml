@@ -309,19 +309,17 @@ risk:
   earnings_horizon_days: 2
   # RETO $100 -> $200: perfil agresivo pero con válvulas de seguridad
   mode: aggressive             # conservative | moderate | aggressive
-  halt_new_entries: true       # contención post-incidente; solo gestionar/reconciliar salidas
-  max_risk_per_trade_pct: 5.0 # % del capital en riesgo por operación (~$20/trade)
-  max_open_positions: 2        # pocas posiciones simultáneas por capital reducido
+  halt_new_entries: false      # activación PAPER gradual; REAL sigue prohibido
+  max_risk_per_trade_pct: 5.0 # límite porcentual superior; el presupuesto absoluto manda
+  max_open_positions: 1        # una sola posición MLeg abierta durante la activación
   max_sector_weight_pct: 60.0  # concentración permitida para el reto
   max_drawdown_daily_pct: 15.0 # detiene trading del día si pierde 15% ($15)
   max_drawdown_total_pct: 30.0 # detiene el bot si el capital cae a $70
-  # Breaker diario en DOLARES ABSOLUTOS. Los porcentuales de arriba se miden
-  # sobre la cuenta completa (15% de $99,689 = $14,953), asi que a la escala
-  # del reto $100 no saltan nunca: harian falta ~19 perdidas totales de $777.
-  # Este es el que de verdad corta una mala racha con el tamano de
-  # recuperacion sin tope. Con $400, una unica entrada perdedora grande
-  # (~$777) detiene las entradas del resto del dia en vez de encadenar otra.
-  max_daily_loss_usd: 400.0
+  # Breaker diario absoluto para la activación PAPER gradual: una pérdida
+  # acumulada de $20 detiene nuevas entradas hasta el siguiente día UTC.
+  # Junto con options_reto.max_premium_net=$12 y una sola posición, limita la
+  # exposición de prima por operación por debajo del máximo autorizado de $20.
+  max_daily_loss_usd: 20.0
   # Gestión de prima por posición (reto): stop si la prima cae al 25% de la
   # entrada y take profit al +40%. Evita el error del backtest B donde una
   # posición de LCID perdió 93% por no tener stop de prima activo.
