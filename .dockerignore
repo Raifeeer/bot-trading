@@ -1,0 +1,24 @@
+# Secrets and local credentials
+.env
+.env.*
+*.pem
+*.key
+*token*
+*credential*
+pub_bt_token.py
+
+# Local/runtime state
+.git/
+__pycache__/
+*.pyc
+data/bot_state.json
+
+# Research artifacts and local caches
+backtests/
+.cache/
+.pytest_cache/
+
+# Local tooling
+.vscode/
+.idea/
+.DS_Store

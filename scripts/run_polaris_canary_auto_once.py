@@ -539,7 +539,7 @@ def main() -> int:
     os.environ.setdefault("APCA_API_KEY_ID", secret("alpaca-key"))
     os.environ.setdefault("APCA_API_SECRET_KEY", secret("alpaca-secret"))
     as_of = _now()
-    run_id = f"canary-auto-{as_of.date().isoformat()}"
+    run_id = os.environ.get("CANARY_RUN_ID", f"canary-auto-{as_of.date().isoformat()}")
     existing_code, _existing = fs_get("polaris_canary_runs", run_id)
     if existing_code == 200:
         raise RuntimeError("canary_run_already_exists_no_retry")
@@ -590,6 +590,10 @@ def main() -> int:
         client_id = f"polaris-auto-{as_of.date().strftime('%Y%m%d')}-{fingerprint}"
         run.update({"status": "entry_preflight_passed", "client_order_id": client_id, "entry_limit": pair["debit"]})
         update_time = persist_run(run_id, run, update_time)
+        if os.environ.get("CANARY_PREFLIGHT_ONLY") == "1":
+            run.update({"status": "preflight_only", "orders_allowed": False})
+            persist_run(run_id, run, update_time)
+            return 0
         existing_order = find_existing_order(client_id)
         if existing_order is not None:
             raise RuntimeError("client_order_id_already_present_no_retry")
