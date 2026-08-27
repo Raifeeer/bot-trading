@@ -236,7 +236,7 @@ class TestExecutionContract(unittest.TestCase):
     def test_bot_has_no_sequential_spread_submission_path(self):
         source = (Path(__file__).resolve().parents[1] / "bot.py").read_text()
         self.assertNotIn("executor.submit_option_order", source)
-        self.assertEqual(source.count("executor.submit_spread"), 3)
+        self.assertEqual(source.count("executor.submit_spread"), 4)
 
     def test_spread_rejects_non_day_time_in_force(self):
         executor = AlpacaExecutor()

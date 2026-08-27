@@ -81,6 +81,40 @@ universo:
     close_dte: 7
     max_positions: 1
     max_premium_net: 50.0     # tope duro PAPER; una operación puede perder $50
+  # Motor de régimen PAPER: en bull puede abrir un call spread definido si no
+  # hubo entrada de los motores principales. En bear la ruta separada de
+  # regime_hold_cash + put_choch gestiona los put spreads.
+  regime_aware:
+    enabled: true
+    bull_enabled: true
+    bear_enabled: false       # la dirección bear la gobierna put_choch
+    min_bull_symbols: 1
+    dte_min: 10
+    dte_max: 45
+    delta_long: 0.25
+    delta_short: 0.10
+    max_premium_net: 12.0     # llamadas: se conserva el tope del motor bull
+  # El modo hold/cash solo permite defensivas cuando el régimen global es bear
+  # y existe CHoCH bajista por símbolo; en bull/cash no crea órdenes.
+  regime_hold_cash:
+    enabled: true
+    put_choch_enabled: true
+  # Relative strength: motor de órdenes independiente, long-only en bull y
+  # put spreads definidos en bear. No abre cortos de acciones ni opciones desnudas.
+  relative_strength:
+    enabled: true
+    horizon_bars: 20
+    top_percentile: 0.75
+    bottom_percentile: 0.25
+    only_positive: true
+    allow_shorts: true
+    min_excess_return: 0.0
+    dte_min: 10
+    dte_max: 45
+    delta_long: 0.25
+    delta_short: 0.10
+    max_premium_bull: 12.0
+    max_premium_bear: 50.0
   # Parámetros de estructuras para el reto (usados por options_bridge):
   options_reto:
     direction: bull            # solo largos en fase 1 (sin pata corta expuesta)

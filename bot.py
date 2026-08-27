@@ -1558,6 +1558,193 @@ def options_bear_cfg(cfg):
     )
 
 
+def _regime_aware_candidates(regime: dict, state: dict, cfg: dict) -> list[dict]:
+    """Candidatos del motor regime-aware para una entrada bull definida.
+
+    El simulador histórico trataba bull como una cesta igualmente ponderada. En
+    producción PAPER, con una sola posición total, se selecciona el símbolo
+    bull con mayor RSI disponible como proxy determinista y conservador; el
+    régimen global sigue siendo obligatorio.
+    """
+    rcfg = (cfg.get("universo", {}) or {}).get("regime_aware") or {}
+    if not rcfg.get("enabled", False) or not rcfg.get("bull_enabled", False):
+        return []
+    if regime.get("regime") != "bull" or _entry_halt(cfg, state):
+        return []
+    if int(regime.get("bull_count", 0)) < int(rcfg.get("min_bull_symbols", 1)):
+        return []
+    abiertos = {p.get("symbol") for p in state.get("positions", [])}
+    status = regime.get("ticker_status") or {}
+    rows = [
+        {"symbol": symbol, "direction": "bull", "score": float(item.get("rsi") or 0.0), "reason": "regime_bull"}
+        for symbol, item in status.items()
+        if item.get("bull") and symbol not in abiertos
+    ]
+    return sorted(rows, key=lambda row: (-row["score"], row["symbol"]))
+
+
+def _relative_strength_candidates(data_1d: dict, regime: dict,
+                                  state: dict, cfg: dict) -> list[dict]:
+    """Convierte el ranking cross-sectional en candidatos de órdenes PAPER.
+
+    Líderes con régimen bull generan call spreads; laggards negativos con
+    régimen bear generan put spreads. El detector conserva su comportamiento
+    fail-closed ante datos faltantes y aquí se añade una confirmación explícita
+    del régimen global antes de permitir cualquier orden.
+    """
+    rcfg = (cfg.get("universo", {}) or {}).get("relative_strength") or {}
+    if not rcfg.get("enabled", False) or _entry_halt(cfg, state):
+        return []
+    if regime.get("regime") not in {"bull", "bear"} or not data_1d:
+        return []
+    try:
+        from strategies.relative_strength_rotation import evaluate_relative_strength
+        result = evaluate_relative_strength(
+            data_1d,
+            horizon_bars=int(rcfg.get("horizon_bars", 20)),
+            top_percentile=float(rcfg.get("top_percentile", 0.75)),
+            bottom_percentile=float(rcfg.get("bottom_percentile", 0.25)),
+            only_positive=bool(rcfg.get("only_positive", True)),
+            allow_shorts=bool(rcfg.get("allow_shorts", True)),
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("RELATIVE_STRENGTH: señal no disponible (%s)", exc)
+        return []
+    abiertos = {p.get("symbol") for p in state.get("positions", [])}
+    min_excess = float(rcfg.get("min_excess_return", 0.0))
+    candidates = []
+    for observation in result.get("observations", []):
+        symbol = observation.get("symbol")
+        direction = observation.get("direction")
+        excess = float(observation.get("excess_return") or 0.0)
+        if not symbol or symbol in abiertos:
+            continue
+        if regime.get("regime") == "bull":
+            if direction != "bull" or excess < min_excess:
+                continue
+            order_direction = "bull"
+        else:
+            if direction != "bear" or excess > -min_excess:
+                continue
+            order_direction = "bear"
+        candidates.append({
+            "symbol": symbol,
+            "direction": order_direction,
+            "score": abs(excess),
+            "reason": (f"relative_strength {direction} rank={observation.get('rank')} "
+                       f"excess={excess:.4f}"),
+            "observation": observation,
+        })
+    return sorted(candidates, key=lambda row: (-row["score"], row["symbol"]))
+
+
+def _submit_managed_option_entry(executor, builder, rm, state, cfg, equity,
+                                 symbol: str, strategy_name: str,
+                                 direction: str, dte_min: int, dte_max: int,
+                                 delta_long: float, delta_short: float,
+                                 max_premium_net: float, regime: dict) -> dict:
+    """Construye, valida, reclama y envía una única entrada MLeg.
+
+    Todas las rutas nuevas pasan por el mismo contrato: cotizaciones válidas,
+    presupuesto de prima, RiskManager, claim CAS en Firestore, una orden padre
+    MLeg y fail-closed ante cualquier respuesta ambigua.
+    """
+    try:
+        structure = builder.vertical_spread(
+            symbol, None, direction, delta_long, delta_short,
+            dte_min=dte_min, dte_max=dte_max)
+    except Exception as exc:  # noqa: BLE001
+        return {"submitted": False, "reason": f"no_structure:{exc}"}
+    premium = abs(float(structure.net_premium))
+    if premium <= 0:
+        return {"submitted": False, "reason": "invalid_premium"}
+    if premium > float(max_premium_net):
+        return {"submitted": False, "reason": f"premium_over_cap:{premium:.2f}>{max_premium_net:.2f}"}
+    if len(state.get("positions", [])) >= int((cfg.get("risk", {}) or {}).get("max_open_positions", 1)):
+        return {"submitted": False, "reason": "max_open_positions"}
+    decision = rm.approve_option_structure(
+        symbol, structure, equity, state.get("positions", []),
+        strategy=strategy_name, contracts=1)
+    if decision.decision != "APPROVED":
+        return {"submitted": False, "reason": f"risk_rejected:{decision.reason}"}
+    try:
+        specs = _option_order_specs(structure, cfg, contracts=1)
+    except Exception as exc:  # noqa: BLE001
+        return {"submitted": False, "reason": f"quote_invalid:{exc}"}
+    entry_ts = datetime.utcnow().isoformat()
+    identity = repr(("entry", strategy_name, direction, symbol,
+                     structure.name, specs))
+    client_order_id = _execution_client_order_id("entry", identity)
+    intent = {
+        "status": "submitting", "client_order_id": client_order_id,
+        "created_ts": entry_ts, "symbol": symbol, "strategy": strategy_name,
+        "structure": structure.name, "specs": specs,
+    }
+    state.setdefault("entry_intents", {})[client_order_id] = intent
+    claim = _claim_entry_for_execution(executor, client_order_id, intent)
+    if not claim.get("claimed"):
+        intent.update({"status": "needs_review", "last_error": "entry_ledger_claim_failed"})
+        state["_broker_reconciliation_halt"] = True
+        save_state(state)
+        return {"submitted": False, "reason": "entry_ledger_claim_failed"}
+    intent["ledger_id"] = claim.get("ledger_id")
+    save_state(state)
+    try:
+        submitted = executor.submit_spread(
+            specs,
+            time_in_force=(cfg.get("execution", {}) or {}).get("default_time_in_force", "day"),
+            order_type=specs[0].get("order_type"),
+            client_order_id=client_order_id,
+        )
+        if not executor.dry_run and not submitted.get("id"):
+            raise ExecutionError("Alpaca no devolvió ID para la orden MLeg")
+        submitted_ts = datetime.utcnow().isoformat()
+        intent.update({"status": "submitted", "order_id": submitted.get("id"), "submitted_ts": submitted_ts})
+        if not _update_entry_for_execution(executor, intent.get("ledger_id"), {
+            "status": "submitted", "order_id": submitted.get("id"),
+            "close_orders": [], "submitted_ts": submitted_ts,
+        }):
+            raise ExecutionError("Entry ledger no confirmó la orden MLeg")
+    except Exception as exc:  # noqa: BLE001
+        intent.update({"status": "submission_unknown", "last_error": str(exc),
+                       "last_error_ts": datetime.utcnow().isoformat()})
+        state["_broker_reconciliation_halt"] = True
+        state.setdefault("decisions", []).append({
+            "ts": datetime.utcnow().isoformat(), "action": "ENTRY_SUBMISSION_REVIEW",
+            "symbol": symbol, "strategy": strategy_name,
+            "client_order_id": client_order_id, "reason": str(exc),
+        })
+        save_state(state)
+        logger.critical("Entrada MLeg %s en estado desconocido; no se reintenta: %s", symbol, exc)
+        return {"submitted": False, "reason": "submission_unknown"}
+    state["positions"].append({
+        "symbol": symbol, "strategy": strategy_name,
+        "kind": "put" if direction == "bear" else "call",
+        "structure": structure.name, "net_premium": structure.net_premium,
+        "max_risk": structure.max_risk, "legs": specs,
+        "entry_orders": [submitted], "entry_ts": entry_ts,
+        "entry_client_order_id": client_order_id,
+    })
+    state["_broker_reconciliation_halt"] = True
+    state.setdefault("decisions", []).append({
+        "ts": datetime.utcnow().isoformat(), "decision": "APPROVED",
+        "symbol": symbol, "strategy": strategy_name,
+        "reason": f"{direction} {structure.name}",
+    })
+    save_state(state)
+    logger.warning("MLeg %s enviado %s %s prima=%.2f (régimen %s)",
+                   direction, symbol, strategy_name, premium, regime.get("regime"))
+    try:
+        notify_position_open(symbol, strategy_name, structure.name,
+                             structure.net_premium, structure.max_risk,
+                             trading_mode())
+    except Exception:  # noqa: BLE001
+        logger.exception("Fallo notificando apertura %s", strategy_name)
+    return {"submitted": True, "premium": premium, "structure": structure.name,
+            "specs": specs, "order_id": submitted.get("id"),
+            "reason": "submitted"}
+
+
 def exit_cfg_for_position(pos: dict, cfg: dict) -> dict:
     """Multiplicadores de salida SEGÚN EL TIPO de posición.
 
@@ -2323,15 +2510,20 @@ def main():
             #     positivo, mediana +6.8%, batiendo al cash).
             try:
                 bcfg = options_bear_cfg(cfg)
-                candidatos = bear_entry_candidates(regime, state, cfg)
+                hold_cfg = (cfg.get("universo", {}) or {}).get("regime_hold_cash") or {}
+                combo_enabled = bool(hold_cfg.get("enabled", True)) and bool(
+                    hold_cfg.get("put_choch_enabled", True))
+                candidatos = (bear_entry_candidates(regime, state, cfg)
+                              if combo_enabled else [])
                 signal_stats["bear_candidates"] = len(candidatos)
+                signal_stats["bear_engine"] = "regime_hold_cash_put_choch" if combo_enabled else "disabled"
                 if candidatos and not (regime.get("floor") or {}).get("below_floor") \
                         and not rm.is_halted():
                     for sym in candidatos:
                         promoted_breakdown = sym in set(promoted_breakdown_symbols)
                         strategy_name = (
                             "promoted_breakdown_retest"
-                            if promoted_breakdown else "bear_put_choch"
+                            if promoted_breakdown else "regime_hold_cash_put_choch"
                         )
                         try:
                             st = builder.vertical_spread(
@@ -2397,6 +2589,20 @@ def main():
                             "specs": order_specs,
                         }
                         state.setdefault("entry_intents", {})[client_order_id] = entry_intent
+                        claim = _claim_entry_for_execution(
+                            executor, client_order_id, entry_intent)
+                        if not claim.get("claimed"):
+                            entry_intent.update({
+                                "status": "needs_review",
+                                "last_error": "entry_ledger_claim_failed",
+                            })
+                            state["_broker_reconciliation_halt"] = True
+                            save_state(state)
+                            logger.critical(
+                                "Entrada MLeg bajista %s no reclamada en ledger; no se envía",
+                                sym)
+                            continue
+                        entry_intent["ledger_id"] = claim.get("ledger_id")
                         save_state(state)
                         try:
                             submitted = executor.submit_spread(
@@ -2409,11 +2615,21 @@ def main():
                             if not executor.dry_run and not submitted.get("id"):
                                 raise ExecutionError(
                                     "Alpaca no devolvió ID para la orden MLeg bajista")
+                            submitted_ts = datetime.utcnow().isoformat()
                             entry_intent.update({
                                 "status": "submitted",
                                 "order_id": submitted.get("id"),
-                                "submitted_ts": datetime.utcnow().isoformat(),
+                                "submitted_ts": submitted_ts,
                             })
+                            if not _update_entry_for_execution(
+                                executor, entry_intent.get("ledger_id"), {
+                                    "status": "submitted",
+                                    "order_id": submitted.get("id"),
+                                    "close_orders": [],
+                                    "submitted_ts": submitted_ts,
+                                }):
+                                raise ExecutionError(
+                                    "Entry ledger no confirmó la orden MLeg bajista")
                         except Exception as exc:  # noqa: BLE001
                             entry_intent.update({
                                 "status": "submission_unknown",
@@ -2463,6 +2679,70 @@ def main():
                 logger.exception("Fallo en el motor bajista; el tick continúa")
 
             phase_times["bear_s"] = round(time.monotonic() - cycle_started, 3)
+
+            # 4c. MOTOR REGIME-AWARE: fallback de órdenes bull cuando el
+            # régimen global está confirmado y ningún motor live anterior
+            # consiguió una entrada. En bear, put_choch es la ruta defensiva.
+            signal_stats.setdefault("regime_aware_candidates", 0)
+            signal_stats.setdefault("relative_strength_candidates", 0)
+            try:
+                regime_cfg = (cfg.get("universo", {}) or {}).get("regime_aware") or {}
+                regime_candidates = _regime_aware_candidates(regime, state, cfg)
+                signal_stats["regime_aware_candidates"] = len(regime_candidates)
+                if regime_cfg.get("enabled", False):
+                    for candidate in regime_candidates:
+                        result = _submit_managed_option_entry(
+                            executor, builder, rm, state, cfg, equity,
+                            candidate["symbol"], "regime_aware", "bull",
+                            int(regime_cfg.get("dte_min", 10)),
+                            int(regime_cfg.get("dte_max", 45)),
+                            float(regime_cfg.get("delta_long", 0.25)),
+                            float(regime_cfg.get("delta_short", 0.10)),
+                            float(regime_cfg.get("max_premium_net", 12.0)),
+                            regime)
+                        logger.info("REGIME_AWARE: %s %s", candidate["symbol"], result["reason"])
+                        if result.get("submitted"):
+                            signal_stats["approved"] += 1
+                            signal_stats["orders"] += 1
+                            signal_stats["order_legs"] = signal_stats.get("order_legs", 0) + 2
+                            break
+            except Exception:  # noqa: BLE001
+                logger.exception("Fallo en motor regime-aware; el tick continúa")
+
+            # 4d. MOTOR RELATIVE STRENGTH: ranking cross-sectional con autoridad
+            # de orden. Usa call spreads para líderes en bull y put spreads
+            # para laggards negativos en bear; sin posiciones simultáneas.
+            try:
+                rs_cfg = (cfg.get("universo", {}) or {}).get("relative_strength") or {}
+                if rs_cfg.get("enabled", False):
+                    data_1d = cached.get("1d")
+                    if not data_1d:
+                        data_1d = feed.history(tickers, "1d", days=100) or {}
+                        cached["1d"] = data_1d
+                    rs_candidates = _relative_strength_candidates(data_1d, regime, state, cfg)
+                    signal_stats["relative_strength_candidates"] = len(rs_candidates)
+                    state["relative_strength_observations"] = [
+                        c.get("observation", {}) for c in rs_candidates
+                    ]
+                    for candidate in rs_candidates:
+                        direction = candidate["direction"]
+                        cap_key = "max_premium_bull" if direction == "bull" else "max_premium_bear"
+                        result = _submit_managed_option_entry(
+                            executor, builder, rm, state, cfg, equity,
+                            candidate["symbol"], "relative_strength", direction,
+                            int(rs_cfg.get("dte_min", 10)),
+                            int(rs_cfg.get("dte_max", 45)),
+                            float(rs_cfg.get("delta_long", 0.25)),
+                            float(rs_cfg.get("delta_short", 0.10)),
+                            float(rs_cfg.get(cap_key, 12.0)), regime)
+                        logger.info("RELATIVE_STRENGTH: %s %s", candidate["symbol"], result["reason"])
+                        if result.get("submitted"):
+                            signal_stats["approved"] += 1
+                            signal_stats["orders"] += 1
+                            signal_stats["order_legs"] = signal_stats.get("order_legs", 0) + 2
+                            break
+            except Exception:  # noqa: BLE001
+                logger.exception("Fallo en motor relative-strength; el tick continúa")
 
             # 5-6. gestionar posiciones abiertas (evaluar salida y cerrar)
             # La posición permanece en state hasta que la reconciliación con
