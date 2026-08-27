@@ -644,11 +644,11 @@ def main() -> int:
             if str(final_entry.get("status", "")).lower() not in {"canceled", "cancelled", "rejected", "expired"}:
                 cancel_order(entry["id"])
                 final_entry = wait_terminal(entry["id"], 30)
-            run.update({"status": "entry_not_filled", "entry_final": _order_record(final_entry)})
+            run.update({"status": "entry_not_filled", "entry_final": _order_record(final_entry), "orders_allowed": False})
             persist_run(run_id, run, update_time)
             return 0
         if _number(final_entry.get("filled_qty")) != 1:
-            run["status"] = "entry_partial_needs_review"
+            run.update({"status": "entry_partial_needs_review", "orders_allowed": False})
             persist_run(run_id, run, update_time)
             return 2
 
@@ -658,7 +658,7 @@ def main() -> int:
         long_bid = _number(long_q.get("bp"))
         short_ask = _number(short_q.get("ap"))
         if long_bid <= 0 or short_ask <= 0 or short_ask < long_bid:
-            run["status"] = "exit_quote_invalid_needs_review"
+            run.update({"status": "exit_quote_invalid_needs_review", "orders_allowed": False})
             persist_run(run_id, run, update_time)
             return 2
         exit_limit = round(short_ask - long_bid, 2)
@@ -682,15 +682,16 @@ def main() -> int:
             if str(final_exit.get("status", "")).lower() not in {"canceled", "cancelled", "rejected", "expired"}:
                 cancel_order(exit_order["id"])
                 final_exit = wait_terminal(exit_order["id"], 30)
-            run.update({"status": "exit_not_filled_needs_review", "exit_final": _order_record(final_exit)})
+            run.update({"status": "exit_not_filled_needs_review", "exit_final": _order_record(final_exit), "orders_allowed": False})
             persist_run(run_id, run, update_time)
             return 2
         if not verify_flat([pair["long"]["symbol"], pair["short"]["symbol"]]):
-            run["status"] = "exit_filled_position_remains_needs_review"
+            run.update({"status": "exit_filled_position_remains_needs_review", "orders_allowed": False})
             persist_run(run_id, run, update_time)
             return 2
         run.update({
             "status": "completed",
+            "orders_allowed": False,
             "active": False,
             "entry_commission_estimate": 2 * COMMISSION_PER_CONTRACT_SIDE,
             "exit_commission_estimate": 2 * COMMISSION_PER_CONTRACT_SIDE,
