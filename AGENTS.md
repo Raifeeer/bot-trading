@@ -2322,3 +2322,12 @@ Se creó la revisión `polaris-bot-telegramrotate2` con la misma imagen inmutabl
 La ventana posterior registró un `Tick OK`, escritura Firestore y `CYCLE TIMING` de 115,243 s; no hubo `Traceback`, `CRITICAL`, `409 Conflict` ni envíos MLeg. Se mantuvieron `approved=0`, `orders=0`, `open_broker_orders=0`, `new_entries_halted=True` y posiciones 0. Persisten warnings conocidos de feed SIP y `^VIX`, por lo que la canary autónoma abortará fail-closed mientras aparezcan en la ventana reciente.
 
 La tarea única `Canary PAPER MLeg acotada Polaris` fue actualizada al commit `96446b5`, revisión esperada `polaris-bot-telegramrotate2`, `runAsNewTask=true` y `runMode=full_auto`. Sigue activa para el 2026-08-27 a las 09:30 en la zona registrada `America/Santo_Domingo` (UTC-4 en la fecha programada), con expiración 13:45 UTC. La política no cambia: una vertical MLeg de calls, 1 contrato, débito máximo `$0.20` por acción, pérdida máxima `$20` más comisiones, `DAY`, timeout de 120 s, cierre automático y revisión ante cualquier ambigüedad. El bot principal continúa con `risk.halt_new_entries=true`; la canary no reutiliza la anterior.
+
+
+## 57. Aborto de tarea programada por aislamiento de entorno — 27 de agosto de 2026
+
+La tarea única `SX5nHwM1VFC9LKEtbruh1Q` se disparó en modo `full_auto`, pero abortó antes de cualquier llamada de trading porque el entorno de la nueva sesión no contenía `/home/ubuntu/bot-trading`. Por ello no pudo verificar el commit `96446b5`, `scripts/run_polaris_canary_auto_once.py`, la revisión esperada `polaris-bot-telegramrotate2`, el estado PAPER/ACTIVE, posiciones, órdenes, Firestore, logs ni quotes. El aborto fue correcto y fail-closed.
+
+La evidencia posterior confirma: documento `polaris_canary_runs/canary-auto-2026-08-27` inexistente (HTTP 404), cero client IDs `polaris-auto-` en el historial de Alpaca PAPER, cero posiciones y cero órdenes abiertas. No se modificaron Cloud Run, `config/config.yaml`, `risk.halt_new_entries` ni el bot principal.
+
+La tarea quedó en `status=pause`; no se debe reactivar, duplicar ni ejecutar manualmente hasta resolver el acceso reproducible al código y a Firestore. El defecto fue de arquitectura de ejecución programada: `runAsNewTask=true` no heredó el workspace local ni una vía autorizada de acceso a Firestore. Una corrección futura debe usar un artefacto persistente y versionado accesible desde el runtime, verificar identidad de commit, secretos y Firestore antes de crear el claim, y conservar el aborto si cualquiera de esas comprobaciones falla.

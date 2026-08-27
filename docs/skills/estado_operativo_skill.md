@@ -452,3 +452,12 @@ Se creó la versión 2 habilitada del secreto `telegram-bot-token` con el token 
 La tarea única `SX5nHwM1VFC9LKEtbruh1Q` quedó en `runAsNewTask=true`, `runMode=full_auto`, con playbook actualizado al commit `96446b5` y revisión `polaris-bot-telegramrotate2`. Está programada para el 2026-08-27 a las 09:30 en la zona registrada `America/Santo_Domingo` (UTC-4 en la fecha programada), expira 13:45 UTC y no se repite.
 
 La autorización automática queda limitada a Alpaca PAPER, una vertical MLeg de calls de 2 patas, un contrato, débito máximo `$0.20` por acción, pérdida máxima de prima `$20` más comisiones, `DAY`, timeout de entrada/salida de 120 s, sin fallback a patas individuales, sin reintentos ambiguos y con cierre automático más verificación de cuenta plana. Si falla cualquier preflight, feed, ledger, quote, posición u orden, aborta sin enviar. No modifica Cloud Run, `config/config.yaml` ni `risk.halt_new_entries`.
+
+
+## Aborto de canary programada por aislamiento del workspace — 27 de agosto de 2026
+
+La tarea `SX5nHwM1VFC9LKEtbruh1Q` se disparó en `full_auto`, pero el entorno de la nueva sesión no contenía `/home/ubuntu/bot-trading`. El runner abortó antes de cualquier operación porque no pudo verificar commit, Cloud Run, PAPER, Firestore, posiciones, órdenes ni quotes. Esto fue un aborto fail-closed correcto.
+
+Verificación posterior: documento `polaris_canary_runs/canary-auto-2026-08-27` inexistente, cero IDs `polaris-auto-` en órdenes PAPER, cero posiciones y cero órdenes abiertas. No hubo cambios en Cloud Run, `config/config.yaml`, `risk.halt_new_entries` ni el bot principal. La tarea quedó en `pause`.
+
+Causa: `runAsNewTask=true` no heredó el workspace local ni una vía autorizada para leer Firestore. No reactivar, duplicar ni ejecutar manualmente hasta implementar una ruta persistente y auditable —artefacto versionado accesible desde el runtime, identidad de commit, autenticación Firestore y secretos— con pruebas de preflight sin órdenes. La política automática autorizada sigue vigente, pero requiere una nueva programación después de corregir esta limitación.
