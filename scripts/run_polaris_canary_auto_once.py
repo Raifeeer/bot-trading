@@ -19,6 +19,7 @@ import logging
 import os
 import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -529,6 +530,9 @@ def _order_record(order: dict) -> dict:
 
 
 def submit_mleg(legs: list[dict], limit_price: float, client_order_id: str, closing: bool) -> dict:
+    repo_root = str(Path(__file__).resolve().parents[1])
+    if repo_root not in sys.path:
+        sys.path.insert(0, repo_root)
     from execution.alpaca_executor import AlpacaExecutor
 
     executor = AlpacaExecutor(dry_run=False)
@@ -695,7 +699,12 @@ def main() -> int:
         persist_run(run_id, run, update_time)
         return 0
     except Exception as exc:
-        run.update({"status": "failed_needs_review", "error_type": type(exc).__name__, "error": str(exc)[:300]})
+        run.update({
+            "status": "failed_needs_review",
+            "orders_allowed": False,
+            "error_type": type(exc).__name__,
+            "error": str(exc)[:300],
+        })
         try:
             persist_run(run_id, run, update_time)
         except (RuntimeError, OSError, subprocess.SubprocessError, requests.RequestException) as persist_exc:

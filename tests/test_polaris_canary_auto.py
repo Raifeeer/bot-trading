@@ -257,3 +257,31 @@ def test_recent_health_still_fails_on_critical_traceback(monkeypatch):
 
     with pytest.raises(RuntimeError, match="critical_error_in_recent_logs"):
         canary.verify_recent_cloud_run_health()
+
+
+def test_failure_path_persists_orders_disabled(monkeypatch, tmp_path):
+    persisted = []
+
+    monkeypatch.setenv("APCA_API_KEY_ID", "paper-key")
+    monkeypatch.setenv("APCA_API_SECRET_KEY", "paper-secret")
+    monkeypatch.setenv("CANARY_RUN_ID", "canary-test-failure-closed")
+    monkeypatch.delenv("CANARY_PREFLIGHT_ONLY", raising=False)
+    monkeypatch.setattr(canary, "RUN_ROOT", tmp_path)
+    monkeypatch.setattr(canary, "fs_get", lambda collection, document_id: (404, {}))
+    monkeypatch.setattr(canary, "fs_create", lambda collection, document_id, data: (201, {"updateTime": "t0"}))
+    monkeypatch.setattr(
+        canary,
+        "persist_run",
+        lambda current_run_id, data, update_time=None: persisted.append(dict(data)) or "t1",
+    )
+    monkeypatch.setattr(canary, "verify_cloud_run", lambda: {"revision": canary.EXPECTED_REVISION})
+    monkeypatch.setattr(canary, "verify_recent_cloud_run_health", lambda: {"bad_markers": 0})
+    monkeypatch.setattr(canary, "verify_paper_account", lambda: {"equity": "100000"})
+    monkeypatch.setattr(canary, "market_open", lambda: {"is_open": True})
+    monkeypatch.setattr(canary, "select_vertical", lambda as_of: (_ for _ in ()).throw(RuntimeError("quote_failure")))
+
+    with pytest.raises(RuntimeError, match="quote_failure"):
+        canary.main()
+
+    assert persisted[-1]["status"] == "failed_needs_review"
+    assert persisted[-1]["orders_allowed"] is False
