@@ -523,3 +523,12 @@ El usuario confirmó elevar a `$50` la prima máxima del motor bajista experimen
 La imagen `polaris-bot:89f18bd@sha256:5dfbda8b5685e1108044bee62f81072f71263bb96602a2fe80c0407145fdc098` está desplegada como `polaris-bot-00122-5xs` al 100%, con rollback a `polaris-bot-00121-7x4`. La observación posterior confirmó gate abierto, reconciliación sana, 1 `Tick OK`, 1 escritura Firestore, cero Tracebacks/CRITICAL y cero órdenes abiertas. Se registró un `bear_candidates=1` sin envío de orden; la cuenta PAPER permanece `ACTIVE`, equity/cash `$96,914.08`, 0 posiciones y 0 órdenes abiertas. El primer arranque mostró un 409 puntual de Telegram durante el solapamiento, sin repetición en el conteo final de la revisión.
 
 El backtest EOD del 26-ago no valida este cambio ni el override bajista: usa OHLC diario y no reconstruye NBBO/fills MLeg. Sus promedios agregados fueron `-2.2878%` en 720 corridas alcistas y `-1.8067%` en 720 corridas bajistas; deben tratarse como investigación preliminar, no como expectativa de recuperación.
+
+
+## 20. Campaña de backtesting de motores y combinaciones — 27 de agosto de 2026 UTC
+
+Se completó una campaña nueva de investigación: matriz de 73 configuraciones, ensembles régimen-plus-breakout y walk-forward de relative strength. Los datos fueron reales y reproducibles, pero heterogéneos: yfinance/MarketDataFeed para barras de 1d, slippage explícito, comisiones y costes; no hubo NBBO OPRA point-in-time ni fills MLeg reales.
+
+El mejor equilibrio de la matriz fue `regime_aware`: media 15.6975%, mediana 12.2913%, 66.6667% de corridas positivas, drawdown medio -4.9085%, peor -9.6792%. En el holdout fijado antes de revisar resultados fue positivo en entrenamiento (5.2481%) y holdout (20.2038%), con drawdowns -6.8600% y -8.6515%. La combinación `regime_hold_cash` + 30% `breakout55` también fue positiva en entrenamiento (22.7480%) y holdout (8.2880%), pero tuvo drawdowns más altos (-20.5455% y -17.5179%). `put_choch` fue negativo en la matriz (-11.7645% medio, 0% positivas), por lo que el override bajista PAPER no queda validado por estos resultados.
+
+El walk-forward de relative strength mostró un 23.4549% medio para `rs_h20_k1_r5_bull_long_only_all_c5`, pero dos de cuatro folds fueron 0% por ausencia de exposición; no es evidencia de opciones. El ensemble y los efectos positivos quedan `RESEARCH_ONLY`. El informe completo es `docs/backtest_campaign_2026-08-27.md`; la siguiente evaluación segura es un A/B en shadow de `regime_aware` contra baseline con holdout independiente, no una promoción directa a órdenes.
