@@ -1,3 +1,4 @@
+from data.earnings import blocked, block_reason
 """Bot de trading en vivo: loop principal.
 
 Flujo por tick (cada barra nueva o por sondeo cada N minutos):
@@ -1649,6 +1650,11 @@ def _submit_managed_option_entry(executor, builder, rm, state, cfg, equity,
     presupuesto de prima, RiskManager, claim CAS en Firestore, una orden padre
     MLeg y fail-closed ante cualquier respuesta ambigua.
     """
+    # 1. Filtro estricto de Earnings / IV Crush
+    if blocked(symbol, horizon_days=4):
+        reason = block_reason(symbol, horizon_days=4)
+        logger.warning(f"🚫 Entrada bloqueada [{symbol}]: {reason}")
+        return {"submitted": False, "reason": f"earnings_block:{reason}"}
     try:
         structure = builder.vertical_spread(
             symbol, None, direction, delta_long, delta_short,
