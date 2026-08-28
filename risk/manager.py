@@ -1,3 +1,20 @@
+
+def _get_advisory_bias(symbol: str) -> dict:
+    """Consulta el sesgo diario generado por TradingAgents en Firestore."""
+    try:
+        import os
+        from datetime import datetime, timezone
+        from google.cloud import firestore
+        project_id = os.environ.get('GCP_PROJECT_ID', 'gen-lang-client-0746441136')
+        db = firestore.Client(project=project_id)
+        today_str = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+        doc = db.collection('tradingagents_advisory').document(today_str).collection('tickers').document(symbol).get()
+        if doc.exists:
+            return doc.to_dict()
+    except Exception:
+        pass
+    return {'bias': 'NEUTRAL', 'confidence': 0.0, 'status': 'missing'}
+
 """Gestión de riesgo y dimensionamiento de posiciones.
 
 Reglas implementadas:
@@ -145,6 +162,12 @@ class RiskManager:
         self.positions = existing
         if self.is_halted():
             return self._log("REJECTED", symbol, "bot detenido por circuit breaker")
+        advisory = _get_advisory_bias(symbol)
+        side_hint = f"{strategy} {getattr(structure, 'strategy_type', '')} {getattr(structure, 'side', '')}".lower()
+        if ('bull' in side_hint or 'call' in side_hint or 'long' in side_hint) and advisory.get('bias') == 'BEARISH' and float(advisory.get('confidence', 0.0)) >= 0.5:
+            return self._log("REJECTED", symbol, f"bloqueado por TradingAgents advisory: sesgo BEARISH ({advisory.get('confidence')})")
+        if ('bear' in side_hint or 'put' in side_hint or 'short' in side_hint) and advisory.get('bias') == 'BULLISH' and float(advisory.get('confidence', 0.0)) >= 0.5:
+            return self._log("REJECTED", symbol, f"bloqueado por TradingAgents advisory: sesgo BULLISH ({advisory.get('confidence')})")
         if any((p.get("symbol") if isinstance(p, dict) else p.symbol) == symbol
                for p in self.positions):
             return self._log("REJECTED", symbol, "posición ya abierta (sin promedio a la baja)")
@@ -172,6 +195,9 @@ class RiskManager:
         # 1. Circuit breaker
         if self.is_halted():
             return self._log("REJECTED", symbol, "bot detenido por circuit breaker")
+        advisory = _get_advisory_bias(symbol)
+        if signal.signal_type == SignalType.LONG and advisory.get('bias') == 'BEARISH' and float(advisory.get('confidence', 0.0)) >= 0.5:
+            return self._log("REJECTED", symbol, f"bloqueado por TradingAgents advisory: sesgo BEARISH ({advisory.get('confidence')})")
 
         # 2. Solo largas aprobadas por ahora
         if signal.signal_type not in (SignalType.LONG, SignalType.SHORT):
